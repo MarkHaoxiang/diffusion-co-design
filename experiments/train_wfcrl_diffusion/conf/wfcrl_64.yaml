@@ -1,0 +1,6 @@
+name: wfcrl_64
+n_turbines: 64
+max_steps: 150
+map_x_length: 1200
+map_y_length: 1200
+min_distance_between_turbines: 200

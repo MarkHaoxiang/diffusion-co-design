@@ -1,0 +1,21 @@
+defaults:
+  - template/default@_here_
+  - _self_
+  - metadata/training@_here_
+
+experiment_name: vmas_sampling
+device:
+  device_management: gpu
+  gpu_id: 0
+  max_gpu_memory: 1.0
+scenario_name: obstacle_navigation_3
+designer:
+  kind: sampling
+  environment_repeats: 1
+  model:
+    hidden_size: 128
+    depth: 3
+    k: 5
+  n_samples: 64
+  duplicate_agent_critic_weights: True
+start_from_checkpoint: null

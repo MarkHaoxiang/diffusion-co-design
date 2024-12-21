@@ -1,0 +1,15 @@
+defaults:
+  - template/testing@_here_
+  - _self_
+  - metadata/training@_here_
+
+experiment_name: wfcrl_test
+device:
+  device_management: cpu
+  gpu_id: 0
+  max_gpu_memory: 1.0
+scenario_name: wfcrl_10
+designer:
+  kind: fixed
+  environment_repeats: 1
+start_from_checkpoint: null

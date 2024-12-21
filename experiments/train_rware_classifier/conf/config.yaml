@@ -1,0 +1,14 @@
+defaults:
+  - _self_
+  - metadata/training@_here_
+  - model: cnn
+
+training_dir: "/home/markhaoxiang/.diffusion_co_design/experiments/train_rware/2025-05-22/02-42-31"
+batch_size: 128
+train_epochs: 100
+lr: 3e-5
+train_target: critic
+weight_decay: 0.0
+logging_mode: online
+enable_hint: true
+hint_loss_weight: 0.1

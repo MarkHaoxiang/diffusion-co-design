@@ -1,0 +1,7 @@
+name: gnn
+representation: graph
+model_kwargs:
+  node_embedding_dim: 128
+  edge_embedding_dim: 32
+  num_layers: 5
+  radius: 0.5

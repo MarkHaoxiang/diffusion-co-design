@@ -1,0 +1,39 @@
+defaults:
+  - template/default@_here_
+  - _self_
+  - metadata/training@_here_
+
+experiment_name: wfcrl_descent
+device:
+  device_management: "gpu"
+  gpu_id: 0
+  max_gpu_memory: 1.0
+scenario_name: wfcrl_16
+designer:
+  kind: descent
+  environment_repeats: 1
+  model:
+    node_emb_size: 64
+    depth: 2
+    connectivity:
+      kind: knn
+      k: 5
+      # kind: fully_connected
+  buffer_size: 8096
+  diffusion_early_start: 400
+  train_early_start: 400
+  batch_size: 32
+  weight_decay: 0
+  lr: 1e-4
+  distill_enable: true
+  distill_samples: 3
+  distill_synthetic_ratio: 0.0
+  loss_criterion: huber
+  gradient_epochs: 10
+  gradient_iterations: 20
+  gradient_lr: 0.03
+start_from_checkpoint: null
+ppo:
+  n_iters: 301
+logging:
+  mode: online

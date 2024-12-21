@@ -1,0 +1,12 @@
+[submodule "robotic-warehouse"]
+	path = robotic-warehouse
+	url = https://github.com/MarkHaoxiang/robotic-warehouse.git
+[submodule "packages/rl"]
+	path = packages/rl
+	url = https://github.com/MarkHaoxiang/rl.git
+[submodule "packages/wfcrl-env"]
+	path = packages/wfcrl-env
+	url = https://github.com/MarkHaoxiang/wfcrl-env.git
+[submodule "packages/VectorizedMultiAgentSimulator"]
+	path = packages/VectorizedMultiAgentSimulator
+	url = https://github.com/MarkHaoxiang/VectorizedMultiAgentSimulator.git

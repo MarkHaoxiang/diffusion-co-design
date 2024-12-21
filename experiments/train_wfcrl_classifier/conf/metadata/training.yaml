@@ -1,0 +1,3 @@
+hydra:
+  run:
+    dir: ${oc.env:DIFFUSION_CO_DESIGN_WDIR,${oc.env:HOME}/.diffusion_co_design}/experiments/train_wfcrl_classifier/${now:%Y-%m-%d}/${now:%H-%M-%S}

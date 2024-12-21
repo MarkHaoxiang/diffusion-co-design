@@ -1,0 +1,4 @@
+name: simple_spread_1
+placement_area: simple_spread
+episode_steps: 100
+n_agents : 5

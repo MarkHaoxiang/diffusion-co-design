@@ -1,0 +1,32 @@
+defaults:
+  - _self_
+  - metadata/training@_here_
+  - designer: diffusion_image
+
+experiment_name: corners_agent_old_critic_cnn
+scenario_name: rware_16_50_5_4_corners
+memory_management: gpu
+gpu_id: 0
+ppo:
+  n_iters: 5000
+  n_epochs: 10
+  minibatch_size: 1000
+  n_mini_batches: 10
+  clip_epsilon: 0.2
+  gamma: 0.99
+  lmbda: 0.9
+  actor_lr: 5e-4
+  critic_lr: 5e-4
+  lr_scheduler_enabled: false
+  max_grad_norm: 1.0
+  entropy_eps: 1e-4
+  normalise_advantage: false
+start_from_checkpoint: /home/markhaoxiang/.diffusion_co_design/training/2025-03-21/01-09-38
+
+logging:
+  type: wandb
+  # mode: disabled
+  mode: online
+  # mode: offline
+  evaluation_interval: 20
+  evaluation_episodes: 5

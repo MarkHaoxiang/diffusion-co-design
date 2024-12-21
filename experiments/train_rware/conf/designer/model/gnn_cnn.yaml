@@ -1,0 +1,6 @@
+name: gnn-cnn
+representation: graph
+model_kwargs:
+  width: 128
+  depth: 2
+  top_k: 9

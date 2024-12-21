@@ -1,0 +1,5 @@
+name: mlp-cnn
+representation: graph
+model_kwargs:
+  width: 128
+  depth: 2

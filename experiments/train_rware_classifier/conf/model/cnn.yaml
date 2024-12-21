@@ -1,0 +1,4 @@
+name: cnn
+representation: image
+model_kwargs:
+  depthwise_separable: false

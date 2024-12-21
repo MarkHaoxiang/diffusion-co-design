@@ -1,0 +1,12 @@
+defaults:
+  - metadata/training@_here_
+  - template/testing@_here_
+  - _self_
+  - designer: diffusion_test
+
+experiment_name: testing
+scenario_name: rware_16_50_5_4_corners
+device:
+  device_management: cpu
+  gpu_id: 0
+  max_gpu_memory: 1.0

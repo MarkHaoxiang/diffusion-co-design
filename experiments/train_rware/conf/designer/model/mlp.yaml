@@ -1,0 +1,5 @@
+name: mlp
+representation: graph
+model_kwargs:
+  hidden_dim: 512
+  num_layers: 4
