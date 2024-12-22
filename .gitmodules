@@ -4,3 +4,6 @@
 [submodule "packages/robotic-warehouse"]
 	path = packages/robotic-warehouse
 	url = https://github.com/MarkHaoxiang/robotic-warehouse.git
+[submodule "packages/rl"]
+	path = packages/rl
+	url = https://github.com/MarkHaoxiang/rl.git
