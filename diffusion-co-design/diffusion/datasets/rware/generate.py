@@ -9,6 +9,8 @@ from tqdm import tqdm
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from PIL import Image
 
+from rware.layout import Layout, Direction
+
 DATA_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../rware")
 
 
@@ -61,11 +63,11 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
 
     # Generate uniform environments for exploration
     for sample_idx in tqdm(range(cfg.n_samples)):
-        shelve_idxs = random.sample(remaining_idxs, cfg.n_shelves)
+        shelf_idxs = random.sample(remaining_idxs, cfg.n_shelves)
 
         # Environment placement
         env = np.zeros((size, size, 3), dtype=np.uint8)
-        for idx in shelve_idxs:
+        for idx in shelf_idxs:
             env[idx // size, idx % size] = colors[0]
         for idx in agent_idxs:
             env[idx // size, idx % size] = colors[1]
@@ -75,6 +77,11 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
         # Save images
         im = Image.fromarray(env)
         im.save(data_dir + "/%07d" % sample_idx + ".png")
+
+
+def image_to_layout(im: np.ndarray):
+    # Round to nearest colors
+    h, w, _ = im.shape
 
 
 if __name__ == "__main__":
