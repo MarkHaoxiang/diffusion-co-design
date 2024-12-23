@@ -9,9 +9,11 @@ from tqdm import tqdm
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from PIL import Image
 
-from rware.layout import Layout, Direction
+from rware.warehouse import ImageLayer
+
 
 DATA_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../rware")
+COLOR_ORDER = [ImageLayer.SHELVES, ImageLayer.AGENTS, ImageLayer.GOALS, "Highway"]
 
 
 class WarehouseRandomGeneratorConfig(BaseSettings):
@@ -26,7 +28,7 @@ class WarehouseRandomGeneratorConfig(BaseSettings):
 
 
 # Shelves, Agents, Goals
-n_colors = 3
+n_colors = len(COLOR_ORDER)
 colors = cm.get_cmap("rainbow", n_colors)
 colors = (np.array([colors(i)[:3] for i in range(n_colors)]) * 255).round()
 
@@ -67,6 +69,7 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
 
         # Environment placement
         env = np.zeros((size, size, 3), dtype=np.uint8)
+        env[:, :] = colors[-1]
         for idx in shelf_idxs:
             env[idx // size, idx % size] = colors[0]
         for idx in agent_idxs:
@@ -77,11 +80,6 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
         # Save images
         im = Image.fromarray(env)
         im.save(data_dir + "/%07d" % sample_idx + ".png")
-
-
-def image_to_layout(im: np.ndarray):
-    # Round to nearest colors
-    h, w, _ = im.shape
 
 
 if __name__ == "__main__":
