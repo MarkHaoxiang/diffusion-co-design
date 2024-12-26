@@ -3,7 +3,29 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [project]
-dependencies = ["rware"]
+authors = [{ name = "Hao Xiang Li", email = "mark.haoxiang@gmail.com" }]
+dependencies = [
+    "ipykernel",
+    "pettingzoo>=1.24.3,<2",
+    "numpy>=2.2.0,<3",
+    "pydantic>=2.10.4,<3",
+    "pydantic-settings>=2.7.0,<3",
+    "pillow>=11.0.0,<12",
+    "tqdm>=4.67.1,<5",
+    "matplotlib>=3.10.0,<4",
+    "torch",
+    "torchrl",
+]
 name = "diffusion-co-design"
 requires-python = ">= 3.11"
 version = "0.1.0"
+
+[tool.pixi.project]
+channels = ["conda-forge"]
+name = "diffusion-co-design"
+platforms = ["linux-64"]
+version = "0.1.0"
+preview = ["pixi-build"]
+
+[tool.pixi.dependencies]
+rware = { path = "packages/robotic-warehouse" }
