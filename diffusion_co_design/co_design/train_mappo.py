@@ -71,6 +71,7 @@ env = TransformedEnv(
         out_keys=[(agent, "episode_reward") for (agent, _) in env.reward_keys],
     ),
 )
+check_env_specs(env)
 
 policy_net = torch.nn.Sequential(
     MultiAgentMLP(
@@ -121,5 +122,3 @@ critic = TensorDictModule(
     in_keys=[("agents", "observation")],
     out_keys=[("agents", "state_value")],
 )
-
-check_env_specs(env)

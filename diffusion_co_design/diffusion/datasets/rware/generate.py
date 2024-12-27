@@ -3,21 +3,26 @@ import shutil
 import random
 import json
 
+import hydra
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig
+from pydantic import BaseModel
+
 import numpy as np
 from matplotlib import cm
 from tqdm import tqdm
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from PIL import Image
 
 from rware.warehouse import ImageLayer
+
+from diffusion_co_design.utils.pydra import hydra_to_pydantic
 
 
 DATA_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../rware")
 COLOR_ORDER = [ImageLayer.SHELVES, ImageLayer.AGENTS, ImageLayer.GOALS, "Highway"]
 
 
-class WarehouseRandomGeneratorConfig(BaseSettings):
-    model_config = SettingsConfigDict(cli_parse_args=True)
+class WarehouseRandomGeneratorConfig(BaseModel):
     experiment_name: str = "default"
     seed: int = 0
     size: int = 16
@@ -82,5 +87,11 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
         im.save(data_dir + "/%07d" % sample_idx + ".png")
 
 
-if __name__ == "__main__":
-    generate(WarehouseRandomGeneratorConfig())
+@hydra.main(version_base=None, config_path="configs", config_name="default")
+def run(config: DictConfig):
+    print(f"Running job {HydraConfig.get().job.name}")
+    config = hydra_to_pydantic
+
+
+# if __name__ == "__main__":
+#     generate(WarehouseRandomGeneratorConfig())
