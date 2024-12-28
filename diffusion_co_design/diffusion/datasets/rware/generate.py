@@ -18,7 +18,7 @@ from rware.warehouse import ImageLayer
 from diffusion_co_design.utils.pydra import hydra_to_pydantic
 
 
-DATA_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../rware")
+DATA_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 COLOR_ORDER = [ImageLayer.SHELVES, ImageLayer.AGENTS, ImageLayer.GOALS, "Highway"]
 
 
@@ -90,8 +90,9 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
 @hydra.main(version_base=None, config_path="configs", config_name="default")
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")
-    config = hydra_to_pydantic
+    config = hydra_to_pydantic(config, WarehouseRandomGeneratorConfig)
+    generate(config)
 
 
-# if __name__ == "__main__":
-#     generate(WarehouseRandomGeneratorConfig())
+if __name__ == "__main__":
+    run()

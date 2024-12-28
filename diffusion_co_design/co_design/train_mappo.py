@@ -12,7 +12,7 @@ from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.envs import RewardSum, TransformedEnv
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
+from torchrl.modules import MultiAgentMLP, ProbabilisticActor
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
 from torchrl.envs import PettingZooWrapper
 
@@ -122,3 +122,105 @@ critic = TensorDictModule(
     in_keys=[("agents", "observation")],
     out_keys=[("agents", "state_value")],
 )
+
+
+collector = SyncDataCollector(
+    env,
+    policy,
+    device=vmas_device,
+    storing_device=device,
+    frames_per_batch=frames_per_batch,
+    total_frames=total_frames,
+)
+
+replay_buffer = ReplayBuffer(
+    storage=LazyTensorStorage(
+        frames_per_batch, device=device
+    ),  # We store the frames_per_batch collected at each iteration
+    sampler=SamplerWithoutReplacement(),
+    batch_size=minibatch_size,  # We will sample minibatches of this size
+)
+
+loss_module = ClipPPOLoss(
+    actor_network=policy,
+    critic_network=critic,
+    clip_epsilon=clip_epsilon,
+    entropy_coef=entropy_eps,
+    normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+)
+loss_module.set_keys(  # We have to tell the loss where to find the keys
+    reward=env.reward_key,
+    action=env.action_key,
+    sample_log_prob=("agents", "sample_log_prob"),
+    value=("agents", "state_value"),
+    # These last 2 keys will be expanded to match the reward shape
+    done=("agents", "done"),
+    terminated=("agents", "terminated"),
+)
+
+
+loss_module.make_value_estimator(
+    ValueEstimators.GAE, gamma=gamma, lmbda=lmbda
+)  # We build GAE
+GAE = loss_module.value_estimator
+
+optim = torch.optim.Adam(loss_module.parameters(), lr)
+
+pbar = tqdm(total=n_iters, desc="episode_reward_mean = 0")
+
+episode_reward_mean_list = []
+for tensordict_data in collector:
+    tensordict_data.set(
+        ("next", "agents", "done"),
+        tensordict_data.get(("next", "done"))
+        .unsqueeze(-1)
+        .expand(tensordict_data.get_item_shape(("next", env.reward_key))),
+    )
+    tensordict_data.set(
+        ("next", "agents", "terminated"),
+        tensordict_data.get(("next", "terminated"))
+        .unsqueeze(-1)
+        .expand(tensordict_data.get_item_shape(("next", env.reward_key))),
+    )
+    # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
+
+    with torch.no_grad():
+        GAE(
+            tensordict_data,
+            params=loss_module.critic_network_params,
+            target_params=loss_module.target_critic_network_params,
+        )  # Compute GAE and add it to the data
+
+    data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
+    replay_buffer.extend(data_view)
+
+    for _ in range(num_epochs):
+        for _ in range(frames_per_batch // minibatch_size):
+            subdata = replay_buffer.sample()
+            loss_vals = loss_module(subdata)
+
+            loss_value = (
+                loss_vals["loss_objective"]
+                + loss_vals["loss_critic"]
+                + loss_vals["loss_entropy"]
+            )
+
+            loss_value.backward()
+
+            torch.nn.utils.clip_grad_norm_(
+                loss_module.parameters(), max_grad_norm
+            )  # Optional
+
+            optim.step()
+            optim.zero_grad()
+
+    collector.update_policy_weights_()
+
+    # Logging
+    done = tensordict_data.get(("next", "agents", "done"))
+    episode_reward_mean = (
+        tensordict_data.get(("next", "agents", "episode_reward"))[done].mean().item()
+    )
+    episode_reward_mean_list.append(episode_reward_mean)
+    pbar.set_description(f"episode_reward_mean = {episode_reward_mean}", refresh=False)
+    pbar.update()

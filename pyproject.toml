@@ -36,7 +36,9 @@ channels = ["pixi-build-backends", "conda-forge"]
 
 [tool.pixi.dependencies]
 rware = { path = "packages/robotic-warehouse" }
-diffusion-co-design = { path = "." }
+
+[tool.pixi.pypi-dependencies]
+diffusion-co-design = { path = ".", editable = true }
 
 [tool.pixi.host-dependencies]
 hatchling = "==1.26.3"

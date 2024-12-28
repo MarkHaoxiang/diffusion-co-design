@@ -1,4 +1,4 @@
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 
 
@@ -6,5 +6,5 @@ from pydantic import BaseModel
 def hydra_to_pydantic[C: BaseModel](config: DictConfig, config_cls: type[C]) -> C:
     """Converts Hydra config to Pydantic config."""
     # use to_container to resolve
-    config_dict: Dict[str, Any] = OmegaConf.to_object(config)  # type: ignore[assignment]
+    config_dict = OmegaConf.to_object(config)  # type: ignore[assignment]
     return config_cls(**config_dict)
