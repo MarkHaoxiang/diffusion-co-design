@@ -5,7 +5,7 @@ import json
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 
 import numpy as np
@@ -15,7 +15,7 @@ from PIL import Image
 
 from rware.warehouse import ImageLayer
 
-from diffusion_co_design.utils.pydra import hydra_to_pydantic
+from diffusion_co_design.utils.pydra import omega_to_pydantic
 
 
 DATA_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
@@ -30,6 +30,8 @@ class WarehouseRandomGeneratorConfig(BaseModel):
     n_shelves: int = 50
     n_goals: int = 5
     n_samples: int = 10
+    agent_idxs: list[int] | None = None
+    goal_idxs: list[int] | None = None
 
 
 # Shelves, Agents, Goals
@@ -38,7 +40,41 @@ colors = cm.get_cmap("rainbow", n_colors)
 colors = (np.array([colors(i)[:3] for i in range(n_colors)]) * 255).round()
 
 
-def generate(cfg: WarehouseRandomGeneratorConfig):
+def generate(
+    size: int,
+    n_shelves: int,
+    agent_idxs: list[int],
+    goal_idxs: list[int],
+    n: int = 1,
+    disable_tqdm=True,
+) -> list[np.ndarray]:
+
+    # Possible positions
+    remaining_idxs = []
+    for idx in range(size**2):
+        if idx not in agent_idxs and idx not in goal_idxs:
+            remaining_idxs.append(idx)
+
+    environments = []
+    for _ in tqdm(range(n), disable=disable_tqdm):
+        shelf_idxs = random.sample(remaining_idxs, n_shelves)
+
+        # Environment placement
+        env = np.zeros((size, size, 3), dtype=np.uint8)
+        env[:, :] = colors[-1]
+        for idx in shelf_idxs:
+            env[idx // size, idx % size] = colors[0]
+        for idx in agent_idxs:
+            env[idx // size, idx % size] = colors[1]
+        for idx in goal_idxs:
+            env[idx // size, idx % size] = colors[2]
+
+        environments.append(env)
+
+    return environments
+
+
+def generate_run(cfg: WarehouseRandomGeneratorConfig):
     size = cfg.size
 
     # Create empty data directory
@@ -53,45 +89,41 @@ def generate(cfg: WarehouseRandomGeneratorConfig):
 
     # Blocks
     block_idxs = list(range(size**2))
-
-    # Fixed agent and goal positions (randomly generated)
-    # TODO markli: allow this to be passed in by the user.
     random.shuffle(block_idxs)
-    agent_idxs = block_idxs[: cfg.n_agents]
-    goal_idxs = block_idxs[cfg.n_agents : cfg.n_agents + cfg.n_goals]
-    remaining_idxs = block_idxs[cfg.n_agents + cfg.n_goals :]
+
+    if cfg.agent_idxs is None and cfg.goal_idxs is None:
+        agent_idxs = block_idxs[: cfg.n_agents]
+        goal_idxs = block_idxs[cfg.n_agents : cfg.n_agents + cfg.n_goals]
+    elif cfg.agent_idxs is not None and cfg.goal_idxs is not None:
+        agent_idxs, goal_idxs = cfg.agent_idxs, cfg.goal_idxs
+        assert len(agent_idxs) == cfg.n_agents
+        assert len(goal_idxs) == cfg.n_goals
+    else:
+        raise ValueError("Not yet supported, pass in both agent and goals or none")
 
     # Save config
-    with open(os.path.join(data_dir, "config.json"), "w") as f:
+    with open(os.path.join(data_dir, "config.yaml"), "w") as f:
         out = cfg.model_dump()
         out["agent_idxs"] = agent_idxs
         out["goal_idxs"] = goal_idxs
-        json.dump(out, fp=f)
+        yaml = OmegaConf.create(out)
+        OmegaConf.save(yaml, f)
 
     # Generate uniform environments for exploration
-    for sample_idx in tqdm(range(cfg.n_samples)):
-        shelf_idxs = random.sample(remaining_idxs, cfg.n_shelves)
-
-        # Environment placement
-        env = np.zeros((size, size, 3), dtype=np.uint8)
-        env[:, :] = colors[-1]
-        for idx in shelf_idxs:
-            env[idx // size, idx % size] = colors[0]
-        for idx in agent_idxs:
-            env[idx // size, idx % size] = colors[1]
-        for idx in goal_idxs:
-            env[idx // size, idx % size] = colors[2]
-
+    environments = generate(
+        size, cfg.n_shelves, agent_idxs, goal_idxs, n=cfg.n_samples, disable_tqdm=False
+    )
+    for i, env in enumerate(environments):
         # Save images
         im = Image.fromarray(env)
-        im.save(data_dir + "/%07d" % sample_idx + ".png")
+        im.save(data_dir + "/%07d" % i + ".png")
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="default")
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")
-    config = hydra_to_pydantic(config, WarehouseRandomGeneratorConfig)
-    generate(config)
+    config = omega_to_pydantic(config, WarehouseRandomGeneratorConfig)
+    generate_run(config)
 
 
 if __name__ == "__main__":

@@ -42,3 +42,7 @@ diffusion-co-design = { path = ".", editable = true }
 
 [tool.pixi.host-dependencies]
 hatchling = "==1.26.3"
+
+[tool.pixi.tasks]
+generate_rware = "python -m diffusion_co_design.diffusion.datasets.rware.generate"
+train_rware = "python -m diffusion_co_design.co_design.scripts.train_rware"
