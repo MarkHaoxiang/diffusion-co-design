@@ -25,7 +25,6 @@ from pydantic import BaseModel
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse
 
-from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 from diffusion_co_design.diffusion.datasets.rware.transform import image_to_layout
