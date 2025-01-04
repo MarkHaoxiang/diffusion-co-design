@@ -1,19 +1,15 @@
 # Adapted from https://pytorch.org/rl/stable/tutorials/multiagent_ppo.html
 import os
-from enum import Enum
 
 # Torch, TorchRL, TensorDict
 import torch
-from torch.distributions import Categorical
 from tensordict.nn import TensorDictModule
 from torchrl.collectors import SyncDataCollector
-from torchrl.data.replay_buffers import ReplayBuffer
-from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from torchrl.data.replay_buffers.storages import LazyTensorStorage
-from torchrl.envs import RewardSum, TransformedEnv, MarlGroupMapType
-from torchrl.envs.utils import check_env_specs
-from torchrl.modules import MultiAgentMLP, ProbabilisticActor
+from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
+from torchrl.modules import MultiAgentMLP
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
+from torchrl.envs.utils import check_env_specs
+from torchrl.record import WandbLogger
 
 # Config Management
 import hydra
@@ -22,25 +18,22 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 
 # Rware
-from rware.pettingzoo import PettingZooWrapper as RwarePZW
-from rware.warehouse import Warehouse
-
 from tqdm import tqdm
 
-from diffusion_co_design.diffusion.datasets.rware.transform import image_to_layout
 from diffusion_co_design.utils.pydra import omega_to_pydantic
-from diffusion_co_design.co_design.rware.design import RandomDesigner
-from diffusion_co_design.co_design.rware.env import RwareCoDesignWrapper
+from diffusion_co_design.co_design.rware.env import (
+    ScenarioConfig,
+    rware_env,
+)
+from diffusion_co_design.co_design.rware.model import rware_policy, PolicyConfig
+
 
 # Devices
 device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
 
 
-class ScenarioConfig(BaseModel):
-    size: int
-    n_shelves: int
-    agent_idxs: list[int]
-    goal_idxs: list[int]
+class LoggingConfig(BaseModel):
+    offline: bool = False
 
 
 class TrainingConfig(BaseModel):
@@ -59,6 +52,10 @@ class TrainingConfig(BaseModel):
     gamma: float = 0.99  # discount factor
     lmbda: float = 0.9  # lambda for generalised advantage estimation
     entropy_eps: float = 1e-4  # coefficient of the entropy term in the PPO loss
+    # Policy
+    policy_cfg: PolicyConfig = PolicyConfig()
+    # Logging
+    logging_cfg: LoggingConfig = LoggingConfig()
 
     @property
     def total_frames(self) -> int:
@@ -70,73 +67,11 @@ def train(cfg: TrainingConfig):
     scenario = OmegaConf.load(os.path.join(cfg.scenario_dir, "config.yaml"))
     scenario: ScenarioConfig = omega_to_pydantic(scenario, ScenarioConfig)
 
-    # Define environment design policy
-    # TODO: We probably want feature engineering.
-    # Or does this even matter if everything is fixed for initial experiments?
-    scenario_objective = {
-        "agent_positions": torch.tensor(scenario.agent_idxs),
-        "goal_idxs": torch.tensor(scenario.goal_idxs),
-    }
-    design_policy = None  # TODO
-
-    # Build environment
-    initial_layout = image_to_layout(
-        RandomDesigner(
-            size=scenario.size,
-            n_shelves=scenario.n_shelves,
-            agent_idxs=scenario.agent_idxs,
-            goal_idxs=scenario.goal_idxs,
-        )(None)
-    )
-    env = RwarePZW(Warehouse(layout=initial_layout))
-    env.reset()
-    env = RwareCoDesignWrapper(
-        env,
-        reset_policy=design_policy,
-        environment_objective=scenario_objective,
-        group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
-    )
-    env = TransformedEnv(
-        env,
-        RewardSum(
-            in_keys=env.reward_keys,
-            out_keys=[(agent, "episode_reward") for (agent, _) in env.reward_keys],
-        ),
-    )
+    env = rware_env(scenario, device)
+    policy, env = rware_policy(
+        env, cfg.policy_cfg, device
+    )  # Env is updated to track RNN information
     check_env_specs(env)
-
-    # Policy, critic
-    policy_net = torch.nn.Sequential(
-        MultiAgentMLP(
-            n_agent_inputs=env.observation_spec["agents", "observation"].shape[
-                -1
-            ],  # n_obs_per_agent
-            n_agent_outputs=env.action_spec.space.n,  # n_actions_per_agents
-            n_agents=env.num_agents,
-            centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
-            share_params=True,
-            device=device,
-            depth=2,
-            num_cells=256,
-            activation_class=torch.nn.Tanh,
-        ),
-    )
-
-    policy_module = TensorDictModule(
-        policy_net,
-        in_keys=[("agents", "observation")],
-        out_keys=[("agents", "logits")],
-    )
-
-    policy = ProbabilisticActor(
-        module=policy_module,
-        spec=env.action_spec,
-        in_keys=[("agents", "logits")],
-        out_keys=[env.action_key],
-        distribution_class=Categorical,
-        return_log_prob=True,
-        log_prob_key=("agents", "sample_log_prob"),
-    )
 
     critic_net = MultiAgentMLP(
         n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1],
@@ -198,9 +133,20 @@ def train(cfg: TrainingConfig):
 
     optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo_lr)
 
+    # Logging
     pbar = tqdm(total=cfg.n_iters, desc="episode_reward_mean = 0")
-
     episode_reward_mean_list = []
+
+    config = dict(cfg)
+    config["scenario"] = dict(scenario)
+    logger = WandbLogger(
+        exp_name=cfg.scenario_dir,
+        project="diffusion-co-design",
+        offline=cfg.logging_cfg.offline,
+        config=config,
+    )
+
+    # Main Training Loop
     for tensordict_data in collector:
         tensordict_data.set(
             ("next", "agents", "done"),

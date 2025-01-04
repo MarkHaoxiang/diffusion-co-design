@@ -1,10 +1,28 @@
+import torch
 from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule
-from torchrl.envs import PettingZooWrapper
+from torchrl.envs import (
+    PettingZooWrapper,
+    MarlGroupMapType,
+    TransformedEnv,
+    RewardSum,
+    check_env_specs,
+)
 
 from rware.layout import Layout
+from pydantic import BaseModel
 
 from diffusion_co_design.diffusion.datasets.rware.transform import image_to_layout
+from diffusion_co_design.co_design.rware.design import RandomDesigner
+from rware.pettingzoo import PettingZooWrapper as RwarePZW
+from rware.warehouse import Warehouse
+
+
+class ScenarioConfig(BaseModel):
+    size: int
+    n_shelves: int
+    agent_idxs: list[int]
+    goal_idxs: list[int]
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
@@ -67,3 +85,41 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         # Maybe add the newest layout to tensordict out
         tensordict_out = super()._reset(tensordict, options=options, **kwargs)
         return tensordict_out
+
+
+def rware_env(scenario: ScenarioConfig, device):
+    design_policy = None
+
+    # Define environment design policy
+    # TODO: We probably want feature engineering.
+    # Or does this even matter if everything is fixed for initial experiments?
+    scenario_objective = {
+        "agent_positions": torch.tensor(scenario.agent_idxs),
+        "goal_idxs": torch.tensor(scenario.goal_idxs),
+    }
+
+    initial_layout = image_to_layout(
+        RandomDesigner(
+            size=scenario.size,
+            n_shelves=scenario.n_shelves,
+            agent_idxs=scenario.agent_idxs,
+            goal_idxs=scenario.goal_idxs,
+        )(None)
+    )
+    env = RwarePZW(Warehouse(layout=initial_layout))
+    env.reset()
+    env = RwareCoDesignWrapper(
+        env,
+        reset_policy=design_policy,
+        environment_objective=scenario_objective,
+        group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
+        device=device,
+    )
+    env = TransformedEnv(
+        env,
+        RewardSum(
+            in_keys=env.reward_keys,
+            out_keys=[(agent, "episode_reward") for (agent, _) in env.reward_keys],
+        ),
+    )
+    return env
