@@ -1,0 +1,19 @@
+experiment_name: default
+seed: 0
+size: 16
+n_agents: 5
+n_shelves: 50
+n_goals: 5
+n_samples: 10
+agent_idxs:
+- 1
+- 88
+- 132
+- 233
+- 162
+goal_idxs:
+- 39
+- 185
+- 237
+- 238
+- 159
