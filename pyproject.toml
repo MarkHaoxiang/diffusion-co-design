@@ -15,7 +15,8 @@ dependencies = [
     "hydra-core>=1.3.2,<2",
     "torch>=2.5,<3",
     "torchrl>=0.6",
-    "benchmarl"
+    "benchmarl",
+    "torchvision"
 ]
 authors = [{ name = "Hao Xiang Li", email = "mark.haoxiang@gmail.com" }]
 name = "diffusion-co-design"
@@ -35,9 +36,6 @@ version = "0.1.0"
 build-backend = { name = "pixi-build-python", version = "*" }
 channels = ["pixi-build-backends", "conda-forge"]
 
-# [tool.pixi.dependencies]
-# rware = { path = "packages/robotic-warehouse" }
-
 [tool.pixi.pypi-dependencies]
 diffusion-co-design = { path = ".", editable = true }
 rware = {path = "packages/robotic-warehouse", editable = true}
@@ -50,3 +48,6 @@ train_rware = "python -m diffusion_co_design.co_design.scripts.train_rware"
 
 [tool.pixi.dependencies]
 wandb = ">=0.19.1,<0.20"
+guided_diffusion = { path = "packages/guided_diffusion" }
+# rware = { path = "packages/robotic-warehouse" }
+

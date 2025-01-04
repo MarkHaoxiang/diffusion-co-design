@@ -135,6 +135,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/29/04/a58ed454ad7f8f8a65f6ebe2df279c4d6921234cad3603318cf8a150b0f3/tensordict-0.6.2-cp311-cp311-manylinux1_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/d1/35/e8b2daf02ce933e4518e6f5682c72fd0ed66c15910ea1fb4168f442b71c4/torch-2.5.1-cp311-cp311-manylinux1_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/59/4b/cf3c3a00ba80429ee2029ffbc309b4a4d80cd3878d8d529bf81699d75816/torchrl-0.6.0-cp311-cp311-manylinux1_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/de/e9/e190ecec448d5a2abad8348cf085fcb39962a491e3f40dcb023721e04feb/torchvision-0.20.1-cp311-cp311-manylinux1_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/22/55/b78a464de78051a30599ceb6983b01d8f732e6f69bf37b4ed07f642ac0fc/tornado-6.4.2-cp38-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/d0/30/dc54f88dd4a2b5dc8a0279bdd7270e735851848b762aeb1c1184ed1f6b14/tqdm-4.67.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl
@@ -365,7 +366,7 @@ packages:
 - pypi: .
   name: diffusion-co-design
   version: 0.1.0
-  sha256: db875009276612f542bf40776dfb0927e4315dcc9f87d7943abdef4940b53a6b
+  sha256: 5e55383d7fa1764622b4a89427974e5d12a6c2a3953e26f87b49fad6eae0dc65
   requires_dist:
   - ipykernel
   - pettingzoo>=1.24.3,<2
@@ -379,6 +380,7 @@ packages:
   - torch>=2.5,<3
   - torchrl>=0.6
   - benchmarl
+  - torchvision
   requires_python: ==3.11
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/docker-pycreds-0.4.0-py_0.tar.bz2
@@ -1808,6 +1810,17 @@ packages:
   - hydra-core>=1.1 ; extra == 'utils'
   - hydra-submitit-launcher ; extra == 'utils'
   - git ; extra == 'utils'
+- pypi: https://files.pythonhosted.org/packages/de/e9/e190ecec448d5a2abad8348cf085fcb39962a491e3f40dcb023721e04feb/torchvision-0.20.1-cp311-cp311-manylinux1_x86_64.whl
+  name: torchvision
+  version: 0.20.1
+  sha256: 86f6523dee420000fe14c3527f6c8e0175139fda7d995b187f54a0b0ebec7eb6
+  requires_dist:
+  - numpy
+  - torch==2.5.1
+  - pillow>=5.3.0,!=8.3.*
+  - gdown>=4.7.3 ; extra == 'gdown'
+  - scipy ; extra == 'scipy'
+  requires_python: '>=3.8'
 - pypi: https://files.pythonhosted.org/packages/22/55/b78a464de78051a30599ceb6983b01d8f732e6f69bf37b4ed07f642ac0fc/tornado-6.4.2-cp38-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
   name: tornado
   version: 6.4.2
