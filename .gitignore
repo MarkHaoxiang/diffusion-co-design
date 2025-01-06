@@ -1,8 +1,10 @@
+wandb
+scripts.txt
 diffusion_human_feedback
 outputs
 
 .vscode
-napkin.ipynb
+napkin*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

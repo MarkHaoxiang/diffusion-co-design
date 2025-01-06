@@ -3,6 +3,7 @@ import os
 
 # Torch, TorchRL, TensorDict
 import torch
+from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
@@ -25,7 +26,7 @@ from diffusion_co_design.co_design.rware.env import (
     ScenarioConfig,
     rware_env,
 )
-from diffusion_co_design.co_design.rware.model import rware_policy, PolicyConfig
+from diffusion_co_design.co_design.rware.model import rware_models, PolicyConfig
 
 
 # Devices
@@ -41,10 +42,11 @@ class TrainingConfig(BaseModel):
     designer: str
     scenario_dir: str
     # Sampling and training
-    frames_per_batch: int = 1_000  # Number of frames per training iteration
-    n_iters: int = 10  # Number of training iterations
-    num_epochs: int = 30  # Number of optimization steps per training iteration
+    n_iters: int = 50  # Number of training iterations
+    n_epochs: int = 30  # Number of optimization steps per training iteration
+    #    minibatch_size: int = 400  # Size of the mini-batches in each optimization step
     minibatch_size: int = 400  # Size of the mini-batches in each optimization step
+    n_mini_batches: int = 15  # Number of mini-batches in each epoch
     ppo_lr: float = 3e-4  # Learning rate
     max_grad_norm: float = 1.0  # Maximum norm for the gradients
     # PPO
@@ -55,7 +57,12 @@ class TrainingConfig(BaseModel):
     # Policy
     policy_cfg: PolicyConfig = PolicyConfig()
     # Logging
+    logging_enable: bool = True
     logging_cfg: LoggingConfig = LoggingConfig()
+
+    @property
+    def frames_per_batch(self) -> int:
+        return self.n_mini_batches * self.minibatch_size
 
     @property
     def total_frames(self) -> int:
@@ -68,28 +75,10 @@ def train(cfg: TrainingConfig):
     scenario: ScenarioConfig = omega_to_pydantic(scenario, ScenarioConfig)
 
     env = rware_env(scenario, device)
-    policy, env = rware_policy(
+    policy, critic, env = rware_models(
         env, cfg.policy_cfg, device
     )  # Env is updated to track RNN information
     check_env_specs(env)
-
-    critic_net = MultiAgentMLP(
-        n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1],
-        n_agent_outputs=1,  # 1 value per agent
-        n_agents=env.num_agents,
-        centralised=True,
-        share_params=True,
-        device=device,
-        depth=2,
-        num_cells=256,
-        activation_class=torch.nn.Tanh,
-    )
-
-    critic = TensorDictModule(
-        module=critic_net,
-        in_keys=[("agents", "observation")],
-        out_keys=[("agents", "state_value")],
-    )
 
     collector = SyncDataCollector(
         env,
@@ -135,48 +124,47 @@ def train(cfg: TrainingConfig):
 
     # Logging
     pbar = tqdm(total=cfg.n_iters, desc="episode_reward_mean = 0")
-    episode_reward_mean_list = []
-
-    config = dict(cfg)
-    config["scenario"] = dict(scenario)
-    logger = WandbLogger(
-        exp_name=cfg.scenario_dir,
-        project="diffusion-co-design",
-        offline=cfg.logging_cfg.offline,
-        config=config,
-    )
+    losses_objective = torch.zeros((cfg.n_epochs, cfg.n_mini_batches))
+    losses_critic = torch.zeros((cfg.n_epochs, cfg.n_mini_batches))
+    losses_entropy = torch.zeros((cfg.n_epochs, cfg.n_mini_batches))
+    log, collected_frames = {}, 0
+    if cfg.logging_enable:
+        config = dict(cfg)
+        config["scenario"] = dict(scenario)
+        logger = WandbLogger(
+            exp_name=cfg.scenario_dir,
+            project="diffusion-co-design",
+            offline=cfg.logging_cfg.offline,
+            config=config,
+        )
+    else:
+        logger = None
 
     # Main Training Loop
-    for tensordict_data in collector:
-        tensordict_data.set(
-            ("next", "agents", "done"),
-            tensordict_data.get(("next", "done"))
-            .unsqueeze(-1)
-            .expand(tensordict_data.get_item_shape(("next", env.reward_key))),
-        )
-        tensordict_data.set(
-            ("next", "agents", "terminated"),
-            tensordict_data.get(("next", "terminated"))
-            .unsqueeze(-1)
-            .expand(tensordict_data.get_item_shape(("next", env.reward_key))),
-        )
-        # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
+    for td in collector:
+        # Reshape to match value estimator
+        batch_shape = td.get_item_shape(("next", env.reward_key))
+        for key in ("done", "terminated"):
+            td.set(
+                ("next", "agents", key),
+                td.get(("next", key)).unsqueeze(-1).expand(batch_shape),
+            )
 
         with torch.no_grad():
             GAE(
-                tensordict_data,
+                td,
                 params=loss_module.critic_network_params,
                 target_params=loss_module.target_critic_network_params,
             )  # Compute GAE and add it to the data
 
-        data_view = tensordict_data.reshape(
-            -1
-        )  # Flatten the batch size to shuffle data
+        data_view = td.reshape(-1)  # Flatten the batch size to shuffle data
+        collected_frames += data_view.batch_size[0]
         replay_buffer.extend(data_view)
 
-        for _ in range(cfg.num_epochs):
-            for _ in range(cfg.frames_per_batch // cfg.minibatch_size):
+        for i in range(cfg.n_epochs):
+            for j in range(cfg.n_mini_batches):
                 subdata = replay_buffer.sample()
+
                 loss_vals = loss_module(subdata)
 
                 loss_value = (
@@ -189,25 +177,34 @@ def train(cfg: TrainingConfig):
 
                 torch.nn.utils.clip_grad_norm_(
                     loss_module.parameters(), cfg.max_grad_norm
-                )  # Optional
+                )
 
                 optim.step()
                 optim.zero_grad()
 
+                losses_objective[i, j] = loss_vals["loss_objective"].item()
+                losses_critic[i, j] = loss_vals["loss_critic"].item()
+                losses_entropy[i, j] = loss_vals["loss_entropy"].item()
+
         collector.update_policy_weights_()
 
         # Logging
-        done = tensordict_data.get(("next", "agents", "done"))
-        episode_reward_mean = (
-            tensordict_data.get(("next", "agents", "episode_reward"))[done]
+        log["frame"] = collected_frames
+        log["training_rewards"] = (
+            td.get(("next", "agents", "episode_reward"))[
+                td.get(("next", "agents", "done"))
+            ]
             .mean()
             .item()
         )
-        episode_reward_mean_list.append(episode_reward_mean)
-        pbar.set_description(
-            f"episode_reward_mean = {episode_reward_mean}", refresh=False
-        )
-        pbar.update()
+        log["losses_objective"] = losses_objective.mean().item()
+        log["losses_critic"] = losses_critic.mean().item()
+        log["losses_entropy"] = losses_entropy.mean().item()
+        if logger:
+            for key, value in log.items():
+                logger.log_scalar(key, value)
+
+            pbar.update()
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="testing")

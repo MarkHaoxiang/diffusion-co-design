@@ -17,16 +17,19 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from guided_diffusion.train_util import TrainLoop
+from diffusion_co_design.utils import BASE_DIR
 
 
 def main():
-    args = create_argparser().parse_args()
-
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
+    args = create_argparser().parse_args()
+    data_dir = os.path.join(BASE_DIR, "diffusion_datasets", args.experiment_name)
+    log_dir = os.path.join(BASE_DIR, "diffusion_pretrain", args.experiment_name)
+
     dist_util.setup_dist()
-    logger.configure(dir=args.log_dir)
+    logger.configure(dir=log_dir)
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
@@ -37,7 +40,7 @@ def main():
 
     logger.log("creating data loader...")
     data = load_data(
-        data_dir=args.data_dir,
+        data_dir=data_dir,
         batch_size=args.batch_size,
         image_size=args.image_size,
         class_cond=args.class_cond,
@@ -67,8 +70,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        data_dir="",
-        log_dir="",
+        experiment_name="default",
         schedule_sampler="uniform",
         lr=1e-4,
         weight_decay=0.0,

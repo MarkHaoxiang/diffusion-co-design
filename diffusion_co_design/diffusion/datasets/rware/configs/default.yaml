@@ -4,7 +4,7 @@ size: 16
 n_agents: 5
 n_shelves: 50
 n_goals: 5
-n_samples: 10
+n_samples: 1_000_000
 agent_idxs:
 - 1
 - 88
