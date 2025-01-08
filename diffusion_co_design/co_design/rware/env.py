@@ -6,10 +6,8 @@ from torchrl.envs import (
     MarlGroupMapType,
     TransformedEnv,
     RewardSum,
-    check_env_specs,
 )
 
-from rware.layout import Layout
 from pydantic import BaseModel
 
 from diffusion_co_design.diffusion.datasets.rware.transform import image_to_layout

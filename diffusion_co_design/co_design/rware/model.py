@@ -27,30 +27,30 @@ def rware_models(
 ):
 
     # Construct Policy
-    observation_spec = env.observation_spec.clone()
-    group_obs_spec = observation_spec["agents"]
-    for key in list(group_obs_spec.keys()):
-        if key != "observation":
-            del group_obs_spec[key]
-    if "state" in observation_spec.keys():
-        del observation_spec["state"]
+    # observation_spec = env.observation_spec.clone()
+    # group_obs_spec = observation_spec["agents"]
+    # for key in list(group_obs_spec.keys()):
+    #     if key != "observation":
+    #         del group_obs_spec[key]
+    # if "state" in observation_spec.keys():
+    #     del observation_spec["state"]
 
-    logits_shape = [
-        *env.full_action_spec["agents", "action"].shape,
-        env.full_action_spec["agents", "action"].space.n,
-    ]
+    # logits_shape = [
+    #     *env.full_action_spec["agents", "action"].shape,
+    #     env.full_action_spec["agents", "action"].space.n,
+    # ]
 
-    actor_input_spec = Composite(
-        {"agents": observation_spec["agents"].clone().to(device)}
-    )
-    actor_output_spec = Composite(
-        {
-            "agents": Composite(
-                {"logits": Unbounded(shape=logits_shape)},
-                shape=(env.num_agents,),
-            )
-        }
-    )
+    # actor_input_spec = Composite(
+    #     {"agents": observation_spec["agents"].clone().to(device)}
+    # )
+    # actor_output_spec = Composite(
+    #     {
+    #         "agents": Composite(
+    #             {"logits": Unbounded(shape=logits_shape)},
+    #             shape=(env.num_agents,),
+    #         )
+    #     }
+    # )
 
     policy_net = torch.nn.Sequential(
         MultiAgentMLP(
