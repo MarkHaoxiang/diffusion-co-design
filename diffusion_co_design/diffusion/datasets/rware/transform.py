@@ -2,7 +2,11 @@ import os
 import numpy as np
 import PIL.Image
 
-from .generate import colors, DATA_BASE_DIR, COLOR_ORDER
+from diffusion_co_design.diffusion.datasets.rware.generate import (
+    colors,
+    COLOR_ORDER,
+)
+from diffusion_co_design.utils import BASE_DIR
 from rware.layout import Layout
 
 
@@ -27,7 +31,7 @@ def image_to_layout(im: np.ndarray) -> Layout:
 if __name__ == "__main__":
     # Run a test on the generated images
 
-    path = os.path.join(DATA_BASE_DIR, "default/0000000.png")
+    path = os.path.join(BASE_DIR, "diffusion_datasets/default/0000000.png")
     with open(path, "rb") as f:
         im = PIL.Image.open(f)
         im = np.array(im)

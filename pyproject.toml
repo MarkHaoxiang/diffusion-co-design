@@ -19,7 +19,7 @@ dependencies = [
 ]
 authors = [{ name = "Hao Xiang Li", email = "mark.haoxiang@gmail.com" }]
 name = "diffusion-co-design"
-requires-python = "== 3.11"
+requires-python = ">= 3.11"
 version = "0.1.0"
 
 [tool.pixi.workspace]

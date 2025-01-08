@@ -1,7 +1,6 @@
 import os
 import shutil
 import random
-import json
 
 import hydra
 from hydra.core.hydra_config import HydraConfig

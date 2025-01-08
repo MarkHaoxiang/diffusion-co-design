@@ -3,11 +3,8 @@ import os
 
 # Torch, TorchRL, TensorDict
 import torch
-from tensordict import TensorDict
-from tensordict.nn import TensorDictModule
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
-from torchrl.modules import MultiAgentMLP
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
 from torchrl.envs.utils import check_env_specs
 from torchrl.record import WandbLogger
@@ -21,7 +18,7 @@ from pydantic import BaseModel
 # Rware
 from tqdm import tqdm
 
-from diffusion_co_design.utils.pydra import omega_to_pydantic
+from diffusion_co_design.utils import omega_to_pydantic, BASE_DIR
 from diffusion_co_design.co_design.rware.env import (
     ScenarioConfig,
     rware_env,
@@ -40,7 +37,7 @@ class LoggingConfig(BaseModel):
 class TrainingConfig(BaseModel):
     # Problem definition: Built with diffusion.datasets.rware.generate
     designer: str
-    scenario_dir: str
+    experiment_name: str
     # Sampling and training
     n_iters: int = 50  # Number of training iterations
     n_epochs: int = 30  # Number of optimization steps per training iteration
@@ -57,7 +54,7 @@ class TrainingConfig(BaseModel):
     # Policy
     policy_cfg: PolicyConfig = PolicyConfig()
     # Logging
-    logging_enable: bool = True
+    logging_enable: bool = False
     logging_cfg: LoggingConfig = LoggingConfig()
 
     @property
@@ -71,7 +68,9 @@ class TrainingConfig(BaseModel):
 
 def train(cfg: TrainingConfig):
     # Load scenario config
-    scenario = OmegaConf.load(os.path.join(cfg.scenario_dir, "config.yaml"))
+    scenario = OmegaConf.load(
+        os.path.join(BASE_DIR, "diffusion_datasets", cfg.experiment_name, "config.yaml")
+    )
     scenario: ScenarioConfig = omega_to_pydantic(scenario, ScenarioConfig)
 
     env = rware_env(scenario, device)
@@ -132,7 +131,7 @@ def train(cfg: TrainingConfig):
         config = dict(cfg)
         config["scenario"] = dict(scenario)
         logger = WandbLogger(
-            exp_name=cfg.scenario_dir,
+            exp_name=cfg.experiment_name,
             project="diffusion-co-design",
             offline=cfg.logging_cfg.offline,
             config=config,
