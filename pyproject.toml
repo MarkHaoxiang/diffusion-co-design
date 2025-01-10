@@ -1,7 +1,3 @@
-[build-system]
-build-backend = "hatchling.build"
-requires = ["hatchling"]
-
 [project]
 dependencies = [
     "ipykernel",
@@ -22,22 +18,27 @@ name = "diffusion-co-design"
 requires-python = ">= 3.11"
 version = "0.1.0"
 
-[tool.pixi.workspace]
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.project]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
-preview = ["pixi-build"]
+# preview = ["pixi-build"]
 
-[tool.pixi.package]
-name = "diffusion-co-design"
-version = "0.1.0"
+# [tool.pixi.package]
+# name = "diffusion-co-design"
+# version = "0.1.0"
 
-[tool.pixi.build-system]
-build-backend = { name = "pixi-build-python", version = "*" }
-channels = ["pixi-build-backends", "conda-forge"]
+# [tool.pixi.build-system]
+# build-backend = { name = "pixi-build-python", version = "*" }
+# channels = ["pixi-build-backends", "conda-forge"]
 
 [tool.pixi.pypi-dependencies]
 diffusion-co-design = { path = ".", editable = true }
-rware = {path = "packages/robotic-warehouse", editable = true}
+rware = { path = "packages/robotic-warehouse", editable = true }
+guided_diffusion = { path = "packages/guided_diffusion", editable = true }
 
 
 [tool.pixi.tasks]
@@ -49,14 +50,9 @@ train_rware = "python -m diffusion_co_design.co_design.scripts.train_rware"
 blobfile = ">=3.0.0,<4"
 mpi4py = "==3.1.4"
 wandb = ">=0.19.1,<0.20"
-guided_diffusion = { path = "packages/guided_diffusion" }
 mpi = ">=1.0,<2"
 mpmath = ">=1.3.0,<2"
 torchvision = ">=0.20.1,<0.21"
-
-[tool.pixi.run-dependencies]
 pillow = ">=11.1.0,<12"
 
-
-# rware = { path = "packages/robotic-warehouse" }
-
+# [tool.pixi.run-dependencies]

@@ -23,10 +23,11 @@ class Designer(Enum):
     RL = "rl"
     DIFFUSION = "diffusion"
 
+    @staticmethod
     def get(designer: str):
         match designer:
             case Designer.RANDOM:
-                RandomDesigner
+                return RandomDesigner
             case Designer.RL:
                 raise NotImplementedError()
             case Designer.DIFFUSION:

@@ -63,7 +63,7 @@ def rware_models(
             share_params=True,
             device=device,
             depth=2,
-            num_cells=256,
+            num_cells=128,
             activation_class=torch.nn.Tanh,
         ),
     )
@@ -142,4 +142,5 @@ def rware_models(
         out_keys=[("agents", "state_value")],
     )
 
-    return policy, critic, env
+    # return policy, critic, env
+    return policy, critic
