@@ -6,27 +6,47 @@
 # Adapted from
 # https://github.com/pytorch/rl/blob/main/sota-implementations/multiagent/utils/logging.py#L32
 #
+import os
+from typing import Literal
 
 from pydantic import BaseModel
 from tensordict import TensorDictBase
-from torchrl.record.loggers import Logger, WandbLogger
+import torch
+import numpy as np
+from torchrl.record.loggers import Logger, WandbLogger, CSVLogger
+
+from .constants import BASE_DIR
+
+LoggerTypes = Literal["wandb", "csv"] | None
 
 
 class LoggingConfig(BaseModel):
-    enable: bool = False
+    type: LoggerTypes = None
     offline: bool = True
+    evaluation_interval: int = 20
+    evaluation_episodes: int = 5
 
 
 def init_logging(experiment_name: str, cfg: LoggingConfig):
-    if not cfg.enable:
-        return None
     config = dict(cfg)
-    logger = WandbLogger(
-        exp_name=experiment_name,
-        project="diffusion-co-design",
-        offline=cfg.offline,
-        config=config,
-    )
+
+    match cfg.type:
+        case "csv":
+            logger = CSVLogger(
+                exp_name=experiment_name,
+                log_dir=os.path.join(BASE_DIR, "csv_logs"),
+            )
+            logger.log_hparams(config)
+        case "wandb":
+            logger = WandbLogger(
+                exp_name=experiment_name,
+                project="diffusion-co-design",
+                offline=cfg.offline,
+                config=config,
+            )
+        case _:
+            logger = None
+
     return logger
 
 
@@ -77,6 +97,9 @@ def log_training(
     episode_reward = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[
         done
     ]
+    if episode_reward.numel() == 0:  # Prevent crash if no dones
+        episode_reward = torch.zeros(())
+
     metrics_to_log.update(
         {
             "train/reward/reward_min": reward.min().item(),
@@ -101,3 +124,41 @@ def log_training(
             logger.log_scalar(key.replace("/", "_"), value, step=step)
 
     return metrics_to_log
+
+
+def log_evaluation(
+    logger: WandbLogger,
+    frames,
+    rollouts: list[TensorDictBase],
+    evaluation_time: float,
+    step: int,
+):
+    rewards = [td.get(("next", "agents", "reward")).sum(0).mean() for td in rollouts]
+    metrics_to_log = {
+        "eval/episode_reward_min": min(rewards),
+        "eval/episode_reward_max": max(rewards),
+        "eval/episode_reward_mean": sum(rewards) / len(rollouts),
+        "eval/episode_len_mean": sum([td.batch_size[0] for td in rollouts])
+        / len(rollouts),
+        "eval/evaluation_time": evaluation_time,
+    }
+
+    vid = torch.tensor(
+        np.transpose(frames[: rollouts[0].batch_size[0]], (0, 3, 1, 2)),
+        dtype=torch.uint8,
+    ).unsqueeze(0)
+
+    if isinstance(logger, WandbLogger):
+        import wandb
+
+        logger.experiment.log(metrics_to_log, commit=False)
+        logger.experiment.log(
+            {
+                "eval/video": wandb.Video(vid, fps=20, format="mp4"),
+            },
+            commit=False,
+        )
+    else:
+        for key, value in metrics_to_log.items():
+            logger.log_scalar(key.replace("/", "_"), value, step=step)
+        logger.log_video("eval_video", vid, step=step)

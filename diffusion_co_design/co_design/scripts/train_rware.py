@@ -21,6 +21,8 @@ from diffusion_co_design.utils import (
     BASE_DIR,
     LoggingConfig,
     init_logging,
+    log_training,
+    log_evaluation,
 )
 from diffusion_co_design.co_design.rware.env import (
     ScenarioConfig,
@@ -73,8 +75,8 @@ def train(cfg: TrainingConfig):
     )
     scenario: ScenarioConfig = omega_to_pydantic(scenario, ScenarioConfig)
 
-    train_env = rware_env(scenario, eval=False, device=device)
-    eval_env = rware_env(scenario, eval=True, device=device)
+    train_env = rware_env(scenario, is_eval=False, device=device)
+    eval_env = rware_env(scenario, is_eval=True, device=device)
     policy, critic = rware_models(train_env, cfg.policy_cfg, device)
 
     collector = SyncDataCollector(
@@ -116,73 +118,115 @@ def train(cfg: TrainingConfig):
     optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo_lr)
 
     # Logging
-    pbar = tqdm(total=cfg.n_iters, desc="episode_reward_mean = 0")
-    log = {}
+    pbar = tqdm(total=cfg.n_iters)
     logger = init_logging(cfg.experiment_name, cfg.logging_cfg)
 
     # Main Training Loop
-    sampling_start = time.time()
-    for td in collector:
-        sampling_time = time.time() - sampling_start
-        training_tds, training_start = [], time.time()
 
-        # Compute GAE
-        with torch.no_grad():
-            loss_module.value_estimator(
-                td,
-                params=loss_module.critic_network_params,
-                target_params=loss_module.target_critic_network_params,
-            )
-
-        # Add to the replay buffer (shuffling)
-        replay_buffer.extend(td.reshape(-1))
-
-        # PPO Update
-        for _ in range(cfg.n_epochs):
-            for _ in range(cfg.n_mini_batches):
-                loss_vals = loss_module(replay_buffer.sample())
-                loss_value = (
-                    loss_vals["loss_objective"]
-                    + loss_vals["loss_critic"]
-                    + loss_vals["loss_entropy"]
-                )
-                loss_value.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    loss_module.parameters(), cfg.max_grad_norm
-                )
-                optim.step()
-                optim.zero_grad()
-
-                training_log_td = loss_vals.detach()
-                training_log_td.set("grad_norm", grad_norm.mean())
-                training_tds.append(loss_vals.detach())
-
-        collector.update_policy_weights_()
-
-        training_time = time.time() - training_start
-
-        # Logging
-        if logger:
-            log["training_rewards"] = (
-                td.get(("next", "agents", "episode_reward"))[
-                    td.get(("next", "agents", "done"))
-                ]
-                .mean()
-                .item()
-            )
-            if logger:
-                for key, value in log.items():
-                    logger.log_scalar(key, value)
-
-        pbar.update()
-
+    try:
+        total_time, total_frames = 0, 0
         sampling_start = time.time()
+        for iteration, sampling_td in enumerate(collector):
+            sampling_time = time.time() - sampling_start
+            training_tds, training_start = [], time.time()
 
-    # Cleaup
-    collector.shutdown()
-    for env in (train_env, eval_env):
-        if not env.is_closed:
-            env.close()
+            # Compute GAE
+            with torch.no_grad():
+                loss_module.value_estimator(
+                    sampling_td,
+                    params=loss_module.critic_network_params,
+                    target_params=loss_module.target_critic_network_params,
+                )
+
+            # Add to the replay buffer (shuffling)
+            current_frames = sampling_td.numel()
+            total_frames += current_frames
+            replay_buffer.extend(sampling_td.reshape(-1))
+
+            # PPO Update
+            for _ in range(cfg.n_epochs):
+                for _ in range(cfg.n_mini_batches):
+                    loss_vals = loss_module(replay_buffer.sample())
+                    loss_value = (
+                        loss_vals["loss_objective"]
+                        + loss_vals["loss_critic"]
+                        + loss_vals["loss_entropy"]
+                    )
+                    loss_value.backward()
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        loss_module.parameters(), cfg.max_grad_norm
+                    )
+                    optim.step()
+                    optim.zero_grad()
+
+                    training_log_td = loss_vals.detach()
+                    training_log_td.set("grad_norm", grad_norm.mean())
+                    training_tds.append(loss_vals.detach())
+
+            collector.update_policy_weights_()
+
+            training_time = time.time() - training_start
+            total_time += sampling_time + training_time
+
+            # Logging
+            if logger:
+                log_training(
+                    logger=logger,
+                    training_td=training_log_td,
+                    sampling_td=sampling_td,
+                    sampling_time=sampling_time,
+                    training_time=training_time,
+                    total_time=total_time,
+                    iteration=iteration,
+                    current_frames=current_frames,
+                    total_frames=total_frames,
+                    step=iteration,
+                )
+
+                if (
+                    cfg.logging_cfg.evaluation_episodes > 0
+                    and iteration % cfg.logging_cfg.evaluation_interval == 0
+                ):
+                    evaluation_start = time.time()
+                    with (
+                        torch.no_grad(),
+                    ):  # TODO: I don't think we want determinism for rware - discuss.
+                        frames = []
+                        rollouts = []
+                        for i in range(cfg.logging_cfg.evaluation_episodes):
+                            callback = lambda env, td: (
+                                frames.append(env.render()) if i == 0 else None
+                            )
+                            rollout = eval_env.rollout(
+                                max_steps=(
+                                    1000
+                                    if train_env.max_steps is None
+                                    else train_env.max_steps
+                                ),
+                                policy=policy,
+                                callback=callback,
+                                auto_cast_to_device=True,
+                            )
+                            rollouts.append(rollout)
+
+                        evaluation_time = time.time() - evaluation_start
+
+                        log_evaluation(
+                            logger,
+                            frames,
+                            rollouts,
+                            evaluation_time,
+                            step=iteration,
+                        )
+
+            pbar.update()
+            sampling_start = time.time()
+    finally:
+        # Cleaup
+        collector.shutdown()
+        for env in (train_env, eval_env):
+            if not env.is_closed:
+                env.close()
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="testing")

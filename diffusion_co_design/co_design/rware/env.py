@@ -85,7 +85,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         return tensordict_out
 
 
-def rware_env(scenario: ScenarioConfig, eval: bool = False, device: str = None):
+def rware_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = None):
     design_policy = None
 
     # Define environment design policy
@@ -105,7 +105,14 @@ def rware_env(scenario: ScenarioConfig, eval: bool = False, device: str = None):
         )(None)
     )
     # env = RwarePZW(Warehouse(layout=initial_layout, request_queue_size=15))
-    env = RwarePZW(Warehouse(shelf_columns=3, shelf_rows=1, column_height=8))
+    env = RwarePZW(
+        Warehouse(
+            shelf_columns=3,
+            shelf_rows=1,
+            column_height=8,
+            render_mode="rgb_array" if is_eval else None,
+        )
+    )
     env.reset()
     env = RwareCoDesignWrapper(
         env,
@@ -114,7 +121,7 @@ def rware_env(scenario: ScenarioConfig, eval: bool = False, device: str = None):
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
         device=device,
     )
-    if not eval:
+    if not is_eval:
         env = TransformedEnv(
             env,
             RewardSum(
