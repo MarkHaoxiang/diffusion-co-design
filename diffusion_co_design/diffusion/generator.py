@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from torch import Generator
 
@@ -7,15 +8,12 @@ from guided_diffusion.script_util import (
     create_model_and_diffusion,
 )
 
-import hydra
-from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 
 
-class GeneratorConfig:
+class GeneratorConfig(BaseModel):
     generator_model_path: str
-    size: int = 32
+    size: int = 16
     batch_size: int = 32
 
 
@@ -54,14 +52,12 @@ class RwareGenerator:
 
     def generate_batch(self):
 
-        initial_noise = torch.randn((self.batch_size, *self.shape), generator=self.rng)
-
-        # TODO: I'm not sure why this is needed
-        def model_fn(x, t, y=None):
-            return self.model(x, t, None)
+        initial_noise = torch.randn(
+            self.shape, generator=self.rng, device=dist_util.dev()
+        )
 
         sample = self.diffusion.ddim_sample_loop(
-            model=model_fn,
+            model=self.model,
             shape=self.shape,
             noise=initial_noise,
             clip_denoised=self.clip_denoised,
@@ -81,9 +77,37 @@ class RwareGenerator:
         torch.distributed.all_gather(
             gathered_samples, sample
         )  # gather not supported with NCCL
-
-        return [sample.cpu().numpy() for sample in gathered_samples]
+        return np.concatenate(
+            [sample.cpu().numpy() for sample in gathered_samples], axis=0
+        )
 
     @property
     def shape(self):
         return (self.batch_size, self.image_channels, self.size, self.size)
+
+
+if __name__ == "__main__":
+    import os
+    import shutil
+    from diffusion_co_design.utils import BASE_DIR
+    from PIL import Image
+
+    cfg = GeneratorConfig(
+        generator_model_path=os.path.join(
+            BASE_DIR, "diffusion_pretrain", "default", "model100000.pt"
+        )
+    )
+
+    # Generate a unguided batch
+    generator = RwareGenerator(cfg)
+    environment_batch = generator.generate_batch()
+
+    # Save to disk
+    data_dir = "test_diffusion_output"
+    if os.path.exists(data_dir):
+        shutil.rmtree(path=data_dir)
+    os.makedirs(data_dir)
+
+    for i, env in enumerate(environment_batch):
+        im = Image.fromarray(env)
+        im.save(data_dir + "/%04d" % i + ".png")

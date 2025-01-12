@@ -9,7 +9,6 @@ dependencies = [
     "matplotlib>=3.10.0,<4",
     "pyglet<2",
     "hydra-core>=1.3.2,<2",
-    "torch>=2.5,<3",
     "torchrl>=0.6",
     "benchmarl",
 ]
@@ -26,6 +25,9 @@ requires = ["hatchling"]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 # preview = ["pixi-build"]
+
+[tool.pixi.system-requirements]
+cuda = "12.6"
 
 # [tool.pixi.package]
 # name = "diffusion-co-design"
@@ -45,7 +47,8 @@ wandb = { version = "*", extras = ["media"] }
 [tool.pixi.tasks]
 generate_rware = "python -m diffusion_co_design.diffusion.datasets.rware.generate"
 pretrain_rware = "python -m diffusion_co_design.diffusion.datasets.rware.pretrain"
-train_rware = "python -m diffusion_co_design.co_design.scripts.train_rware"
+train_rware = "echo $(mpiexec -n 1 python -m diffusion_co_design.co_design.scripts.train_rware)"
+
 
 [tool.pixi.dependencies]
 blobfile = ">=3.0.0,<4"
@@ -55,5 +58,7 @@ mpmath = ">=1.3.0,<2"
 torchvision = ">=0.20.1,<0.21"
 pillow = ">=11.1.0,<12"
 moviepy = ">=1.0.3,<2"
+pytorch-gpu = "*"
+
 
 # [tool.pixi.run-dependencies]

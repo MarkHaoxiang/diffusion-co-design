@@ -21,10 +21,11 @@ from diffusion_co_design.utils import BASE_DIR
 
 
 def main():
+    args = create_argparser().parse_args()
+
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
-    args = create_argparser().parse_args()
     data_dir = os.path.join(BASE_DIR, "diffusion_datasets", args.experiment_name)
     log_dir = os.path.join(BASE_DIR, "diffusion_pretrain", args.experiment_name)
 
@@ -75,11 +76,11 @@ def create_argparser():
         lr=1e-4,
         weight_decay=0.0,
         lr_anneal_steps=0,
-        batch_size=1,
+        batch_size=256,
         microbatch=-1,  # -1 disables microbatches
         ema_rate="0.9999",  # comma-separated list of EMA values
         log_interval=10,
-        save_interval=10000,
+        save_interval=100000,
         resume_checkpoint="",
         use_fp16=False,
         fp16_scale_growth=1e-3,
@@ -88,6 +89,15 @@ def create_argparser():
         gpu_idx="0",
     )
     defaults.update(model_and_diffusion_defaults())
+
+    model_flags = dict(
+        image_size=16, image_channels=3, num_channels=128, num_res_blocks=3
+    )
+    diffusion_flags = dict(diffusion_steps=1000, noise_schedule="linear")
+
+    defaults.update(model_flags)
+    defaults.update(diffusion_flags)
+
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
