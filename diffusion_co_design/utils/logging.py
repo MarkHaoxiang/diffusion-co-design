@@ -21,10 +21,11 @@ LoggerTypes = Literal["wandb", "csv"] | None
 
 
 class LoggingConfig(BaseModel):
-    type: LoggerTypes = None
-    offline: bool = True
+    type: LoggerTypes = "wandb"
+    wandb_mode: str = "online"
     evaluation_interval: int = 20
     evaluation_episodes: int = 5
+    checkpoint_interval: int = 50
 
 
 def init_logging(experiment_name: str, cfg: LoggingConfig):
@@ -41,7 +42,7 @@ def init_logging(experiment_name: str, cfg: LoggingConfig):
             logger = WandbLogger(
                 exp_name=experiment_name,
                 project="diffusion-co-design",
-                offline=cfg.offline,
+                mode=cfg.wandb_mode,
                 config=config,
             )
         case _:

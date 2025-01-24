@@ -10,10 +10,10 @@ from torchrl.envs import (
 
 from pydantic import BaseModel
 
-from diffusion_co_design.diffusion.datasets.rware.transform import image_to_layout
+from diffusion_co_design.pretrain.rware.transform import image_to_layout
 from diffusion_co_design.co_design.rware.design import RandomDesigner
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
-from rware.warehouse import Warehouse
+from rware.warehouse import Warehouse, ObservationType
 
 
 class ScenarioConfig(BaseModel):
@@ -104,13 +104,12 @@ def rware_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = Non
             goal_idxs=scenario.goal_idxs,
         )(None)
     )
-    # env = RwarePZW(Warehouse(layout=initial_layout, request_queue_size=15))
     env = RwarePZW(
         Warehouse(
-            shelf_columns=3,
-            shelf_rows=1,
-            column_height=8,
+            layout=initial_layout,
+            request_queue_size=5,
             render_mode="rgb_array" if is_eval else None,
+            observation_type=ObservationType.IMAGE_LAYOUT,
         )
     )
     env.reset()

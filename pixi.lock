@@ -370,8 +370,6 @@ packages:
   md5: d9c69a24ad678ffce24c6543a0176b00
   depends:
   - libgcc-ng >=12
-  arch: x86_64
-  platform: linux
   license: GPL-2.0-or-later
   license_family: GPL
   purls: []
@@ -398,8 +396,6 @@ packages:
   depends:
   - ld_impl_linux-64 2.43 h712a8e2_2
   - sysroot_linux-64
-  arch: x86_64
-  platform: linux
   license: GPL-3.0-only
   license_family: GPL
   purls: []
@@ -410,8 +406,6 @@ packages:
   md5: 18aba879ddf1f8f28145ca6fcb873d8c
   depends:
   - binutils_impl_linux-64 2.43 h4bf12b8_2
-  arch: x86_64
-  platform: linux
   license: GPL-3.0-only
   license_family: GPL
   purls: []
@@ -623,8 +617,6 @@ packages:
   md5: 4ab193b5fcdcf8d7b094221e3977a112
   depends:
   - cuda-version >=12.6,<12.7.0a0
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 27135
@@ -638,8 +630,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 22397
@@ -655,8 +645,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 22830
@@ -682,8 +670,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 22446
@@ -715,8 +701,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 246573
@@ -729,8 +713,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 1999085
@@ -751,8 +733,6 @@ packages:
   - cuda-nvcc_linux-64 12.6.85.*
   - gcc_linux-64
   - gxx_linux-64
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 23610
@@ -783,8 +763,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   constrains:
   - gcc_impl_linux-64 >=6,<14.0a0
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 25484
@@ -801,8 +779,6 @@ packages:
   - libstdcxx >=12
   constrains:
   - gcc_impl_linux-64 >=6,<14.0a0
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 24082529
@@ -818,8 +794,6 @@ packages:
   - cuda-nvcc-impl 12.6.85.*
   - cuda-nvcc-tools 12.6.85.*
   - sysroot_linux-64 >=2.17,<3.0a0
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 25280
@@ -832,8 +806,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 49936502
@@ -846,8 +818,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 18138390
@@ -860,8 +830,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 31364
@@ -883,8 +851,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=12
   - libstdcxx >=12
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 8085058
@@ -897,8 +863,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=12
   - libstdcxx >=12
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 10880815
@@ -924,8 +888,6 @@ packages:
   - libgcc >=12
   - libstdcxx >=12
   - libzlib >=1.3.1,<2.0a0
-  arch: x86_64
-  platform: linux
   license: LicenseRef-cuDNN-Software-License-Agreement
   purls: []
   size: 401805073
@@ -940,8 +902,6 @@ packages:
   - libstdcxx >=12
   constrains:
   - __glibc >=2.17
-  arch: x86_64
-  platform: linux
   license: LicenseRef-cuSPARSELt-Software-License-Agreement
   purls: []
   size: 59314345
@@ -988,7 +948,7 @@ packages:
 - pypi: .
   name: diffusion-co-design
   version: 0.1.0
-  sha256: d187632405941774ff8357ebe76b410eadd8607bb89fe44295138747026abcdb
+  sha256: 43a4fa51e9eed91064c0a97d0f326e0e3b73f2c701087577a1ebc91e0bd04816
   requires_dist:
   - ipykernel
   - pettingzoo>=1.24.3,<2
@@ -1237,8 +1197,6 @@ packages:
   - libsanitizer 13.3.0 heb74ff8_1
   - libstdcxx >=13.3.0
   - sysroot_linux-64
-  arch: x86_64
-  platform: linux
   license: GPL-3.0-only WITH GCC-exception-3.1
   license_family: GPL
   purls: []
@@ -1251,8 +1209,6 @@ packages:
   - binutils_linux-64
   - gcc_impl_linux-64 13.3.0.*
   - sysroot_linux-64
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -1365,8 +1321,6 @@ packages:
   - libstdcxx-devel_linux-64 13.3.0 h84ea5a7_101
   - sysroot_linux-64
   - tzdata
-  arch: x86_64
-  platform: linux
   license: GPL-3.0-only WITH GCC-exception-3.1
   license_family: GPL
   purls: []
@@ -1380,8 +1334,6 @@ packages:
   - gcc_linux-64 13.3.0 hc28eda2_7
   - gxx_impl_linux-64 13.3.0.*
   - sysroot_linux-64
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -1881,8 +1833,6 @@ packages:
   - __glibc >=2.17,<3.0.a0
   - attr >=2.5.1,<2.6.0a0
   - libgcc >=13
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -1912,8 +1862,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 267981139
@@ -1929,8 +1877,6 @@ packages:
   constrains:
   - libcudss-commlayer-mpi0 0.4.0.2 h9d48504_2
   - libcudss-commlayer-nccl0 0.4.0.2 h2b5d15b_2
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 23597444
@@ -1943,8 +1889,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 163772747
@@ -1958,8 +1902,6 @@ packages:
   - libgcc >=13
   - libstdcxx >=13
   - rdma-core >=55.0
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 921236
@@ -1972,8 +1914,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 41790488
@@ -1989,8 +1929,6 @@ packages:
   - libgcc >=13
   - libnvjitlink >=12.6.77,<12.7.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 100482680
@@ -2004,8 +1942,6 @@ packages:
   - libgcc >=13
   - libnvjitlink >=12.6.77,<12.7.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 124403455
@@ -2118,8 +2054,6 @@ packages:
   - __glibc >=2.17,<3.0.a0
   - libgcc >=13
   - libgpg-error >=1.51,<2.0a0
-  arch: x86_64
-  platform: linux
   license: LGPL-2.1-or-later
   purls: []
   size: 586185
@@ -2210,8 +2144,6 @@ packages:
   md5: cc3573974587f12dda90d96e3e55a702
   depends:
   - _libgcc_mutex 0.1 conda_forge
-  arch: x86_64
-  platform: linux
   license: GPL-3.0-only WITH GCC-exception-3.1
   license_family: GPL
   purls: []
@@ -2224,8 +2156,6 @@ packages:
   - __glibc >=2.17,<3.0.a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LGPL-2.1-only
   license_family: GPL
   purls: []
@@ -2306,8 +2236,6 @@ packages:
   - libxml2 >=2.13.5,<3.0a0
   - libzlib >=1.3.1,<2.0a0
   - zstd >=1.5.6,<1.6.0a0
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   purls: []
@@ -2348,8 +2276,6 @@ packages:
   - libgcc >=13
   - liblapack >=3.9.0,<4.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -2361,8 +2287,6 @@ packages:
   depends:
   - __glibc >=2.17,<3.0.a0
   - libgcc >=13
-  arch: x86_64
-  platform: linux
   license: LGPL-2.1-or-later
   license_family: LGPL
   purls: []
@@ -2386,8 +2310,6 @@ packages:
   - cuda-version >=12,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 15590703
@@ -2400,8 +2322,6 @@ packages:
   - cuda-version >=12.6,<12.7.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: LicenseRef-NVIDIA-End-User-License-Agreement
   purls: []
   size: 2491046
@@ -2659,8 +2579,6 @@ packages:
   depends:
   - libgcc >=13.3.0
   - libstdcxx >=13.3.0
-  arch: x86_64
-  platform: linux
   license: GPL-3.0-only WITH GCC-exception-3.1
   license_family: GPL
   purls: []
@@ -2718,8 +2636,6 @@ packages:
   - liblzma >=5.6.3,<6.0a0
   - lz4-c >=1.10.0,<1.11.0a0
   - zstd >=1.5.6,<1.6.0a0
-  arch: x86_64
-  platform: linux
   license: LGPL-2.1-or-later
   purls: []
   size: 487652
@@ -2776,8 +2692,6 @@ packages:
   - pytorch 2.5.1 cuda126_mkl_*_308
   - pytorch-gpu ==2.5.1
   - pytorch-cpu ==99999999
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -2790,8 +2704,6 @@ packages:
   - __glibc >=2.17,<3.0.a0
   - libcap >=2.71,<2.72.0a0
   - libgcc >=13
-  arch: x86_64
-  platform: linux
   license: LGPL-2.1-or-later
   purls: []
   size: 143691
@@ -2950,8 +2862,6 @@ packages:
   - __glibc >=2.17,<3.0.a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: BSD-2-Clause
   license_family: BSD
   purls: []
@@ -3095,8 +3005,6 @@ packages:
   - cuda-version >=12.0,<13.0a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -3775,8 +3683,6 @@ packages:
   constrains:
   - pytorch-gpu ==2.5.1
   - pytorch-cpu ==99999999
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls:
@@ -3788,8 +3694,6 @@ packages:
   md5: e895e6b8a3523af72ea39bedddddd8e5
   depends:
   - pytorch 2.5.1 cuda*_mkl*308
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -3838,8 +3742,6 @@ packages:
   - libstdcxx >=13
   - libsystemd0 >=256.9
   - libudev1 >=256.9
-  arch: x86_64
-  platform: linux
   license: Linux-OpenIB
   license_family: BSD
   purls: []
@@ -4204,8 +4106,6 @@ packages:
   - libwebp-base >=1.5.0,<2.0a0
   - giflib >=5.2.2,<5.3.0a0
   - cudnn >=9.3.0.75,<10.0a0
-  arch: x86_64
-  platform: linux
   license: BSD-3-Clause
   license_family: BSD
   purls: []
@@ -4260,8 +4160,6 @@ packages:
   - libzlib >=1.3.1,<2.0a0
   - cuda-cupti >=12.6.80,<13.0a0
   - python_abi 3.11.* *_cp311
-  arch: x86_64
-  platform: linux
   license: MIT
   license_family: MIT
   purls: []

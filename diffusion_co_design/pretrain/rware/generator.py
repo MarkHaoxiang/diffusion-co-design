@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torch import nn
 from torch import Generator
 
 from guided_diffusion import dist_util
@@ -17,7 +18,7 @@ class GeneratorConfig(BaseModel):
     batch_size: int = 32
 
 
-class RwareGenerator:
+class Generator:
     def __init__(self, cfg: GeneratorConfig, rng: Generator | None = None):
         super().__init__()
 
@@ -99,7 +100,7 @@ if __name__ == "__main__":
     )
 
     # Generate a unguided batch
-    generator = RwareGenerator(cfg)
+    generator = Generator(cfg)
     environment_batch = generator.generate_batch()
 
     # Save to disk

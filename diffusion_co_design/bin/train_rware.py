@@ -3,7 +3,7 @@ import time
 
 # Torch, TorchRL, TensorDict
 import torch
-from torchrl.collectors import SyncDataCollector
+from torchrl.collectors import SyncDataCollector, MultiSyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
 
@@ -33,6 +33,7 @@ from diffusion_co_design.co_design.rware.model import rware_models, PolicyConfig
 
 # Devices
 device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
+print(f"Training on device {device}")
 
 
 class TrainingConfig(BaseModel):
@@ -42,7 +43,7 @@ class TrainingConfig(BaseModel):
         str  # TODO: Rethink the config linkup between generation and co_design
     )
     # Sampling and training
-    n_iters: int = 100  # Number of training iterations
+    n_iters: int = 500  # Number of training iterations
     n_epochs: int = 10  # Number of optimization steps per training iteration
     #    minibatch_size: int = 400  # Size of the mini-batches in each optimization step
     minibatch_size: int = 400  # Size of the mini-batches in each optimization step
@@ -190,7 +191,7 @@ def train(cfg: TrainingConfig):
                     evaluation_start = time.time()
                     with (
                         torch.no_grad(),
-                    ):  # TODO: I don't think we want determinism for rware - discuss.
+                    ):  # TODO: I don't think we want determinism for rware.
                         frames = []
                         rollouts = []
                         for i in range(cfg.logging_cfg.evaluation_episodes):
@@ -218,6 +219,22 @@ def train(cfg: TrainingConfig):
                             evaluation_time,
                             step=iteration,
                         )
+
+            if cfg.logging_cfg.type == "wandb":
+                logger.experiment.log({}, commit=True)
+
+            if iteration % cfg.logging_cfg.checkpoint_interval == 0:
+                checkpoint_dir = (
+                    hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+                )
+                torch.save(
+                    policy.state_dict(),
+                    os.path.join(checkpoint_dir, f"policy_{iteration}.pt"),
+                )
+                torch.save(
+                    critic.state_dict(),
+                    os.path.join(checkpoint_dir, f"critic_{iteration}.pt"),
+                )
 
             pbar.update()
             sampling_start = time.time()

@@ -2,7 +2,7 @@ import os
 import numpy as np
 import PIL.Image
 
-from diffusion_co_design.diffusion.datasets.rware.generate import (
+from diffusion_co_design.pretrain.rware.generate import (
     colors,
     COLOR_ORDER,
 )
