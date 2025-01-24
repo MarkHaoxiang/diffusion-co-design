@@ -3,7 +3,7 @@ from enum import Enum
 import torch
 from torch import nn
 
-from diffusion_co_design.diffusion.datasets.rware.generate import generate
+from diffusion_co_design.pretrain.rware.generate import generate
 
 
 class RandomDesigner(nn.Module):

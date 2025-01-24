@@ -6,7 +6,6 @@
 # Adapted from
 # https://github.com/pytorch/rl/blob/main/sota-implementations/multiagent/utils/logging.py#L32
 #
-import os
 from typing import Literal
 
 from pydantic import BaseModel
@@ -15,7 +14,6 @@ import torch
 import numpy as np
 from torchrl.record.loggers import Logger, WandbLogger, CSVLogger
 
-from .constants import BASE_DIR
 
 LoggerTypes = Literal["wandb", "csv"] | None
 
@@ -28,14 +26,14 @@ class LoggingConfig(BaseModel):
     checkpoint_interval: int = 50
 
 
-def init_logging(experiment_name: str, cfg: LoggingConfig):
+def init_logging(experiment_name: str, log_dir: str, cfg: LoggingConfig):
     config = dict(cfg)
 
     match cfg.type:
         case "csv":
             logger = CSVLogger(
                 exp_name=experiment_name,
-                log_dir=os.path.join(BASE_DIR, "csv_logs"),
+                log_dir=log_dir,
             )
             logger.log_hparams(config)
         case "wandb":
@@ -43,6 +41,7 @@ def init_logging(experiment_name: str, cfg: LoggingConfig):
                 exp_name=experiment_name,
                 project="diffusion-co-design",
                 mode=cfg.wandb_mode,
+                dir=log_dir,
                 config=config,
             )
         case _:

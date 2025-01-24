@@ -1,0 +1,25 @@
+defaults:
+  - _self_
+  - shared/training@_here_
+
+designer: random
+experiment_name: default
+scenario:
+  size: 16
+  n_shelves: 50
+  agent_idxs:
+  - 1
+  - 88
+  - 132
+  - 233
+  - 162
+  goal_idxs:
+  - 39
+  - 185
+  - 237
+  - 238
+  - 159
+
+logging:
+  type: wandb
+  wandb_mode: online

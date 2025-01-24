@@ -90,12 +90,12 @@ class Generator:
 if __name__ == "__main__":
     import os
     import shutil
-    from diffusion_co_design.utils import BASE_DIR
+    from diffusion_co_design.utils import OUTPUT_DIR
     from PIL import Image
 
     cfg = GeneratorConfig(
         generator_model_path=os.path.join(
-            BASE_DIR, "diffusion_pretrain", "default", "model100000.pt"
+            OUTPUT_DIR, "diffusion_pretrain", "default", "model100000.pt"
         )
     )
 

@@ -17,7 +17,7 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from guided_diffusion.train_util import TrainLoop
-from diffusion_co_design.utils import BASE_DIR
+from diffusion_co_design.utils import OUTPUT_DIR
 
 
 def main():
@@ -26,8 +26,8 @@ def main():
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
-    data_dir = os.path.join(BASE_DIR, "diffusion_datasets", args.experiment_name)
-    log_dir = os.path.join(BASE_DIR, "diffusion_pretrain", args.experiment_name)
+    data_dir = os.path.join(OUTPUT_DIR, "diffusion_datasets", args.experiment_name)
+    log_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", args.experiment_name)
 
     dist_util.setup_dist()
     logger.configure(dir=log_dir)

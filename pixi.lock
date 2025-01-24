@@ -948,7 +948,7 @@ packages:
 - pypi: .
   name: diffusion-co-design
   version: 0.1.0
-  sha256: 43a4fa51e9eed91064c0a97d0f326e0e3b73f2c701087577a1ebc91e0bd04816
+  sha256: ca523065c05692ae3601a67b27fc5bc44edcf2941f41b6301f35de69fe2a939b
   requires_dist:
   - ipykernel
   - pettingzoo>=1.24.3,<2

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel
 
 
 # https://www.gaohongnan.com/software_engineering/config_management/01-pydra.html#pydra

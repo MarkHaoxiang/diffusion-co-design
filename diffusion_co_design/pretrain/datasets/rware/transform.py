@@ -1,17 +1,16 @@
 import os
 import numpy as np
 import PIL.Image
+from rware.layout import Layout
 
 from diffusion_co_design.pretrain.rware.generate import (
     colors,
     COLOR_ORDER,
 )
 from diffusion_co_design.utils import OUTPUT_DIR
-from rware.layout import Layout
 
 
 def image_to_layout(im: np.ndarray) -> Layout:
-
     # Round to nearest colors
     w, h, _ = im.shape
     flattened = im.reshape(-1, 3)

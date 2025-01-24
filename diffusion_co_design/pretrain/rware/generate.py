@@ -14,7 +14,7 @@ from PIL import Image
 
 from rware.warehouse import ImageLayer
 
-from diffusion_co_design.utils import omega_to_pydantic, BASE_DIR
+from diffusion_co_design.utils import omega_to_pydantic, OUTPUT_DIR
 
 
 COLOR_ORDER = [ImageLayer.SHELVES, ImageLayer.AGENTS, ImageLayer.GOALS, "Highway"]
@@ -76,7 +76,7 @@ def generate_run(cfg: WarehouseRandomGeneratorConfig):
     size = cfg.size
 
     # Create empty data directory
-    data_dir = os.path.join(BASE_DIR, "diffusion_datasets", cfg.experiment_name)
+    data_dir = os.path.join(OUTPUT_DIR, "diffusion_datasets", cfg.experiment_name)
     if os.path.exists(data_dir):
         shutil.rmtree(path=data_dir)
     os.makedirs(data_dir)

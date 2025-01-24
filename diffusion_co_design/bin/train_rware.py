@@ -1,34 +1,33 @@
 import os
+from os.path import join
 import time
 
 # Torch, TorchRL, TensorDict
+import hydra.core
+import hydra.core.hydra_config
 import torch
-from torchrl.collectors import SyncDataCollector, MultiSyncDataCollector
+from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
 
 # Config Management
 import hydra
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pydantic import BaseModel
 
 # Rware
 from tqdm import tqdm
 
 from diffusion_co_design.utils import (
-    omega_to_pydantic,
-    BASE_DIR,
     LoggingConfig,
+    omega_to_pydantic,
     init_logging,
     log_training,
     log_evaluation,
 )
-from diffusion_co_design.co_design.rware.env import (
-    ScenarioConfig,
-    rware_env,
-)
-from diffusion_co_design.co_design.rware.model import rware_models, PolicyConfig
+from diffusion_co_design.rware.env import ScenarioConfig, create_batched_env, create_env
+from diffusion_co_design.rware.model import rware_models, PolicyConfig
 
 
 # Devices
@@ -38,10 +37,9 @@ print(f"Training on device {device}")
 
 class TrainingConfig(BaseModel):
     # Problem definition: Built with diffusion.datasets.rware.generate
+    experiment_name: str
     designer: str
-    experiment_name: (
-        str  # TODO: Rethink the config linkup between generation and co_design
-    )
+    scenario: ScenarioConfig
     # Sampling and training
     n_iters: int = 500  # Number of training iterations
     n_epochs: int = 10  # Number of optimization steps per training iteration
@@ -56,9 +54,9 @@ class TrainingConfig(BaseModel):
     lmbda: float = 0.9  # lambda for generalised advantage estimation
     entropy_eps: float = 1e-4  # coefficient of the entropy term in the PPO loss
     # Policy
-    policy_cfg: PolicyConfig = PolicyConfig()
+    policy: PolicyConfig = PolicyConfig()
     # Logging
-    logging_cfg: LoggingConfig = LoggingConfig()
+    logging: LoggingConfig = LoggingConfig()
 
     @property
     def frames_per_batch(self) -> int:
@@ -70,15 +68,21 @@ class TrainingConfig(BaseModel):
 
 
 def train(cfg: TrainingConfig):
-    # Load scenario config
-    scenario = OmegaConf.load(
-        os.path.join(BASE_DIR, "diffusion_datasets", cfg.experiment_name, "config.yaml")
-    )
-    scenario: ScenarioConfig = omega_to_pydantic(scenario, ScenarioConfig)
+    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
-    train_env = rware_env(scenario, is_eval=False, device=device)
-    eval_env = rware_env(scenario, is_eval=True, device=device)
-    policy, critic = rware_models(train_env, cfg.policy_cfg, device)
+    # Load scenario config
+    # train_env = create_env(cfg.scenario, is_eval=False, device=device)
+    placeholder_env = create_env(cfg.scenario, is_eval=False, device=device)
+    n_envs = cfg.frames_per_batch // placeholder_env.max_steps
+    assert n_envs * placeholder_env.max_steps == cfg.frames_per_batch
+    train_env = create_batched_env(
+        num_environments=n_envs,
+        scenario_cfg=cfg.scenario,
+        is_eval=False,
+        device=device,
+    )
+    eval_env = create_env(cfg.scenario, is_eval=True, device=device)
+    policy, critic = rware_models(placeholder_env, cfg.policy, device)
 
     collector = SyncDataCollector(
         train_env,
@@ -120,7 +124,9 @@ def train(cfg: TrainingConfig):
 
     # Logging
     pbar = tqdm(total=cfg.n_iters)
-    logger = init_logging(cfg.experiment_name, cfg.logging_cfg)
+    logger = init_logging(
+        experiment_name=cfg.experiment_name, log_dir=output_dir, cfg=cfg.logging
+    )
 
     # Main Training Loop
 
@@ -185,8 +191,8 @@ def train(cfg: TrainingConfig):
                 )
 
                 if (
-                    cfg.logging_cfg.evaluation_episodes > 0
-                    and iteration % cfg.logging_cfg.evaluation_interval == 0
+                    cfg.logging.evaluation_episodes > 0
+                    and iteration % cfg.logging.evaluation_interval == 0
                 ):
                     evaluation_start = time.time()
                     with (
@@ -194,15 +200,15 @@ def train(cfg: TrainingConfig):
                     ):  # TODO: I don't think we want determinism for rware.
                         frames = []
                         rollouts = []
-                        for i in range(cfg.logging_cfg.evaluation_episodes):
+                        for i in range(cfg.logging.evaluation_episodes):
                             callback = lambda env, td: (
                                 frames.append(env.render()) if i == 0 else None
                             )
                             rollout = eval_env.rollout(
                                 max_steps=(
                                     1000
-                                    if train_env.max_steps is None
-                                    else train_env.max_steps
+                                    if placeholder_env.max_steps is None
+                                    else placeholder_env.max_steps
                                 ),
                                 policy=policy,
                                 callback=callback,
@@ -220,20 +226,20 @@ def train(cfg: TrainingConfig):
                             step=iteration,
                         )
 
-            if cfg.logging_cfg.type == "wandb":
+            if cfg.logging.type == "wandb":
                 logger.experiment.log({}, commit=True)
 
-            if iteration % cfg.logging_cfg.checkpoint_interval == 0:
-                checkpoint_dir = (
-                    hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-                )
+            if iteration % cfg.logging.checkpoint_interval == 0:
+                checkpoint_dir = join(output_dir, "checkpoints")
+                if not os.path.exists(checkpoint_dir):
+                    os.makedirs(checkpoint_dir)
                 torch.save(
                     policy.state_dict(),
-                    os.path.join(checkpoint_dir, f"policy_{iteration}.pt"),
+                    join(checkpoint_dir, f"policy_{iteration}.pt"),
                 )
                 torch.save(
                     critic.state_dict(),
-                    os.path.join(checkpoint_dir, f"critic_{iteration}.pt"),
+                    join(checkpoint_dir, f"critic_{iteration}.pt"),
                 )
 
             pbar.update()
@@ -246,7 +252,7 @@ def train(cfg: TrainingConfig):
                 env.close()
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="testing")
+@hydra.main(version_base=None, config_path="conf", config_name="default")
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")
     config = omega_to_pydantic(config, TrainingConfig)

@@ -157,8 +157,8 @@ def _rware_models_flattened(
             centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
             share_params=True,
             device=device,
-            depth=2,
-            num_cells=128,
+            depth=cfg.depth,
+            num_cells=cfg.hidden_size,
             activation_class=torch.nn.Tanh,
         ),
     )
@@ -187,8 +187,8 @@ def _rware_models_flattened(
         centralised=True,
         share_params=True,
         device=device,
-        depth=2,
-        num_cells=256,
+        depth=cfg.depth,
+        num_cell=cfg.hidden_size,
         activation_class=torch.nn.Tanh,
     )
 
@@ -275,4 +275,5 @@ def _rware_models_flattened(
 #     env, Compose(InitTracker(), TensorDictPrimer(rnn_spec, reset_key="_reset"))
 # )
 
-rware_models = _rware_models
+# rware_models = _rware_models
+rware_models = _rware_models_flattened

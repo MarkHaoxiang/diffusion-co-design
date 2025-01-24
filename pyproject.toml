@@ -45,9 +45,9 @@ wandb = { version = "*", extras = ["media"] }
 
 
 [tool.pixi.tasks]
-generate_rware = "python -m diffusion_co_design.diffusion.datasets.rware.generate"
-pretrain_rware = "python -m diffusion_co_design.diffusion.datasets.rware.pretrain"
-train_rware = "echo $(mpiexec -n 1 python -m diffusion_co_design.co_design.scripts.train_rware)"
+generate_rware = "python -m diffusion_co_design.pretrain.rware.generate"
+pretrain_rware = "echo $(mpiexec -n 1 python -m diffusion_co_design.pretrain.rware.pretrain)"
+train_rware = "python -m diffusion_co_design.bin.train_rware"
 
 
 [tool.pixi.dependencies]

@@ -6,12 +6,13 @@ from torchrl.envs import (
     MarlGroupMapType,
     TransformedEnv,
     RewardSum,
+    SerialEnv,
 )
 
 from pydantic import BaseModel
 
 from diffusion_co_design.pretrain.rware.transform import image_to_layout
-from diffusion_co_design.co_design.rware.design import RandomDesigner
+from diffusion_co_design.rware.design import RandomDesigner
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationType
 
@@ -85,7 +86,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         return tensordict_out
 
 
-def rware_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = None):
+def create_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = None):
     design_policy = None
 
     # Define environment design policy
@@ -109,7 +110,8 @@ def rware_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = Non
             layout=initial_layout,
             request_queue_size=5,
             render_mode="rgb_array" if is_eval else None,
-            observation_type=ObservationType.IMAGE_LAYOUT,
+            max_steps=1000,
+            # observation_type=ObservationType.IMAGE_LAYOUT,
         )
     )
     env.reset()
@@ -129,3 +131,13 @@ def rware_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = Non
             ),
         )
     return env
+
+
+def create_batched_env(
+    num_environments: int,
+    scenario_cfg: ScenarioConfig,
+    is_eval: bool = False,
+    device=None,
+):
+    create_env_fn = lambda: create_env(scenario_cfg, is_eval=is_eval, device=device)
+    return SerialEnv(num_workers=num_environments, create_env_fn=create_env_fn)

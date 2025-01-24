@@ -22,11 +22,11 @@ from pydantic import BaseModel
 # Vmas
 
 from diffusion_co_design.utils import omega_to_pydantic
-from diffusion_co_design.co_design.vmas.env import (
+from diffusion_co_design.vmas.env import (
     ScenarioConfig,
     vmas_env,
 )
-from diffusion_co_design.co_design.vmas.model import rware_models, PolicyConfig
+from diffusion_co_design.vmas.model import rware_models, PolicyConfig
 
 
 # Devices
