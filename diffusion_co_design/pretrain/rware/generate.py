@@ -8,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 
 import numpy as np
-from matplotlib import cm
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from PIL import Image
 
@@ -34,8 +34,10 @@ class WarehouseRandomGeneratorConfig(BaseModel):
 
 # Shelves, Agents, Goals
 n_colors = len(COLOR_ORDER)
-colors = cm.get_cmap("rainbow", n_colors)
-colors = (np.array([colors(i)[:3] for i in range(n_colors)]) * 255).round()
+cmap = plt.colormaps["rainbow"]
+colors = (
+    np.array([cmap(i / (n_colors - 1))[:3] for i in range(n_colors)]) * 255
+).round()
 
 
 def generate(

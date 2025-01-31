@@ -19,7 +19,8 @@ from .env import RwareCoDesignWrapper
 
 class PolicyConfig(BaseModel):
     # CNN
-    kernel_sizes: int | Sequence[int] = 5
+    kernel_sizes: int | Sequence[int] = 3
+    num_cells: int | Sequence[int] = [16, 32, 64]
     strides: Sequence[int] | int = 1
     # MLP
     hidden_size: int = 128
@@ -44,6 +45,139 @@ class Critic(nn.Module):
         pass
 
 
+def _rware_models_2(
+    env: RwareCoDesignWrapper, cfg: PolicyConfig, device: DEVICE_TYPING | None
+):
+    # Policy
+    policy_cnn_net_1 = MultiAgentConvNet(
+        n_agents=env.num_agents,
+        centralized=False,
+        share_params=cfg.share_params,
+        kernel_sizes=cfg.kernel_sizes,
+        num_cells=cfg.num_cells,
+        strides=cfg.strides,
+        device=device,
+    )
+    policy_cnn_module_1 = TensorDictModule(
+        module=policy_cnn_net_1,
+        in_keys=[("agents", "observation", "global_image")],
+        out_keys=[("agents", "observation", "global_image_features")],
+    )
+    policy_cnn_net_2 = MultiAgentConvNet(
+        n_agents=env.num_agents,
+        centralized=False,
+        share_params=cfg.share_params,
+        kernel_sizes=2,
+        num_cells=cfg.num_cells,
+        strides=cfg.strides,
+        device=device,
+    )
+    policy_cnn_module_2 = TensorDictModule(
+        module=policy_cnn_net_2,
+        in_keys=[("agents", "observation", "local_image")],
+        out_keys=[("agents", "observation", "local_image_features")],
+    )
+    policy_mlp_net = MultiAgentMLP(
+        n_agent_inputs=None,  # Lazy instantiation
+        n_agent_outputs=env.action_spec.space.n,  # n_actions_per_agents
+        n_agents=env.num_agents,
+        depth=cfg.depth,
+        num_cells=cfg.hidden_size,
+        activation_class=torch.nn.Tanh,
+        centralised=False,
+        share_params=cfg.share_params,
+        device=device,
+    )
+    policy_mlp_module = TensorDictModule(
+        module=policy_mlp_net,
+        in_keys=[
+            ("agents", "observation", "features"),
+            ("agents", "observation", "global_image_features"),
+            ("agents", "observation", "local_image_features"),
+        ],
+        out_keys=[("agents", "logits")],
+    )
+    policy_module = TensorDictSequential(
+        policy_cnn_module_1, policy_cnn_module_2, policy_mlp_module
+    )
+    policy = ProbabilisticActor(
+        module=policy_module,
+        spec=env.action_spec,
+        in_keys=[("agents", "logits")],
+        out_keys=[env.action_key],
+        distribution_class=Categorical,
+        return_log_prob=True,
+        log_prob_key=("agents", "sample_log_prob"),
+        default_interaction_type=InteractionType.RANDOM,
+    )
+
+    # Critic
+    # TODO: A unet may be needed for diffusion
+    # TODO: We need a custom module to collect the shared observations
+    critic_cnn_net_1 = MultiAgentConvNet(
+        n_agents=env.num_agents,
+        centralized=False,
+        share_params=cfg.share_params,
+        kernel_sizes=cfg.kernel_sizes,
+        num_cells=cfg.num_cells,
+        strides=cfg.strides,
+        device=device,
+    )
+    critic_cnn_module_1 = TensorDictModule(
+        module=critic_cnn_net_1,
+        in_keys=[("agents", "observation", "global_image")],
+        out_keys=[("agents", "observation", "critic_global_image_features")],
+    )
+    critic_cnn_net_2 = MultiAgentConvNet(
+        n_agents=env.num_agents,
+        centralized=False,
+        share_params=cfg.share_params,
+        kernel_sizes=2,
+        num_cells=cfg.num_cells,
+        strides=cfg.strides,
+        device=device,
+    )
+    critic_cnn_module_2 = TensorDictModule(
+        module=critic_cnn_net_2,
+        in_keys=[("agents", "observation", "local_image")],
+        out_keys=[("agents", "observation", "critic_local_image_features")],
+    )
+    critic_mlp_net = MultiAgentMLP(
+        n_agent_inputs=None,
+        n_agent_outputs=1,
+        n_agents=env.num_agents,
+        depth=cfg.depth,
+        num_cells=cfg.hidden_size,
+        activation_class=torch.nn.Tanh,
+        centralised=False,
+        share_params=cfg.share_params,
+        device=device,
+    )
+    critic_mlp_module = TensorDictModule(
+        module=critic_mlp_net,
+        in_keys=[
+            ("agents", "observation", "features"),
+            ("agents", "observation", "critic_local_image_features"),
+            ("agents", "observation", "critic_global_image_features"),
+        ],
+        out_keys=[("agents", "state_value")],
+    )
+    critic = TensorDictSequential(
+        critic_cnn_module_1,
+        critic_cnn_module_2,
+        critic_mlp_module,
+        selected_out_keys=[("agents", "state_value")],
+    )
+
+    # Initialise
+    td = env.reset()
+    with torch.no_grad():
+        policy(td)
+        critic(td)
+
+    return policy, critic
+
+
 def _rware_models(
     env: RwareCoDesignWrapper, cfg: PolicyConfig, device: DEVICE_TYPING | None
 ):
@@ -53,6 +187,7 @@ def _rware_models(
         centralized=False,
         share_params=cfg.share_params,
         kernel_sizes=cfg.kernel_sizes,
+        num_cells=cfg.num_cells,
         strides=cfg.strides,
         device=device,
     )
@@ -100,6 +235,7 @@ def _rware_models(
         centralized=False,
         share_params=cfg.share_params,
         kernel_sizes=cfg.kernel_sizes,
+        num_cells=cfg.num_cells,
         strides=cfg.strides,
         device=device,
     )
@@ -188,7 +324,7 @@ def _rware_models_flattened(
         share_params=True,
         device=device,
         depth=cfg.depth,
-        num_cell=cfg.hidden_size,
+        num_cells=cfg.hidden_size,
         activation_class=torch.nn.Tanh,
     )
 
@@ -275,5 +411,5 @@ def _rware_models_flattened(
 #     env, Compose(InitTracker(), TensorDictPrimer(rnn_spec, reset_key="_reset"))
 # )
 
-# rware_models = _rware_models
-rware_models = _rware_models_flattened
+rware_models = _rware_models_2
+# rware_models = _rware_models_flattened

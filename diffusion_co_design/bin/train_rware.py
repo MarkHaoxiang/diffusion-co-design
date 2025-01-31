@@ -28,11 +28,15 @@ from diffusion_co_design.utils import (
 )
 from diffusion_co_design.rware.env import ScenarioConfig, create_batched_env, create_env
 from diffusion_co_design.rware.model import rware_models, PolicyConfig
-
+from diffusion_co_design.rware.design import DesignerRegistry
+from torchrl.trainers import RewardNormalizer
 
 # Devices
 device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
-print(f"Training on device {device}")
+cuda_if_available = (
+    torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
+)
+cpu = torch.device("cpu")
 
 
 class TrainingConfig(BaseModel):
@@ -44,7 +48,7 @@ class TrainingConfig(BaseModel):
     n_iters: int = 500  # Number of training iterations
     n_epochs: int = 10  # Number of optimization steps per training iteration
     #    minibatch_size: int = 400  # Size of the mini-batches in each optimization step
-    minibatch_size: int = 400  # Size of the mini-batches in each optimization step
+    minibatch_size: int = 800  # Size of the mini-batches in each optimization step
     n_mini_batches: int = 20  # Number of mini-batches in each epoch
     ppo_lr: float = 5e-4  # Learning rate
     max_grad_norm: float = 1.0  # Maximum norm for the gradients
@@ -70,18 +74,19 @@ class TrainingConfig(BaseModel):
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
-    # Load scenario config
-    # train_env = create_env(cfg.scenario, is_eval=False, device=device)
-    placeholder_env = create_env(cfg.scenario, is_eval=False, device=device)
-    n_envs = cfg.frames_per_batch // placeholder_env.max_steps
-    assert n_envs * placeholder_env.max_steps == cfg.frames_per_batch
+    designer = DesignerRegistry.get(cfg.designer)(cfg.scenario)
+
+    placeholder_env = create_env(cfg.scenario, designer, is_eval=False, device=device)
+    n_train_envs = cfg.frames_per_batch // placeholder_env.max_steps
+    assert n_train_envs * placeholder_env.max_steps == cfg.frames_per_batch
     train_env = create_batched_env(
-        num_environments=n_envs,
-        scenario_cfg=cfg.scenario,
+        num_environments=n_train_envs,
+        designer=designer,
+        scenario=cfg.scenario,
         is_eval=False,
         device=device,
     )
-    eval_env = create_env(cfg.scenario, is_eval=True, device=device)
+    eval_env = create_env(cfg.scenario, designer, is_eval=True, device=device)
     policy, critic = rware_models(placeholder_env, cfg.policy, device)
 
     collector = SyncDataCollector(
@@ -201,9 +206,10 @@ def train(cfg: TrainingConfig):
                         frames = []
                         rollouts = []
                         for i in range(cfg.logging.evaluation_episodes):
-                            callback = lambda env, td: (
-                                frames.append(env.render()) if i == 0 else None
-                            )
+
+                            def callback(env, td):
+                                return frames.append(env.render()) if i == 0 else None
+
                             rollout = eval_env.rollout(
                                 max_steps=(
                                     1000

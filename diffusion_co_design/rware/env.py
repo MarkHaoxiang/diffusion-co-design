@@ -7,21 +7,13 @@ from torchrl.envs import (
     TransformedEnv,
     RewardSum,
     SerialEnv,
+    ParallelEnv,
 )
-
-from pydantic import BaseModel
+from rware.pettingzoo import PettingZooWrapper as RwarePZW
+from rware.warehouse import Warehouse, ObservationRegistry, RewardType
 
 from diffusion_co_design.pretrain.rware.transform import image_to_layout
-from diffusion_co_design.rware.design import RandomDesigner
-from rware.pettingzoo import PettingZooWrapper as RwarePZW
-from rware.warehouse import Warehouse, ObservationType
-
-
-class ScenarioConfig(BaseModel):
-    size: int
-    n_shelves: int
-    agent_idxs: list[int]
-    goal_idxs: list[int]
+from diffusion_co_design.rware.design import RandomDesigner, ScenarioConfig, Designer
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
@@ -86,7 +78,12 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         return tensordict_out
 
 
-def create_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = None):
+def create_env(
+    scenario: ScenarioConfig,
+    designer: Designer,
+    is_eval: bool = False,
+    device: str = None,
+):
     design_policy = None
 
     # Define environment design policy
@@ -96,22 +93,20 @@ def create_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = No
         "agent_positions": torch.tensor(scenario.agent_idxs),
         "goal_idxs": torch.tensor(scenario.goal_idxs),
     }
+    initial_layout = designer.generate_environment(scenario_objective)
 
-    initial_layout = image_to_layout(
-        RandomDesigner(
-            size=scenario.size,
-            n_shelves=scenario.n_shelves,
-            agent_idxs=scenario.agent_idxs,
-            goal_idxs=scenario.goal_idxs,
-        )(None)
-    )
     env = RwarePZW(
         Warehouse(
             layout=initial_layout,
+            # shelf_columns=3,
+            # column_height=8,
+            # shelf_rows=1,
             request_queue_size=5,
             render_mode="rgb_array" if is_eval else None,
-            max_steps=1000,
-            # observation_type=ObservationType.IMAGE_LAYOUT,
+            sensor_range=3,
+            max_steps=500,
+            reward_type=RewardType.SHAPED,
+            observation_type=ObservationRegistry.IMAGE_LAYOUT,
         )
     )
     env.reset()
@@ -135,9 +130,17 @@ def create_env(scenario: ScenarioConfig, is_eval: bool = False, device: str = No
 
 def create_batched_env(
     num_environments: int,
-    scenario_cfg: ScenarioConfig,
+    scenario: ScenarioConfig,
+    designer: Designer,
     is_eval: bool = False,
     device=None,
 ):
-    create_env_fn = lambda: create_env(scenario_cfg, is_eval=is_eval, device=device)
-    return SerialEnv(num_workers=num_environments, create_env_fn=create_env_fn)
+    def create_env_fn():
+        return create_env(scenario, designer, is_eval=is_eval, device="cpu")
+
+    return ParallelEnv(
+        num_workers=num_environments, create_env_fn=create_env_fn, device=device
+    )
+    # return SerialEnv(
+    #     num_workers=num_environments, create_env_fn=create_env_fn, device=device
+    # )

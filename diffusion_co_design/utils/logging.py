@@ -154,7 +154,7 @@ def log_evaluation(
         logger.experiment.log(metrics_to_log, commit=False)
         logger.experiment.log(
             {
-                "eval/video": wandb.Video(vid, fps=20, format="mp4"),
+                "eval/video": wandb.Video(vid, fps=10, format="mp4"),
             },
             commit=False,
         )

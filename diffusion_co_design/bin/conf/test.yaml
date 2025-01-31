@@ -4,10 +4,10 @@ defaults:
 
 designer: none
 experiment_name: simple_env_cnn_fixed
-n_iters: 10_000
+n_iters: 100
 n_epochs: 5
-minibatch_size: 1000
-n_mini_batches: 10
+minibatch_size: 500
+n_mini_batches: 2
 scenario:
   size: 16
   n_shelves: 50
@@ -26,5 +26,4 @@ scenario:
 
 logging:
   type: wandb
-  # wandb_mode: disabled
-  wandb_mode: online
+  wandb_mode: disabled

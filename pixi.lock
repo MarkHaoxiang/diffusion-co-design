@@ -3778,7 +3778,7 @@ packages:
 - pypi: packages/robotic-warehouse
   name: rware
   version: 2.0.0
-  sha256: b06f8046e3c61f1dadd52ebcf658fc72d34492069da39747b73a7e11d1173eaf
+  sha256: db9a130307208529de2d7755c03601e16b5dfcafeeab823270aaec9c793d15a9
   requires_dist:
   - numpy
   - gymnasium
@@ -3787,6 +3787,7 @@ packages:
   - six
   - pytest ; extra == 'test'
   - expecttest>=0.3.0,<0.4 ; extra == 'test'
+  - mypy ; extra == 'test'
   - pettingzoo ; extra == 'pettingzoo'
   requires_python: '>=3.10'
   editable: true
