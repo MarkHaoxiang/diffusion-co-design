@@ -10,10 +10,10 @@ from torchrl.envs import (
     ParallelEnv,
 )
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
-from rware.warehouse import Warehouse, ObservationRegistry, RewardType
+from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry
 
 from diffusion_co_design.pretrain.rware.transform import image_to_layout
-from diffusion_co_design.rware.design import RandomDesigner, ScenarioConfig, Designer
+from diffusion_co_design.rware.design import ScenarioConfig, Designer, FixedDesigner
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
@@ -84,16 +84,18 @@ def create_env(
     is_eval: bool = False,
     device: str = None,
 ):
-    design_policy = None
-
     # Define environment design policy
     # TODO: We probably want feature engineering.
     # Or does this even matter if everything is fixed for initial experiments?
+    if is_eval:  # Temp generalisation_experiment
+        design_policy = FixedDesigner(scenario)
+
     scenario_objective = {
         "agent_positions": torch.tensor(scenario.agent_idxs),
         "goal_idxs": torch.tensor(scenario.goal_idxs),
     }
     initial_layout = designer.generate_environment(scenario_objective)
+    design_policy = designer.to_td_module()
 
     env = RwarePZW(
         Warehouse(
@@ -105,7 +107,7 @@ def create_env(
             render_mode="rgb_array" if is_eval else None,
             sensor_range=3,
             max_steps=500,
-            reward_type=RewardType.SHAPED,
+            reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.IMAGE_LAYOUT,
         )
     )

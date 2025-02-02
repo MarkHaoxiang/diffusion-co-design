@@ -29,7 +29,6 @@ from diffusion_co_design.utils import (
 from diffusion_co_design.rware.env import ScenarioConfig, create_batched_env, create_env
 from diffusion_co_design.rware.model import rware_models, PolicyConfig
 from diffusion_co_design.rware.design import DesignerRegistry
-from torchrl.trainers import RewardNormalizer
 
 # Devices
 device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
@@ -130,7 +129,10 @@ def train(cfg: TrainingConfig):
     # Logging
     pbar = tqdm(total=cfg.n_iters)
     logger = init_logging(
-        experiment_name=cfg.experiment_name, log_dir=output_dir, cfg=cfg.logging
+        experiment_name=cfg.experiment_name,
+        log_dir=output_dir,
+        cfg=cfg.logging,
+        full_config=cfg,
     )
 
     # Main Training Loop

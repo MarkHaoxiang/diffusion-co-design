@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from enum import Enum
 
 import torch
 from torch import nn
+from tensordict.nn import TensorDictModule
 from pydantic import BaseModel
 
 from diffusion_co_design.pretrain.rware.transform import image_to_layout
@@ -30,6 +30,13 @@ class Designer(nn.Module, ABC):
     def generate_environment(self, objective):
         return image_to_layout(self.generate_environment_image(objective))
 
+    def to_td_module(self):
+        return TensorDictModule(
+            self,
+            in_keys=[("environment_design", "objective")],
+            out_keys=[("environment_design", "layout_image")],
+        )
+
 
 class RandomDesigner(Designer):
     def __init__(self, scenario: ScenarioConfig):
@@ -41,18 +48,21 @@ class RandomDesigner(Designer):
             scenario.goal_idxs,
         )
 
-    def forward(self):
+    def forward(self, objective):
         env = torch.tensor(generate(*self._generate_args)[0])
         return env
 
     def generate_environment_image(self, objective):
-        return self.forward()
+        return self.forward(objective)
 
 
 class FixedDesigner(Designer):
     def __init__(self, scenario):
         super().__init__(scenario)
         self.layout_image = RandomDesigner(scenario).generate_environment_image(None)
+
+    def forward(self, objective):
+        return self.layout_image
 
     def generate_environment_image(self, objective):
         return self.layout_image

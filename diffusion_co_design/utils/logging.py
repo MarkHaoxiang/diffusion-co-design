@@ -6,7 +6,7 @@
 # Adapted from
 # https://github.com/pytorch/rl/blob/main/sota-implementations/multiagent/utils/logging.py#L32
 #
-from typing import Literal
+from typing import Literal, Any
 
 from pydantic import BaseModel
 from tensordict import TensorDictBase
@@ -26,8 +26,13 @@ class LoggingConfig(BaseModel):
     checkpoint_interval: int = 50
 
 
-def init_logging(experiment_name: str, log_dir: str, cfg: LoggingConfig):
-    config = dict(cfg)
+def init_logging(
+    experiment_name: str,
+    log_dir: str,
+    cfg: LoggingConfig,
+    full_config: Any | None = None,
+):
+    full_config = dict(full_config) if full_config is not None else {}
 
     match cfg.type:
         case "csv":
@@ -35,14 +40,14 @@ def init_logging(experiment_name: str, log_dir: str, cfg: LoggingConfig):
                 exp_name=experiment_name,
                 log_dir=log_dir,
             )
-            logger.log_hparams(config)
+            logger.log_hparams(full_config)
         case "wandb":
             logger = WandbLogger(
                 exp_name=experiment_name,
                 project="diffusion-co-design",
                 mode=cfg.wandb_mode,
                 dir=log_dir,
-                config=config,
+                config=full_config,
             )
         case _:
             logger = None

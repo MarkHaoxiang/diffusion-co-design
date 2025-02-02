@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 from torch import nn
-from torch import Generator
 
 from guided_diffusion import dist_util
 from guided_diffusion.script_util import (
@@ -18,8 +17,16 @@ class GeneratorConfig(BaseModel):
     batch_size: int = 32
 
 
+device = dist_util.dev()
+
+
 class Generator:
-    def __init__(self, cfg: GeneratorConfig, rng: Generator | None = None):
+    def __init__(
+        self,
+        cfg: GeneratorConfig,
+        rng: torch.Generator | None = None,
+        guidance_wt: float = 10.0,
+    ):
         super().__init__()
 
         self.size = cfg.size
@@ -27,8 +34,10 @@ class Generator:
         self.image_channels = 3
         self.clip_denoised = True
 
+        self.guidance_weight = guidance_wt
+
         if rng is None:
-            self.rng = Generator(device=dist_util.dev())
+            self.rng = torch.Generator(device)
         else:
             self.rng = rng
 
@@ -48,20 +57,28 @@ class Generator:
             dist_util.load_state_dict(cfg.generator_model_path, map_location="cpu")
         )
         dist_util.setup_dist()
-        self.model.to(dist_util.dev())
+        self.model.to(device)
         self.model.eval()
 
-    def generate_batch(self):
+    def generate_batch(self, value: nn.Module | None = None):
+        initial_noise = torch.randn(self.shape, generator=self.rng, device=device)
 
-        initial_noise = torch.randn(
-            self.shape, generator=self.rng, device=dist_util.dev()
-        )
+        if value is not None:
+
+            def cond_fn(x: torch.Tensor, t):
+                with torch.enable_grad():
+                    x_in = x.detach().requires_grad_(True)
+                    out = value(x_in, t).sum() * self.guidance_weight
+                    return torch.autograd.grad(outputs=out, inputs=x_in)[0]
+        else:
+            cond_fn = None
 
         sample = self.diffusion.ddim_sample_loop(
             model=self.model,
             shape=self.shape,
             noise=initial_noise,
             clip_denoised=self.clip_denoised,
+            cond_fn=cond_fn,
         )
         sample = (
             ((sample + 1) * 127.5)
@@ -88,10 +105,22 @@ class Generator:
 
 
 if __name__ == "__main__":
+    import argparse
     import os
     import shutil
-    from diffusion_co_design.utils import OUTPUT_DIR
     from PIL import Image
+
+    from guided_diffusion.script_util import create_classifier, classifier_defaults
+
+    from diffusion_co_design.utils import OUTPUT_DIR
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "option",
+        type=str,
+        choices=["unguided", "guided"],
+    )
+    args = parser.parse_args()
 
     cfg = GeneratorConfig(
         generator_model_path=os.path.join(
@@ -99,9 +128,32 @@ if __name__ == "__main__":
         )
     )
 
-    # Generate a unguided batch
-    generator = Generator(cfg)
-    environment_batch = generator.generate_batch()
+    if args.option == "unguided":
+        # Generate a unguided batch
+        generator = Generator(cfg)
+        environment_batch = generator.generate_batch()
+    elif args.option == "guided":
+
+        class PseudoValue(torch.nn.Module):
+            def __init__(self, size):
+                super().__init__()
+                self.size = size
+
+            def forward(self, x, t):
+                indices = (
+                    torch.arange(self.size, dtype=torch.float32)
+                    .view(-1, 1)
+                    .expand(self.size, self.size)
+                ).to(x.device)
+                channel = x[..., 0, :, :]
+                return (channel * indices).sum(dim=(-2, -1))
+
+        value = PseudoValue(cfg.size)
+        generator = Generator(cfg, guidance_wt=0.05)
+
+        environment_batch = generator.generate_batch(value=value)
+    else:
+        raise NotImplementedError()
 
     # Save to disk
     data_dir = "test_diffusion_output"

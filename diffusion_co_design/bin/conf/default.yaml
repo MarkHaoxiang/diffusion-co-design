@@ -3,7 +3,7 @@ defaults:
   - shared/training@_here_
 
 designer: none
-experiment_name: simple_env_cnn_fixed
+experiment_name: env_fixed
 n_iters: 10_000
 n_epochs: 5
 minibatch_size: 1000

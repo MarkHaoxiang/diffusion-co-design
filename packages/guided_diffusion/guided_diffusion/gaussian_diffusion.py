@@ -382,6 +382,7 @@ class GaussianDiffusion:
         alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
 
         eps = self._predict_eps_from_xstart(x, t, p_mean_var["pred_xstart"])
+        model_kwargs = model_kwargs if model_kwargs else {}
         eps = eps - (1 - alpha_bar).sqrt() * cond_fn(
             x, self._scale_timesteps(t), **model_kwargs
         )
@@ -577,7 +578,7 @@ class GaussianDiffusion:
         noise = th.randn_like(x)
         mean_pred = (
             out["pred_xstart"] * th.sqrt(alpha_bar_prev)
-            + th.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
+            + th.sqrt(1 - alpha_bar_prev - sigma**2) * eps
         )
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
@@ -615,7 +616,7 @@ class GaussianDiffusion:
         _ = None
 
         for j in range(operation.num_recurrences):
-            if (not operation.use_forward):
+            if not operation.use_forward:
                 out = self.p_mean_variance(
                     model,
                     x,
@@ -625,7 +626,6 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                 )
 
-
             operation_func = operation.operation_func
             other_guidance_func = operation.other_guidance_func
             criterion = operation.loss_func
@@ -633,11 +633,12 @@ class GaussianDiffusion:
             backward_steps = operation.backward_steps
             loss_cutoff = operation.loss_cutoff
 
-            if (operation.print and (not operation.use_forward)):
-                if t[0] % operation.print_every == 0 and j==0:
+            if operation.print and (not operation.use_forward):
+                if t[0] % operation.print_every == 0 and j == 0:
                     temp = (out["pred_xstart"] + 1) * 0.5
-                    utils.save_image(temp, f'{operation.folder}/samples/old_sample_{t[0]}.png')
-
+                    utils.save_image(
+                        temp, f"{operation.folder}/samples/old_sample_{t[0]}.png"
+                    )
 
             if operation.use_forward:
                 with th.enable_grad():
@@ -648,13 +649,15 @@ class GaussianDiffusion:
                     B, C = x.shape[:2]
                     # assert model_output.shape == (B, C * 1, *x.shape[2:])
                     model_output, *_ = th.split(model_output, C, dim=1)
-                    pred_xstart = self._predict_xstart_from_eps(x_t=x_in, t=t, eps=model_output)
+                    pred_xstart = self._predict_xstart_from_eps(
+                        x_t=x_in, t=t, eps=model_output
+                    )
                     pred_xstart.clamp(-1, 1)
 
                     if other_guidance_func != None:
                         op_im = other_guidance_func(pred_xstart)
                     elif operation_func != None:
-                        op_im = operation_func(pred_xstart) # reward(x_0)
+                        op_im = operation_func(pred_xstart)  # reward(x_0)
                     else:
                         op_im = pred_xstart
 
@@ -671,39 +674,43 @@ class GaussianDiffusion:
                     grad = grad * operation.forward_guidance_wt
 
                     alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
-                    
+
                     eps = model_output
-                    if operation.sampling_type == 'ddim':
+                    if operation.sampling_type == "ddim":
                         eps = eps - (1 - alpha_bar).sqrt() * grad
-                    elif operation.sampling_type == 'ddpm':
-                        sqrt_alpha = _extract_into_tensor(np.sqrt(1. - self.betas), t, x.shape)
+                    elif operation.sampling_type == "ddpm":
+                        sqrt_alpha = _extract_into_tensor(
+                            np.sqrt(1.0 - self.betas), t, x.shape
+                        )
                         eps = eps - (1 - alpha_bar).sqrt() * sqrt_alpha * grad
 
                     out = {}
                     out["pred_xstart"] = self._predict_xstart_from_eps(x, t, eps)
 
-
-
                 if operation.print:
                     if t[0] % operation.print_every == 0 and j == 0:
                         temp = (out["pred_xstart"] + 1) * 0.5
-                        utils.save_image(temp, f'{operation.folder}/samples/guide_3_{t[0]}.png')
-
-
+                        utils.save_image(
+                            temp, f"{operation.folder}/samples/guide_3_{t[0]}.png"
+                        )
 
             if operation.original_guidance:
                 alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
                 eps = self._predict_eps_from_xstart(x, t, out["pred_xstart"])
                 x_in = x.detach().requires_grad_(True)
-                if operation.sampling_type == 'ddim':
+                if operation.sampling_type == "ddim":
                     grad = (1 - alpha_bar).sqrt() * cond_fn(
                         x_in, self._scale_timesteps(t), **model_kwargs
                     )
-                elif operation.sampling_type == 'ddpm':
+                elif operation.sampling_type == "ddpm":
                     # Multiply additional sqrt(alpha_t) factor to produce same effect as in condition_mean
-                    sqrt_alpha = _extract_into_tensor(np.sqrt(1. - self.betas), t, x.shape)
-                    grad = (1 - alpha_bar).sqrt() * sqrt_alpha * cond_fn(
-                        x_in, self._scale_timesteps(t), **model_kwargs
+                    sqrt_alpha = _extract_into_tensor(
+                        np.sqrt(1.0 - self.betas), t, x.shape
+                    )
+                    grad = (
+                        (1 - alpha_bar).sqrt()
+                        * sqrt_alpha
+                        * cond_fn(x_in, self._scale_timesteps(t), **model_kwargs)
                     )
                 else:
                     raise NotImplementedError
@@ -714,24 +721,27 @@ class GaussianDiffusion:
                 if operation.print:
                     if t[0] % operation.print_every == 0 and j == 0:
                         temp = (out["pred_xstart"] + 1) * 0.5
-                        utils.save_image(temp, f'{operation.folder}/samples/original_guidance_{t[0]}.png')
-
+                        utils.save_image(
+                            temp,
+                            f"{operation.folder}/samples/original_guidance_{t[0]}.png",
+                        )
 
             x0 = out["pred_xstart"]
             if operation.old_img != None:
                 fact = operation.fact
                 x0 = fact * operation.old_img + (1 - fact) * x0
 
-
             th.set_grad_enabled(True)
             x0 = x0.detach().requires_grad_(True)
 
-            if operation.optimizer == 'Adam':
+            if operation.optimizer == "Adam":
                 lr = operation.lr
                 optimizer = th.optim.Adam([x0], lr=lr)
 
-            if operation.lr_scheduler == 'CosineAnnealingLR':
-                scheduler = th.optim.lr_scheduler.CosineAnnealingLR(optimizer, backward_steps)
+            if operation.lr_scheduler == "CosineAnnealingLR":
+                scheduler = th.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer, backward_steps
+                )
 
             loss = None
             _ = None
@@ -774,7 +784,12 @@ class GaussianDiffusion:
                     diff2 = x0[:, :, :-1, :] - x0[:, :, 1:, :]
                     diff3 = x0[:, :, 1:, :-1] - x0[:, :, :-1, 1:]
                     diff4 = x0[:, :, :-1, :-1] - x0[:, :, 1:, 1:]
-                    loss_var = th.norm(diff1) + th.norm(diff2) + th.norm(diff3) + th.norm(diff4)
+                    loss_var = (
+                        th.norm(diff1)
+                        + th.norm(diff2)
+                        + th.norm(diff3)
+                        + th.norm(diff4)
+                    )
                     m_loss += operation.tv_loss * loss_var
 
                 m_loss.backward()
@@ -803,36 +818,36 @@ class GaussianDiffusion:
 
             alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
             alpha_bar_prev = _extract_into_tensor(self.alphas_cumprod_prev, t, x.shape)
-            
 
-            if operation.sampling_type == 'ddim':
+            if operation.sampling_type == "ddim":
                 mean_pred = (
                     out["pred_xstart"] * th.sqrt(alpha_bar_prev)
                     + th.sqrt(1 - alpha_bar_prev) * eps
                 )
                 sample = mean_pred
-            elif operation.sampling_type == 'ddpm':
-                '''
+            elif operation.sampling_type == "ddpm":
+                """
                 Follows the implementation of p_sample
-                '''
+                """
                 mean_pred, _, _ = self.q_posterior_mean_variance(
-                    x_start=out["pred_xstart"], x_t=x, t=t,
+                    x_start=out["pred_xstart"],
+                    x_t=x,
+                    t=t,
                 )
                 log_var = _extract_into_tensor(
                     np.log(np.append(self.posterior_variance[1], self.betas[1:])),
                     t,
-                    x.shape
+                    x.shape,
                 )
                 nonzero_mask = (
                     (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
                 )  # no noise when t == 0
-                
+
                 sigma = th.exp(0.5 * log_var)
                 noise = th.randn_like(x)
                 sample = mean_pred + nonzero_mask * sigma * noise
             else:
                 raise NotImplementedError
-
 
             ####
             # Equation 12.
@@ -846,7 +861,6 @@ class GaussianDiffusion:
             # )  # no noise when t == 0
             # sample = mean_pred + nonzero_mask * sigma * noise
 
-
             coeff1 = _extract_into_tensor(sqrt_one_minus_beta, t, x.shape)
             coeff2 = _extract_into_tensor(sqrt_beta, t, x.shape)
             x = sample * coeff1 + th.randn_like(x) * coeff2
@@ -857,11 +871,12 @@ class GaussianDiffusion:
         if operation.print:
             if t[0] % operation.print_every == 0:
                 temp = (sample + 1) * 0.5
-                utils.save_image(temp, f'{operation.folder}/samples/sample_{t[0]}.png')
+                utils.save_image(temp, f"{operation.folder}/samples/sample_{t[0]}.png")
 
                 temp = (out["pred_xstart"] + 1) * 0.5
-                utils.save_image(temp, f'{operation.folder}/samples/pred_xstart_{t[0]}.png')
-
+                utils.save_image(
+                    temp, f"{operation.folder}/samples/pred_xstart_{t[0]}.png"
+                )
 
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -1000,7 +1015,7 @@ class GaussianDiffusion:
         model_kwargs=None,
         device=None,
         progress=False,
-        eta=0.0
+        eta=0.0,
     ):
         """
         See https://github.com/arpitbansal297/Universal-Guided-Diffusion/blob/b3af48f78d7bec105f3ea1579faf8602c520ed1e/Guided_Diffusion_Imagenet/guided_diffusion/gaussian_diffusion.py#L924

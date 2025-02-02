@@ -2,8 +2,8 @@ defaults:
   - _self_
   - shared/training@_here_
 
-designer: none
-experiment_name: simple_env_cnn_fixed
+designer: random
+experiment_name: env_generalisation
 n_iters: 100
 n_epochs: 5
 minibatch_size: 500
