@@ -212,23 +212,22 @@ def train(cfg: TrainingConfig):
                         torch.no_grad(),
                     ):
                         frames = []
-                        rollouts = []
-                        for i in range(cfg.logging.evaluation_episodes):
 
-                            def callback(env, td):
-                                return frames.append(env.render()) if i == 0 else None
+                        max_steps = (
+                            1000
+                            if placeholder_env.max_steps is None
+                            else placeholder_env.max_steps
+                        )
 
-                            rollout = eval_env.rollout(
-                                max_steps=(
-                                    1000
-                                    if placeholder_env.max_steps is None
-                                    else placeholder_env.max_steps
-                                ),
-                                policy=policy,
-                                callback=callback,
-                                auto_cast_to_device=True,
-                            )
-                            rollouts.append(rollout)
+                        def callback(env, td):
+                            return frames.append(env.render()[0])
+
+                        rollouts = eval_env.rollout(
+                            max_steps=max_steps,
+                            policy=policy,
+                            callback=callback,
+                            auto_cast_to_device=True,
+                        )
 
                         evaluation_time = time.time() - evaluation_start
 

@@ -82,6 +82,7 @@ def create_env(
     scenario: ScenarioConfig,
     designer: Designer,
     is_eval: bool = False,
+    render: bool = False,
     device: str = None,
 ):
     # Define environment design policy
@@ -101,7 +102,7 @@ def create_env(
         Warehouse(
             layout=initial_layout,
             request_queue_size=5,
-            render_mode="rgb_array" if is_eval else None,
+            render_mode="rgb_array" if render else None,
             sensor_range=3,
             max_steps=500,
             reward_type=RewardRegistry.SHAPED,
@@ -134,11 +135,20 @@ def create_batched_env(
     is_eval: bool = False,
     device=None,
 ):
-    def create_env_fn():
-        return create_env(scenario, designer, is_eval=is_eval, device="cpu")
+    def create_env_fn(render: bool = False):
+        return create_env(
+            scenario, designer, is_eval=is_eval, render=render, device="cpu"
+        )
+
+    eval_kwargs = [{"render": True}]
+    for _ in range(num_environments - 1):
+        eval_kwargs.append({})
 
     return ParallelEnv(
-        num_workers=num_environments, create_env_fn=create_env_fn, device=device
+        num_workers=num_environments,
+        create_env_fn=create_env_fn,
+        create_env_kwargs=eval_kwargs if is_eval else {},
+        device=device,
     )
     # return SerialEnv(
     #     num_workers=num_environments, create_env_fn=create_env_fn, device=device
