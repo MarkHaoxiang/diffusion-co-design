@@ -8,7 +8,7 @@ from tensordict.nn import TensorDictModule, InteractionType, TensorDictSequentia
 from torchrl.envs import TransformedEnv, Compose, InitTracker, TensorDictPrimer
 from torchrl.data.utils import DEVICE_TYPING
 from torchrl.modules import ProbabilisticActor, MultiAgentMLP, MultiAgentConvNet
-from benchmarl.models.lstm import Lstm
+# from benchmarl.models.lstm import Lstm
 
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 

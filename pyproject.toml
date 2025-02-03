@@ -1,64 +1,31 @@
 [project]
-dependencies = [
-    "ipykernel",
-    "pettingzoo>=1.24.3,<2",
-    "numpy>=2.2.0,<3",
-    "pydantic>=2.10.4,<3",
-    "pillow>=11.0.0,<12",
-    "tqdm>=4.67.1,<5",
-    "matplotlib>=3.10.0,<4",
-    "pyglet<2",
-    "hydra-core>=1.3.2,<2",
-    "torchrl>=0.6",
-    "benchmarl",
-]
-authors = [{ name = "Hao Xiang Li", email = "mark.haoxiang@gmail.com" }]
 name = "diffusion-co-design"
-requires-python = "== 3.11"
 version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "matplotlib>=3.10.0",
+    "numpy>=2.2.2",
+    "rware[pettingzoo]",
+    "guided-diffusion",
+    "torchrl>=0.6.0",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "moviepy>=2.1.2",
+    "wandb[media]>=0.19.5",
+    "hydra-core>=1.3.2",
+    "pydantic>=2.10.6",
+]
 
 [build-system]
-build-backend = "hatchling.build"
 requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.pixi.project]
-channels = ["conda-forge"]
-platforms = ["linux-64"]
-# preview = ["pixi-build"]
+[tool.uv.workspace]
+members = [".", "packages/*"]
 
-[tool.pixi.system-requirements]
-cuda = "12.6"
-
-# [tool.pixi.package]
-# name = "diffusion-co-design"
-# version = "0.1.0"
-
-# [tool.pixi.build-system]
-# build-backend = { name = "pixi-build-python", version = "*" }
-# channels = ["pixi-build-backends", "conda-forge"]
-
-[tool.pixi.pypi-dependencies]
-diffusion-co-design = { path = ".", editable = true }
-rware = { path = "packages/robotic-warehouse", editable = true }
-guided_diffusion = { path = "packages/guided_diffusion", editable = true }
-wandb = { version = "*", extras = ["media"] }
-
-
-[tool.pixi.tasks]
-generate_rware = "python -m diffusion_co_design.pretrain.rware.generate"
-pretrain_rware = "echo $(mpiexec -n 1 python -m diffusion_co_design.pretrain.rware.pretrain)"
-train_rware = "python -m diffusion_co_design.bin.train_rware"
-
-
-[tool.pixi.dependencies]
-blobfile = ">=3.0.0,<4"
-mpi4py = "==3.1.4"
-mpi = ">=1.0,<2"
-mpmath = ">=1.3.0,<2"
-torchvision = ">=0.20.1,<0.21"
-pillow = ">=11.1.0,<12"
-moviepy = ">=1.0.3,<2"
-pytorch-gpu = "*"
-
-
-# [tool.pixi.run-dependencies]
+[tool.uv.sources]
+rware = { workspace = true }
+guided_diffusion = { workspace = true }

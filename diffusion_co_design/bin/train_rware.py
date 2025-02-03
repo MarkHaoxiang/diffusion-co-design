@@ -85,7 +85,13 @@ def train(cfg: TrainingConfig):
         is_eval=False,
         device=device,
     )
-    eval_env = create_env(cfg.scenario, designer, is_eval=True, device=device)
+    eval_env = create_batched_env(
+        num_environments=cfg.logging.evaluation_episodes,
+        scenario=cfg.scenario,
+        designer=designer,
+        is_eval=True,
+        device=device,
+    )
     policy, critic = rware_models(placeholder_env, cfg.policy, device)
 
     collector = SyncDataCollector(
@@ -204,7 +210,7 @@ def train(cfg: TrainingConfig):
                     evaluation_start = time.time()
                     with (
                         torch.no_grad(),
-                    ):  # TODO: I don't think we want determinism for rware.
+                    ):
                         frames = []
                         rollouts = []
                         for i in range(cfg.logging.evaluation_episodes):

@@ -100,9 +100,6 @@ def create_env(
     env = RwarePZW(
         Warehouse(
             layout=initial_layout,
-            # shelf_columns=3,
-            # column_height=8,
-            # shelf_rows=1,
             request_queue_size=5,
             render_mode="rgb_array" if is_eval else None,
             sensor_range=3,
