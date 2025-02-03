@@ -134,11 +134,11 @@ def log_training(
 def log_evaluation(
     logger: WandbLogger,
     frames,
-    rollouts: list[TensorDictBase],
+    rollouts: TensorDictBase,
     evaluation_time: float,
     step: int,
 ):
-    rewards = [td.get(("next", "agents", "reward")).sum(0).mean() for td in rollouts]
+    rewards = rollouts.get(("next", "agents", "reward")).sum(dim=1).mean(dim=1)
     metrics_to_log = {
         "eval/episode_reward_min": min(rewards),
         "eval/episode_reward_max": max(rewards),

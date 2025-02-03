@@ -2,9 +2,9 @@ defaults:
   - _self_
   - shared/training@_here_
 
-designer: none
-experiment_name: env_fixed
-n_iters: 10_000
+designer: random
+experiment_name: env_generalise_bad_shelf
+n_iters: 3_000
 n_epochs: 5
 minibatch_size: 1000
 n_mini_batches: 10
