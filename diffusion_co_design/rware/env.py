@@ -83,13 +83,14 @@ def create_env(
     designer: Designer,
     is_eval: bool = False,
     render: bool = False,
-    device: str = None,
+    device: str | None = None,
 ):
+    is_train = not is_eval
     # Define environment design policy
     # TODO: We probably want feature engineering.
     # Or does this even matter if everything is fixed for initial experiments?
-    if is_eval:  # Temp generalisation_experiment
-        design_policy = FixedDesigner(scenario)
+    # if is_eval:  # Temp generalisation_experiment
+    # design_policy = FixedDesigner(scenario)
 
     scenario_objective = {
         "agent_positions": torch.tensor(scenario.agent_idxs),
@@ -117,7 +118,7 @@ def create_env(
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
         device=device,
     )
-    if not is_eval:
+    if is_train:
         env = TransformedEnv(
             env,
             RewardSum(

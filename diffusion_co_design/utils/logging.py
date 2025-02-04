@@ -55,80 +55,74 @@ def init_logging(
     return logger
 
 
-def log_training(
-    logger: Logger,
-    training_td: TensorDictBase,
-    sampling_td: TensorDictBase,
-    sampling_time: float,
-    training_time: float,
-    total_time: float,
-    iteration: int,
-    current_frames: int,
-    total_frames: int,
-    step: int,
-):
-    if ("next", "agents", "reward") not in sampling_td.keys(True, True):
-        sampling_td.set(
-            ("next", "agents", "reward"),
-            sampling_td.get(("next", "reward"))
-            .expand(sampling_td.get("agents").shape)
-            .unsqueeze(-1),
-        )
-    if ("next", "agents", "episode_reward") not in sampling_td.keys(True, True):
-        sampling_td.set(
-            ("next", "agents", "episode_reward"),
-            sampling_td.get(("next", "episode_reward"))
-            .expand(sampling_td.get("agents").shape)
-            .unsqueeze(-1),
-        )
+class LogTraining:
+    def __init__(self):
+        self.metrics_to_log = {}
 
-    metrics_to_log = {
-        f"train/learner/{key}": value.mean().item()
-        for key, value in training_td.items()
-    }
+    def collect_sampling_td(self, sampling_td: TensorDictBase, sampling_time: float):
+        if "info" in sampling_td.get("agents").keys():
+            self.metrics_to_log.update(
+                {
+                    f"train/info/{key}": value.mean().item()
+                    for key, value in sampling_td.get(("agents", "info")).items()
+                }
+            )
 
-    if "info" in sampling_td.get("agents").keys():
-        metrics_to_log.update(
+        reward = sampling_td.get(("next", "agents", "reward")).mean(
+            -2
+        )  # Mean over agents
+        done = sampling_td.get(("next", "done"))
+        if done.ndim > reward.ndim:
+            done = done[..., 0, :]  # Remove expanded agent dim
+        episode_reward = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[
+            done
+        ]
+
+        if episode_reward.numel() == 0:  # Prevent crash if no dones
+            episode_reward = torch.zeros(())
+
+        self.metrics_to_log.update(
             {
-                f"train/info/{key}": value.mean().item()
-                for key, value in sampling_td.get(("agents", "info")).items()
+                "train/sampling_time": sampling_time,
+                "train/reward/reward_min": reward.min().item(),
+                "train/reward/reward_mean": reward.mean().item(),
+                "train/reward/reward_max": reward.max().item(),
+                "train/reward/episode_reward_min": episode_reward.min().item(),
+                "train/reward/episode_reward_mean": episode_reward.mean().item(),
+                "train/reward/episode_reward_max": episode_reward.max().item(),
             }
         )
 
-    reward = sampling_td.get(("next", "agents", "reward")).mean(-2)  # Mean over agents
-    done = sampling_td.get(("next", "done"))
-    if done.ndim > reward.ndim:
-        done = done[..., 0, :]  # Remove expanded agent dim
-    episode_reward = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[
-        done
-    ]
-    if episode_reward.numel() == 0:  # Prevent crash if no dones
-        episode_reward = torch.zeros(())
+    def collect_training_td(
+        self, training_td: TensorDictBase, training_time: float, total_time: float
+    ):
+        self.metrics_to_log.update(
+            {
+                f"train/learner/{key}": value.mean().item()
+                for key, value in training_td.items()
+            }
+        )
+        self.metrics_to_log.update(
+            {
+                "train/training_time": training_time,
+                "train/total_time": total_time,
+            }
+        )
 
-    metrics_to_log.update(
-        {
-            "train/reward/reward_min": reward.min().item(),
-            "train/reward/reward_mean": reward.mean().item(),
-            "train/reward/reward_max": reward.max().item(),
-            "train/reward/episode_reward_min": episode_reward.min().item(),
-            "train/reward/episode_reward_mean": episode_reward.mean().item(),
-            "train/reward/episode_reward_max": episode_reward.max().item(),
-            "train/sampling_time": sampling_time,
-            "train/training_time": training_time,
-            "train/iteration_time": training_time + sampling_time,
-            "train/total_time": total_time,
-            "train/training_iteration": iteration,
-            "train/current_frames": current_frames,
-            "train/total_frames": total_frames,
-        }
-    )
-    if isinstance(logger, WandbLogger):
-        logger.experiment.log(metrics_to_log, commit=False)
-    else:
-        for key, value in metrics_to_log.items():
-            logger.log_scalar(key.replace("/", "_"), value, step=step)
-
-    return metrics_to_log
+    def commit(self, logger, step, total_frames, current_frames):
+        metrics_to_log = self.metrics_to_log
+        metrics_to_log.update(
+            {
+                "train/current_frames": current_frames,
+                "train/total_frames": total_frames,
+            }
+        )
+        if isinstance(logger, WandbLogger):
+            logger.experiment.log(metrics_to_log, commit=False)
+        else:
+            for key, value in metrics_to_log.items():
+                logger.log_scalar(key.replace("/", "_"), value, step=step)
+        self.metrics_to_log.clear()
 
 
 def log_evaluation(
@@ -167,3 +161,18 @@ def log_evaluation(
         for key, value in metrics_to_log.items():
             logger.log_scalar(key.replace("/", "_"), value, step=step)
         logger.log_video("eval_video", vid, step=step)
+
+    # if ("next", "agents", "reward") not in sampling_td.keys(True, True):
+    #     sampling_td.set(
+    #         ("next", "agents", "reward"),
+    #         sampling_td.get(("next", "reward"))
+    #         .expand(sampling_td.get("agents").shape)
+    #         .unsqueeze(-1),
+    #     )
+    # if ("next", "agents", "episode_reward") not in sampling_td.keys(True, True):
+    #     sampling_td.set(
+    #         ("next", "agents", "episode_reward"),
+    #         sampling_td.get(("next", "episode_reward"))
+    #         .expand(sampling_td.get("agents").shape)
+    #         .unsqueeze(-1),
+    #     )

@@ -3,9 +3,10 @@ defaults:
   - shared/training@_here_
 
 designer: random
-experiment_name: env_generalise_bad_shelf
-n_iters: 3_000
-n_epochs: 5
+experiment_name: env_generalise_shelf_obs_changes
+n_iters: 5_000
+n_epochs: 10
+memory_management: gpu
 minibatch_size: 1000
 n_mini_batches: 10
 scenario:
@@ -27,4 +28,5 @@ scenario:
 logging:
   type: wandb
   # wandb_mode: disabled
-  wandb_mode: online
+  # wandb_mode: online
+  wandb_mode: offline

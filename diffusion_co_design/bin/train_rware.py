@@ -5,6 +5,7 @@ import time
 # Torch, TorchRL, TensorDict
 import hydra.core
 import hydra.core.hydra_config
+from tensordict import TensorDict
 import torch
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
@@ -21,21 +22,16 @@ from tqdm import tqdm
 
 from diffusion_co_design.utils import (
     LoggingConfig,
+    LogTraining,
     omega_to_pydantic,
     init_logging,
-    log_training,
     log_evaluation,
+    MEMORY_MANAGEMENT,
+    memory_management,
 )
 from diffusion_co_design.rware.env import ScenarioConfig, create_batched_env, create_env
 from diffusion_co_design.rware.model import rware_models, PolicyConfig
 from diffusion_co_design.rware.design import DesignerRegistry
-
-# Devices
-device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
-cuda_if_available = (
-    torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
-)
-cpu = torch.device("cpu")
 
 
 class TrainingConfig(BaseModel):
@@ -44,9 +40,9 @@ class TrainingConfig(BaseModel):
     designer: str
     scenario: ScenarioConfig
     # Sampling and training
+    memory_management: MEMORY_MANAGEMENT = "gpu"
     n_iters: int = 500  # Number of training iterations
     n_epochs: int = 10  # Number of optimization steps per training iteration
-    #    minibatch_size: int = 400  # Size of the mini-batches in each optimization step
     minibatch_size: int = 800  # Size of the mini-batches in each optimization step
     n_mini_batches: int = 20  # Number of mini-batches in each epoch
     ppo_lr: float = 5e-4  # Learning rate
@@ -72,10 +68,13 @@ class TrainingConfig(BaseModel):
 
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+    device = memory_management(cfg.memory_management)
 
     designer = DesignerRegistry.get(cfg.designer)(cfg.scenario)
 
-    placeholder_env = create_env(cfg.scenario, designer, is_eval=False, device=device)
+    placeholder_env = create_env(
+        cfg.scenario, designer, is_eval=False, device=device.env_device
+    )
     n_train_envs = cfg.frames_per_batch // placeholder_env.max_steps
     assert n_train_envs * placeholder_env.max_steps == cfg.frames_per_batch
     train_env = create_batched_env(
@@ -83,28 +82,30 @@ def train(cfg: TrainingConfig):
         designer=designer,
         scenario=cfg.scenario,
         is_eval=False,
-        device=device,
+        device=device.env_device,
     )
     eval_env = create_batched_env(
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
         designer=designer,
         is_eval=True,
-        device=device,
+        device=device.env_device,
     )
-    policy, critic = rware_models(placeholder_env, cfg.policy, device)
+    policy, critic = rware_models(
+        placeholder_env, cfg.policy, device=device.train_device
+    )
 
     collector = SyncDataCollector(
         train_env,
         policy,
-        device=device,
-        storing_device=device,
+        device=device.train_device,
+        storing_device=device.storage_device,
         frames_per_batch=cfg.frames_per_batch,
         total_frames=cfg.total_frames,
     )
 
     replay_buffer = ReplayBuffer(
-        storage=LazyTensorStorage(cfg.frames_per_batch, device=device),
+        storage=LazyTensorStorage(cfg.frames_per_batch, device=device.storage_device),
         sampler=SamplerWithoutReplacement(),
         batch_size=cfg.minibatch_size,
     )
@@ -140,33 +141,42 @@ def train(cfg: TrainingConfig):
         cfg=cfg.logging,
         full_config=cfg,
     )
+    log_training = LogTraining()
 
     # Main Training Loop
-
     try:
-        total_time, total_frames = 0, 0
+        total_time, total_frames = 0.0, 0
         sampling_start = time.time()
         for iteration, sampling_td in enumerate(collector):
             sampling_time = time.time() - sampling_start
             training_tds, training_start = [], time.time()
 
             # Compute GAE
+            loss_module.to(device=device.storage_device)
             with torch.no_grad():
                 loss_module.value_estimator(
                     sampling_td,
                     params=loss_module.critic_network_params,
                     target_params=loss_module.target_critic_network_params,
                 )
+            loss_module.to(device=device.train_device)
 
             # Add to the replay buffer (shuffling)
             current_frames = sampling_td.numel()
             total_frames += current_frames
             replay_buffer.extend(sampling_td.reshape(-1))
 
+            if logger:
+                log_training.collect_sampling_td(sampling_td, sampling_time)
+
+            # del sampling_td  # Clear now to reduce memory
+            # torch.cuda.empty_cache()
+
             # PPO Update
             for _ in range(cfg.n_epochs):
                 for _ in range(cfg.n_mini_batches):
-                    loss_vals = loss_module(replay_buffer.sample())
+                    minibatch: TensorDict = replay_buffer.sample()
+                    loss_vals = loss_module(minibatch.to(device=device.train_device))
                     loss_value = (
                         loss_vals["loss_objective"]
                         + loss_vals["loss_critic"]
@@ -190,18 +200,10 @@ def train(cfg: TrainingConfig):
 
             # Logging
             if logger:
-                log_training(
-                    logger=logger,
-                    training_td=training_log_td,
-                    sampling_td=sampling_td,
-                    sampling_time=sampling_time,
-                    training_time=training_time,
-                    total_time=total_time,
-                    iteration=iteration,
-                    current_frames=current_frames,
-                    total_frames=total_frames,
-                    step=iteration,
+                log_training.collect_training_td(
+                    training_log_td, training_time, total_time
                 )
+                log_training.commit(logger, iteration, total_frames, current_frames)
 
                 if (
                     cfg.logging.evaluation_episodes > 0
@@ -212,7 +214,6 @@ def train(cfg: TrainingConfig):
                         torch.no_grad(),
                     ):
                         frames = []
-
                         max_steps = (
                             1000
                             if placeholder_env.max_steps is None
@@ -268,8 +269,7 @@ def train(cfg: TrainingConfig):
 @hydra.main(version_base=None, config_path="conf", config_name="default")
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")
-    config = omega_to_pydantic(config, TrainingConfig)
-    train(config)
+    train(omega_to_pydantic(config, TrainingConfig))
 
 
 if __name__ == "__main__":

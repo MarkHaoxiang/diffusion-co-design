@@ -6,6 +6,7 @@ designer: random
 experiment_name: env_generalisation
 n_iters: 100
 n_epochs: 5
+memory_management: mixed
 minibatch_size: 500
 n_mini_batches: 2
 scenario:
