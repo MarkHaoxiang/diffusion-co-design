@@ -10,6 +10,7 @@ memory_management: gpu
 minibatch_size: 1000
 n_mini_batches: 10
 scenario:
+  name: default
   size: 16
   n_shelves: 50
   agent_idxs:
@@ -19,7 +20,7 @@ scenario:
   - 233
   - 162
   goal_idxs:
-  - 39_
+  - 39
   - 185
   - 237
   - 238

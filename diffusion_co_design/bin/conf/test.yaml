@@ -10,6 +10,7 @@ memory_management: mixed
 minibatch_size: 500
 n_mini_batches: 2
 scenario:
+  name: default
   size: 16
   n_shelves: 50
   agent_idxs:

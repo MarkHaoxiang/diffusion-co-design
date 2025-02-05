@@ -7,6 +7,7 @@ from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
 )
+from guided_diffusion.resample import create_named_schedule_sampler
 
 from pydantic import BaseModel
 
@@ -60,6 +61,9 @@ class Generator:
         self.model.to(device)
         self.model.eval()
 
+        # Schedule sampler (for training time dependent diffusion)
+        self.schedule_sampler = create_named_schedule_sampler("uniform", self.diffusion)
+
     def generate_batch(self, value: nn.Module | None = None):
         initial_noise = torch.randn(self.shape, generator=self.rng, device=device)
 
@@ -104,6 +108,9 @@ class Generator:
         return (self.batch_size, self.image_channels, self.size, self.size)
 
 
+# uv run python -m diffusion_co_design.pretrain.rware.generator unguided
+# uv run python -m diffusion_co_design.pretrain.rware.generator guided
+
 if __name__ == "__main__":
     import argparse
     import os
@@ -133,25 +140,31 @@ if __name__ == "__main__":
         generator = Generator(cfg)
         environment_batch = generator.generate_batch()
     elif args.option == "guided":
+        model_dict = classifier_defaults()
+        model_dict["image_size"] = cfg.size
+        model_dict["image_channels"] = 3
+        model_dict["classifier_width"] = 128
+        model_dict["classifier_depth"] = 2
+        model_dict["classifier_attention_resolutions"] = "16, 8, 4"
+        model_dict["output_dim"] = 1
+        model = create_classifier(**model_dict).to(device)
 
-        class PseudoValue(torch.nn.Module):
-            def __init__(self, size):
-                super().__init__()
-                self.size = size
+        # class PseudoValue(torch.nn.Module):
+        #     def __init__(self, size):
+        #         super().__init__()
+        #         self.size = size
 
-            def forward(self, x, t):
-                indices = (
-                    torch.arange(self.size, dtype=torch.float32)
-                    .view(-1, 1)
-                    .expand(self.size, self.size)
-                ).to(x.device)
-                channel = x[..., 0, :, :]
-                return (channel * indices).sum(dim=(-2, -1))
-
-        value = PseudoValue(cfg.size)
-        generator = Generator(cfg, guidance_wt=0.05)
-
-        environment_batch = generator.generate_batch(value=value)
+        #     def forward(self, x, t):
+        #         indices = (
+        #             torch.arange(self.size, dtype=torch.float32)
+        #             .view(-1, 1)
+        #             .expand(self.size, self.size)
+        #         ).to(x.device)
+        #         channel = x[..., 0, :, :]
+        #         return (channel * indices).sum(dim=(-2, -1))
+        # model = PseudoValue(cfg.size)
+        generator = Generator(cfg, guidance_wt=10)
+        environment_batch = generator.generate_batch(value=model)
     else:
         raise NotImplementedError()
 
