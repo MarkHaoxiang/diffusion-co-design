@@ -92,16 +92,17 @@ class Generator:
             .contiguous()
         )
 
-        # TODO: The distributed loop is weird: why is all_gather needed here?
-        gathered_samples = [
-            torch.zeros_like(sample) for _ in range(torch.distributed.get_world_size())
-        ]
-        torch.distributed.all_gather(
-            gathered_samples, sample
-        )  # gather not supported with NCCL
-        return np.concatenate(
-            [sample.cpu().numpy() for sample in gathered_samples], axis=0
-        )
+        # # TODO: The distributed loop is weird: why is all_gather needed here?
+        # gathered_samples = [
+        #     torch.zeros_like(sample) for _ in range(torch.distributed.get_world_size())
+        # ]
+        # torch.distributed.all_gather(
+        #     gathered_samples, sample
+        # )  # gather not supported with NCCL
+        # return np.concatenate(
+        #     [sample.numpy(force=True) for sample in gathered_samples], axis=0
+        # )
+        return sample.numpy(force=True)
 
     @property
     def shape(self):

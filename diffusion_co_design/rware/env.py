@@ -13,7 +13,7 @@ from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry
 
 from diffusion_co_design.pretrain.rware.transform import image_to_layout
-from diffusion_co_design.rware.design import ScenarioConfig, Designer, FixedDesigner
+from diffusion_co_design.rware.design import ScenarioConfig, Designer
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
@@ -105,7 +105,7 @@ def create_env(
             request_queue_size=5,
             render_mode="rgb_array" if render else None,
             sensor_range=3,
-            max_steps=500,
+            max_steps=scenario.max_steps,
             reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.IMAGE_LAYOUT,
         )

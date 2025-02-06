@@ -2,7 +2,7 @@ defaults:
   - _self_
   - shared/training@_here_
 
-designer: random
+designer: diffusion
 experiment_name: env_generalise_shelf_obs_changes
 n_iters: 5_000
 n_epochs: 10
@@ -28,6 +28,6 @@ scenario:
 
 logging:
   type: wandb
-  # wandb_mode: disabled
+  wandb_mode: disabled
   # wandb_mode: online
-  wandb_mode: offline
+  # wandb_mode: offline

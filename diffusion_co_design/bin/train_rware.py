@@ -7,6 +7,7 @@ import hydra.core
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
+import torch.multiprocessing as mp
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
@@ -69,17 +70,23 @@ class TrainingConfig(BaseModel):
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     device = memory_management(cfg.memory_management)
-
-    designer = DesignerRegistry.get(cfg.designer)(cfg.scenario)
+    n_train_envs = cfg.frames_per_batch // cfg.scenario.max_steps
+    master_designer, env_designer = DesignerRegistry.get(
+        cfg.designer,
+        cfg.scenario,
+        output_dir,
+        environments_per_epoch=n_train_envs + cfg.logging.evaluation_episodes,
+        device=device.train_device,
+    )
+    # designer.share_memory()
 
     placeholder_env = create_env(
-        cfg.scenario, designer, is_eval=False, device=device.env_device
+        cfg.scenario, env_designer, is_eval=False, device=device.env_device
     )
-    n_train_envs = cfg.frames_per_batch // placeholder_env.max_steps
-    assert n_train_envs * placeholder_env.max_steps == cfg.frames_per_batch
+    assert n_train_envs * cfg.scenario.max_steps == cfg.frames_per_batch
     train_env = create_batched_env(
         num_environments=n_train_envs,
-        designer=designer,
+        designer=env_designer,
         scenario=cfg.scenario,
         is_eval=False,
         device=device.env_device,
@@ -87,7 +94,7 @@ def train(cfg: TrainingConfig):
     eval_env = create_batched_env(
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
-        designer=designer,
+        designer=env_designer,
         is_eval=True,
         device=device.env_device,
     )
@@ -130,7 +137,6 @@ def train(cfg: TrainingConfig):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=cfg.gamma, lmbda=cfg.lmbda
     )
-
     optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo_lr)
 
     # Logging
@@ -144,6 +150,7 @@ def train(cfg: TrainingConfig):
     log_training = LogTraining()
 
     # Main Training Loop
+    master_designer.reset()
     try:
         total_time, total_frames = 0.0, 0
         sampling_start = time.time()
@@ -195,6 +202,9 @@ def train(cfg: TrainingConfig):
 
             collector.update_policy_weights_()
 
+            # Designer (aka diffusion policy) update
+            master_designer.update()
+
             training_time = time.time() - training_start
             total_time += sampling_time + training_time
 
@@ -214,17 +224,12 @@ def train(cfg: TrainingConfig):
                         torch.no_grad(),
                     ):
                         frames = []
-                        max_steps = (
-                            1000
-                            if placeholder_env.max_steps is None
-                            else placeholder_env.max_steps
-                        )
 
                         def callback(env, td):
                             return frames.append(env.render()[0])
 
                         rollouts = eval_env.rollout(
-                            max_steps=max_steps,
+                            max_steps=cfg.scenario.max_steps,
                             policy=policy,
                             callback=callback,
                             auto_cast_to_device=True,

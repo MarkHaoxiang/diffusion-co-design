@@ -2,11 +2,11 @@ defaults:
   - _self_
   - shared/training@_here_
 
-designer: random
+designer: diffusion
 experiment_name: env_generalisation
 n_iters: 100
 n_epochs: 5
-memory_management: mixed
+memory_management: gpu
 minibatch_size: 500
 n_mini_batches: 2
 scenario:
