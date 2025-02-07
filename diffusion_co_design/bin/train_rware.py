@@ -176,8 +176,8 @@ def train(cfg: TrainingConfig):
             if logger:
                 log_training.collect_sampling_td(sampling_td, sampling_time)
 
-            del sampling_td  # Clear now to reduce memory
-            torch.cuda.empty_cache()
+            # del sampling_td  # Clear now to reduce memory
+            # torch.cuda.empty_cache()
 
             # PPO Update
             for _ in range(cfg.n_epochs):
