@@ -203,7 +203,7 @@ def train(cfg: TrainingConfig):
             collector.update_policy_weights_()
 
             # Designer (aka diffusion policy) update
-            master_designer.update()
+            master_designer.update(sampling_td)
 
             training_time = time.time() - training_start
             total_time += sampling_time + training_time

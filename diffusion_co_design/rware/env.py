@@ -1,16 +1,15 @@
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from torchrl.envs import (
     PettingZooWrapper,
     MarlGroupMapType,
     TransformedEnv,
     RewardSum,
-    SerialEnv,
     ParallelEnv,
 )
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
-from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry
+from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
 from diffusion_co_design.pretrain.rware.transform import image_to_layout
 from diffusion_co_design.rware.design import ScenarioConfig, Designer
@@ -45,35 +44,46 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         self._env._reset_policy = reset_policy
         self._env._environment_objective = environment_objective
 
-    def _reset(self, tensordict: TensorDictBase | None = None, **kwargs):
+    def _reset(self, tensordict: TensorDict | None = None, **kwargs):
         """Extract the layout from tensordict and pass to env"""
-        reset_policy_output = None
-
-        if tensordict is not None and self._env._environment_objective is not None:
-            tensordict[("environment_design", "objective")] = (
-                self._env._environment_objective
-            )
 
         if (
-            tensordict is not None
-            and "environment_design" in tensordict
+            self._env._environment_objective is not None
             and self._env._reset_policy is not None
         ):
-            reset_policy_output = self._env._reset_policy(tensordict)
-            tensordict.update(
-                reset_policy_output, keys_to_update=reset_policy_output.keys()
-            )
-            layout = image_to_layout(
-                tensordict.get(("environment_design", "layout_image"))
-                .detach()
-                .cpu()
-                .numpy()
-            )
+            # Should recompute layout
+            if tensordict is not None:
+                tensordict[("environment_design", "objective")] = (
+                    self._env._environment_objective
+                )
+                reset_policy_output = self._env._reset_policy(tensordict)
+                tensordict.update(
+                    reset_policy_output, keys_to_update=reset_policy_output.keys()
+                )
+                layout = image_to_layout(
+                    tensordict.get(("environment_design", "layout_image")).numpy(
+                        force=True
+                    )
+                )
+            else:
+                td = TensorDict(
+                    {
+                        (
+                            "environment_design",
+                            "objective",
+                        ): self._env._environment_objective
+                    }
+                )
+                reset_policy_output = self._env._reset_policy(td)
+                layout = image_to_layout(
+                    reset_policy_output.get(
+                        ("environment_design", "layout_image")
+                    ).numpy(force=True)
+                )
             options = {"layout": layout}
         else:
             options = None
 
-        # Maybe add the newest layout to tensordict out
         tensordict_out = super()._reset(tensordict, options=options, **kwargs)
         return tensordict_out
 
@@ -108,6 +118,8 @@ def create_env(
             max_steps=scenario.max_steps,
             reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.IMAGE_LAYOUT,
+            image_observation_layers=[ImageLayer.STORAGE],
+            return_info=[],
         )
     )
     env.reset()
@@ -116,6 +128,7 @@ def create_env(
         reset_policy=design_policy,
         environment_objective=scenario_objective,
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
+        return_state=True,
         device=device,
     )
     if is_train:

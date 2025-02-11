@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 import os
 import pickle as pkl
 
-import numpy as np
 import torch
 from torch import nn
+from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from pydantic import BaseModel
 from guided_diffusion.script_util import create_classifier, classifier_defaults
@@ -46,7 +46,7 @@ class Designer(nn.Module, ABC):
             out_keys=[("environment_design", "layout_image")],
         )
 
-    def update(self):
+    def update(self, sampling_td: TensorDict):
         self.update_counter += 1
 
     def reset(self):
@@ -99,6 +99,13 @@ class DiffusionDesigner(Designer):
         self.generator = Generator(gen_cfg, guidance_wt=10.0)
         # self.generator.model.share_memory()
 
+    def update(self, sampling_td):
+        super().update(sampling_td)
+        done = sampling_td.get(("next", "done"))
+
+        X = sampling_td.get("state")[:, :, 0]
+        y = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[done]
+
     def reset_env_buffer(self):
         batch = []
         for env in self.generator.generate_batch(value=self.model):
@@ -144,8 +151,8 @@ class DiskDesigner(Designer):
     def forward(self, objective):
         return self.generate_environment_image(objective)
 
-    def update(self):
-        super().update()
+    def update(self, sampling_td):
+        super().update(sampling_td)
         if self.is_master:
             self.force_regenerate()
 
@@ -199,11 +206,11 @@ class DesignerRegistry:
     ) -> tuple[Designer, Designer]:
         match designer:
             case DesignerRegistry.FIXED:
-                res = FixedDesigner(scenario)
-                return res, res
+                fixed = FixedDesigner(scenario)
+                return fixed, fixed
             case DesignerRegistry.RANDOM:
-                res = RandomDesigner(scenario)
-                return res, res
+                rand = RandomDesigner(scenario)
+                return rand, rand
             case DesignerRegistry.RL:
                 raise NotImplementedError()
             case DesignerRegistry.DIFFUSION:

@@ -124,7 +124,11 @@ def rware_models(
         out_keys=[("agents", "logits")],
     )
     policy_module = TensorDictSequential(
-        dtype_cast, policy_cnn_module_1, policy_cnn_module_2, policy_mlp_module
+        dtype_cast,
+        policy_cnn_module_1,
+        policy_cnn_module_2,
+        policy_mlp_module,
+        selected_out_keys=[("agents", "logits")],
     )
     policy = ProbabilisticActor(
         module=policy_module,
