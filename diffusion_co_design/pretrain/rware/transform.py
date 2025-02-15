@@ -10,8 +10,7 @@ from diffusion_co_design.utils import OUTPUT_DIR
 from rware.layout import Layout
 
 
-def image_to_layout(im: np.ndarray) -> Layout:
-
+def rgb_to_layout(im: np.ndarray) -> Layout:
     # Round to nearest colors
     w, h, _ = im.shape
     flattened = im.reshape(-1, 3)
@@ -28,6 +27,22 @@ def image_to_layout(im: np.ndarray) -> Layout:
     return layout
 
 
+def storage_to_rgb(im: np.ndarray, agent_idxs, goal_idxs):
+    # [batch_size, 1, w, h]
+    size = im.shape[2]
+    im = im.squeeze()
+    rgb = np.zeros((im.shape[0], size, size, 3))
+    # Agents, Goals
+    for idx in agent_idxs:
+        rgb[:, idx // size, idx % size] = colors[1]
+    for idx in goal_idxs:
+        rgb[:, idx // size, idx % size] = colors[2]
+    # Shelves
+    rgb[im] = colors[0]
+    rgb = rgb.transpose(0, 3, 1, 2)
+    return rgb
+
+
 if __name__ == "__main__":
     # Run a test on the generated images
 
@@ -36,10 +51,10 @@ if __name__ == "__main__":
         im = PIL.Image.open(f)
         im = np.array(im)
 
-    layout = image_to_layout(im)
+    layout = rgb_to_layout(im)
 
     print(f"Number of agents: {len(layout._agents)}")
     print(f"Number of goals: {len(layout.goals)}")
     print(
-        f"Number of shelves: {(layout.grid_size[0] * layout.grid_size[1]) -layout.highways.sum()}"
+        f"Number of shelves: {(layout.grid_size[0] * layout.grid_size[1]) - layout.highways.sum()}"
     )

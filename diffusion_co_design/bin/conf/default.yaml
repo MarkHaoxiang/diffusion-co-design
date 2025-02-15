@@ -2,8 +2,8 @@ defaults:
   - _self_
   - shared/training@_here_
 
-designer: random
-experiment_name: env_generalise_test_2
+designer: diffusion
+experiment_name: env_diffusion_1
 n_iters: 5_000
 n_epochs: 10
 memory_management: gpu

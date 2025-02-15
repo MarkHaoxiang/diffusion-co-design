@@ -75,7 +75,9 @@ def train(cfg: TrainingConfig):
         cfg.designer,
         cfg.scenario,
         output_dir,
-        environments_per_epoch=n_train_envs + cfg.logging.evaluation_episodes,
+        environment_batch_size=max(
+            n_train_envs + cfg.logging.evaluation_episodes, n_train_envs * 2 + 1
+        ),
         device=device.train_device,
     )
     # designer.share_memory()
@@ -98,6 +100,7 @@ def train(cfg: TrainingConfig):
         is_eval=True,
         device=device.env_device,
     )
+    master_designer.reset()
     policy, critic = rware_models(
         placeholder_env, cfg.policy, device=device.train_device
     )
@@ -213,6 +216,7 @@ def train(cfg: TrainingConfig):
                 log_training.collect_training_td(
                     training_log_td, training_time, total_time
                 )
+                log_training.log(master_designer.get_logs())
                 log_training.commit(logger, iteration, total_frames, current_frames)
 
                 if (

@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from PIL import Image
 
-from rware.warehouse import ImageLayer
+from rware.warehouse import Layout, ImageLayer
 
 from diffusion_co_design.utils import omega_to_pydantic, OUTPUT_DIR
 
@@ -48,7 +48,6 @@ def generate(
     n: int = 1,
     disable_tqdm=True,
 ) -> list[np.ndarray]:
-
     # Possible positions
     remaining_idxs = []
     for idx in range(size**2):

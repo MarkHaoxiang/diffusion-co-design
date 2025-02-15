@@ -93,6 +93,10 @@ class LogTraining:
             }
         )
 
+    def log(self, log: dict[str, Any]):
+        log = {f"train/{k}": v for k, v in log.items()}
+        self.metrics_to_log.update(log)
+
     def collect_training_td(
         self, training_td: TensorDictBase, training_time: float, total_time: float
     ):

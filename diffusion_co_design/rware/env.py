@@ -11,7 +11,7 @@ from torchrl.envs import (
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
-from diffusion_co_design.pretrain.rware.transform import image_to_layout
+from diffusion_co_design.pretrain.rware.transform import rgb_to_layout
 from diffusion_co_design.rware.design import ScenarioConfig, Designer
 
 
@@ -60,7 +60,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 tensordict.update(
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
-                layout = image_to_layout(
+                layout = rgb_to_layout(
                     tensordict.get(("environment_design", "layout_image")).numpy(
                         force=True
                     )
@@ -75,7 +75,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     }
                 )
                 reset_policy_output = self._env._reset_policy(td)
-                layout = image_to_layout(
+                layout = rgb_to_layout(
                     reset_policy_output.get(
                         ("environment_design", "layout_image")
                     ).numpy(force=True)
@@ -118,7 +118,9 @@ def create_env(
             max_steps=scenario.max_steps,
             reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.IMAGE_LAYOUT,
-            image_observation_layers=[ImageLayer.STORAGE],
+            image_observation_layers=[
+                ImageLayer.STORAGE,
+            ],
             return_info=[],
         )
     )
