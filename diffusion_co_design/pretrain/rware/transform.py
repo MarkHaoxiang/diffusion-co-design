@@ -30,7 +30,6 @@ def rgb_to_layout(im: np.ndarray, agent_idxs=None, goal_idxs=None) -> Layout:
         agent_im = np.zeros_like(shelf_im)
         for idx in agent_idxs:
             agent_im[idx // size, idx % size] = 1
-            shelf_im[idx // size, idx % size] = 0
     else:
         agent_im = image[1]
     if goal_idxs is not None:
@@ -57,6 +56,7 @@ def storage_to_layout(shelf_im: np.ndarray, agent_idxs, goal_idxs):
     goal_im = np.zeros_like(shelf_im)
     for idx in goal_idxs:
         goal_im[idx // size, idx % size] = 1
+        shelf_im[idx // size, idx % size] = 0
     im = np.stack((shelf_im, agent_im, goal_im))
     layout = Layout.from_image(im, image_layers=COLOR_ORDER[:-1])
     return layout

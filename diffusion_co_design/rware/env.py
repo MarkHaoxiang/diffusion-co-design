@@ -11,7 +11,10 @@ from torchrl.envs import (
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
-from diffusion_co_design.pretrain.rware.transform import rgb_to_layout
+from diffusion_co_design.pretrain.rware.transform import (
+    rgb_to_layout,
+    storage_to_layout,
+)
 from diffusion_co_design.rware.design import ScenarioConfig, Designer
 
 
@@ -44,6 +47,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         # Also, it's difficult to rewrite sync
         self._env._reset_policy = reset_policy
         self._env._environment_objective = environment_objective
+        assert scenario_cfg is not None
         self._env._scenario_cfg = scenario_cfg
 
     def _reset(self, tensordict: TensorDict | None = None, **kwargs):
@@ -62,20 +66,13 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 tensordict.update(
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
-                if self._env._scenario_cfg is None:
-                    layout = rgb_to_layout(
-                        tensordict.get(("environment_design", "layout_image")).numpy(
-                            force=True
-                        ),
-                    )
-                else:
-                    layout = rgb_to_layout(
-                        tensordict.get(("environment_design", "layout_image")).numpy(
-                            force=True
-                        ),
-                        agent_idxs=self._env._scenario_cfg.agent_idxs,
-                        goal_idxs=self._env._scenario_cfg.goal_idxs,
-                    )
+                layout = storage_to_layout(
+                    tensordict.get(("environment_design", "layout_image")).numpy(
+                        force=True
+                    ),
+                    agent_idxs=self._env._scenario_cfg.agent_idxs,
+                    goal_idxs=self._env._scenario_cfg.goal_idxs,
+                )
 
             else:
                 td = TensorDict(
@@ -87,20 +84,13 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     }
                 )
                 reset_policy_output = self._env._reset_policy(td)
-                if self._env._scenario_cfg is None:
-                    layout = rgb_to_layout(
-                        reset_policy_output.get(
-                            ("environment_design", "layout_image")
-                        ).numpy(force=True),
-                    )
-                else:
-                    layout = rgb_to_layout(
-                        reset_policy_output.get(
-                            ("environment_design", "layout_image")
-                        ).numpy(force=True),
-                        agent_idxs=self._env._scenario_cfg.agent_idxs,
-                        goal_idxs=self._env._scenario_cfg.goal_idxs,
-                    )
+                layout = storage_to_layout(
+                    reset_policy_output.get(
+                        ("environment_design", "layout_image")
+                    ).numpy(force=True),
+                    agent_idxs=self._env._scenario_cfg.agent_idxs,
+                    goal_idxs=self._env._scenario_cfg.goal_idxs,
+                )
             options = {"layout": layout}
         else:
             options = None

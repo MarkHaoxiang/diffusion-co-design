@@ -18,6 +18,7 @@ class GeneratorConfig(BaseModel):
     generator_model_path: str
     size: int = 16
     batch_size: int = 32
+    num_channels: int = 1
 
 
 device = dist_util.dev()
@@ -47,8 +48,7 @@ class Generator:
 
         self.size = cfg.size
         self.batch_size = cfg.batch_size
-        self.image_channels = 1
-        # self.image_channels = 3
+        self.image_channels = cfg.num_channels
         self.clip_denoised = True
 
         self.guidance_weight = guidance_wt
@@ -95,6 +95,7 @@ class Generator:
             clip_denoised=self.clip_denoised,
             cond_fn=cond_fn,
         )
+        # RGB
         # sample = (
         #     ((sample + 1) * 127.5)
         #     .clamp(0, 255)
@@ -102,6 +103,8 @@ class Generator:
         #     .permute(0, 2, 3, 1)
         #     .contiguous()
         # )
+
+        # Storage
         sample = (
             ((sample + 1) * 0.5)
             .clamp(0, 1)
@@ -146,7 +149,7 @@ if __name__ == "__main__":
 
     cfg = GeneratorConfig(
         generator_model_path=os.path.join(
-            OUTPUT_DIR, "diffusion_pretrain", "rware_16_50_5_5_random", "model001000.pt"
+            OUTPUT_DIR, "diffusion_pretrain", "rware_16_50_5_5_random", "model040000.pt"
         )
     )
 

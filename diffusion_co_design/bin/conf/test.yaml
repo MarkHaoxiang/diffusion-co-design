@@ -10,7 +10,7 @@ memory_management: gpu
 minibatch_size: 500
 n_mini_batches: 2
 scenario:
-  name: default
+  name: rware_16_50_5_5_random
   size: 16
   n_shelves: 50
   agent_idxs:

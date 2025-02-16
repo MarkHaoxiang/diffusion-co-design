@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import os
+import re
 import pickle as pkl
 
 import torch
@@ -11,7 +12,11 @@ from pydantic import BaseModel
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 
 from diffusion_co_design.utils import OUTPUT_DIR
-from diffusion_co_design.pretrain.rware.transform import rgb_to_layout, storage_to_rgb
+from diffusion_co_design.pretrain.rware.transform import (
+    rgb_to_layout,
+    storage_to_rgb,
+    storage_to_layout,
+)
 from diffusion_co_design.pretrain.rware.generate import generate
 from diffusion_co_design.pretrain.rware.generator import Generator, GeneratorConfig
 
@@ -36,7 +41,13 @@ class Designer(nn.Module, ABC):
         raise NotImplementedError()
 
     def generate_environment(self, objective):
-        return rgb_to_layout(
+        # return rgb_to_layout(
+        #     self.generate_environment_image(objective),
+        #     self.scenario.agent_idxs,
+        #     self.scenario.goal_idxs,
+        # )
+
+        return storage_to_layout(
             self.generate_environment_image(objective),
             self.scenario.agent_idxs,
             self.scenario.goal_idxs,
@@ -89,7 +100,8 @@ class DiffusionDesigner(Designer):
         self.generator = None
         model_dict = classifier_defaults()
         model_dict["image_size"] = scenario.size
-        model_dict["image_channels"] = 3
+        # model_dict["image_channels"] = 3
+        model_dict["image_channels"] = 1
         model_dict["classifier_width"] = 128
         model_dict["classifier_depth"] = 2
         model_dict["classifier_attention_resolutions"] = "16, 8, 4"
@@ -107,11 +119,16 @@ class DiffusionDesigner(Designer):
             batch_size=self.batch_size,
         )
 
+        pretrain_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", scenario.name)
+        files = os.listdir(pretrain_dir)
+        checkpoint_files = [f for f in files if re.match(r"model\d+\.pt", f)]
+        latest_checkpoint = max(
+            checkpoint_files, key=lambda x: int(re.search(r"\d+", x).group())
+        )
+
         gen_cfg = GeneratorConfig(
             batch_size=batch_size,
-            generator_model_path=os.path.join(
-                OUTPUT_DIR, "diffusion_pretrain", scenario.name, "model100000.pt"
-            ),
+            generator_model_path=os.path.join(pretrain_dir, latest_checkpoint),
             size=scenario.size,
         )
         self.n_update_iterations = 5
@@ -129,9 +146,9 @@ class DiffusionDesigner(Designer):
         y = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[done]
 
         # Convert to RGB
-        X = storage_to_rgb(
-            X.numpy(force=True), self.scenario.agent_idxs, self.scenario.goal_idxs
-        )
+        # X = storage_to_rgb(
+        # X.numpy(force=True), self.scenario.agent_idxs, self.scenario.goal_idxs
+        # )
         X = torch.tensor(X, dtype=torch.float32, device=y.device)
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
         self.env_buffer.extend(data)
