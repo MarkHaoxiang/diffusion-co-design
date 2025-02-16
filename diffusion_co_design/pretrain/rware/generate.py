@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from PIL import Image
 
-from rware.warehouse import Layout, ImageLayer
+from rware.warehouse import ImageLayer
 
 from diffusion_co_design.utils import omega_to_pydantic, OUTPUT_DIR
 
@@ -30,6 +30,7 @@ class WarehouseRandomGeneratorConfig(BaseModel):
     n_samples: int = 10
     agent_idxs: list[int] | None = None
     goal_idxs: list[int] | None = None
+    as_rgb_image: bool = False
 
 
 # Shelves, Agents, Goals
@@ -47,6 +48,7 @@ def generate(
     goal_idxs: list[int],
     n: int = 1,
     disable_tqdm=True,
+    rgb: bool = False,
 ) -> list[np.ndarray]:
     # Possible positions
     remaining_idxs = []
@@ -58,15 +60,26 @@ def generate(
     for _ in tqdm(range(n), disable=disable_tqdm):
         shelf_idxs = random.sample(remaining_idxs, n_shelves)
 
-        # Environment placement
-        env = np.zeros((size, size, 3), dtype=np.uint8)
-        env[:, :] = colors[-1]
-        for idx in shelf_idxs:
-            env[idx // size, idx % size] = colors[0]
-        for idx in agent_idxs:
-            env[idx // size, idx % size] = colors[1]
-        for idx in goal_idxs:
-            env[idx // size, idx % size] = colors[2]
+        # Shelf placement
+
+        # Deprecated: RGB generation
+        if rgb:
+            env = np.zeros((size, size, 3), dtype=np.uint8)
+            env[:, :] = colors[-1]
+            for idx in shelf_idxs:
+                env[idx // size, idx % size] = colors[0]
+            for idx in agent_idxs:
+                env[idx // size, idx % size] = colors[1]
+            for idx in goal_idxs:
+                env[idx // size, idx % size] = colors[2]
+
+        # Instead, generate just the shelf layer
+        else:
+            env = np.zeros((size, size, 1), dtype=np.float32)
+            for idx in shelf_idxs:
+                env[idx // size, idx % size] = 1.0
+            env = env - 0.5
+            env = env.transpose(2, 0, 1)
 
         environments.append(env)
 
@@ -81,6 +94,7 @@ def generate_run(cfg: WarehouseRandomGeneratorConfig):
     if os.path.exists(data_dir):
         shutil.rmtree(path=data_dir)
     os.makedirs(data_dir)
+    print(f"Generating dataset at {data_dir}")
 
     # Seeding
     random.seed(cfg.seed)
@@ -110,15 +124,28 @@ def generate_run(cfg: WarehouseRandomGeneratorConfig):
 
     # Generate uniform environments for exploration
     environments = generate(
-        size, cfg.n_shelves, agent_idxs, goal_idxs, n=cfg.n_samples, disable_tqdm=False
+        size,
+        cfg.n_shelves,
+        agent_idxs,
+        goal_idxs,
+        n=cfg.n_samples,
+        disable_tqdm=False,
+        rgb=cfg.as_rgb_image,
     )
-    for i, env in tqdm(enumerate(environments)):
-        # Save images
-        im = Image.fromarray(env)
-        im.save(data_dir + "/%07d" % i + ".png")
+
+    if cfg.as_rgb_image:
+        for i, env in tqdm(enumerate(environments)):
+            # Save images
+            im = Image.fromarray(env)
+            im.save(data_dir + "/%07d" % i + ".png")
+    else:
+        env_buffer = np.stack(environments)
+        np.save(data_dir + "/environments.npy", env_buffer)
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="default")
+@hydra.main(
+    version_base=None, config_path="configs", config_name="rware_16_50_5_5_random"
+)
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")
     config = omega_to_pydantic(config, WarehouseRandomGeneratorConfig)

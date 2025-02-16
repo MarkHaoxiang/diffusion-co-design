@@ -31,13 +31,16 @@ class Designer(nn.Module, ABC):
         self.scenario = scenario
         self.update_counter = 0
 
-    # TODO: Batch size support
     @abstractmethod
     def generate_environment_image(self, objective):
         raise NotImplementedError()
 
     def generate_environment(self, objective):
-        return rgb_to_layout(self.generate_environment_image(objective))
+        return rgb_to_layout(
+            self.generate_environment_image(objective),
+            self.scenario.agent_idxs,
+            self.scenario.goal_idxs,
+        )
 
     def to_td_module(self):
         return TensorDictModule(
@@ -138,6 +141,7 @@ class DiffusionDesigner(Designer):
             self.running_loss = 0
             self.model.train()
             for _ in range(self.n_update_iterations):
+                self.optim.zero_grad()
                 sample = self.env_buffer.sample(batch_size=self.batch_size)
                 X_batch = sample.get("env").to(dtype=torch.float32, device=self.device)
                 y_batch = sample.get("episode_reward").to(
@@ -228,6 +232,11 @@ class DiskDesigner(Designer):
             with open(self.buffer_path, "wb") as f:
                 pkl.dump(batch, f)
         return res
+
+    def get_logs(self):
+        if self.is_master:
+            return self.master_designer.get_logs()
+        return super().get_logs()
 
 
 class FixedDesigner(Designer):

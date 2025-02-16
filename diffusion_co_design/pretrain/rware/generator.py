@@ -11,6 +11,8 @@ from guided_diffusion.resample import create_named_schedule_sampler
 
 from pydantic import BaseModel
 
+from diffusion_co_design.pretrain.rware.transform import storage_to_rgb
+
 
 class GeneratorConfig(BaseModel):
     generator_model_path: str
@@ -19,6 +21,19 @@ class GeneratorConfig(BaseModel):
 
 
 device = dist_util.dev()
+
+
+def get_model_and_diffusion_defaults(size, image_channels):
+    model_diffusion_args = model_and_diffusion_defaults()
+    model_diffusion_args["image_size"] = size
+    model_diffusion_args["image_channels"] = image_channels
+    model_diffusion_args["num_channels"] = 128
+    model_diffusion_args["num_res_blocks"] = 3
+    model_diffusion_args["diffusion_steps"] = 1000
+    model_diffusion_args["noise_schedule"] = "linear"
+    model_diffusion_args["timestep_respacing"] = "ddim50"
+
+    return model_diffusion_args
 
 
 class Generator:
@@ -32,7 +47,8 @@ class Generator:
 
         self.size = cfg.size
         self.batch_size = cfg.batch_size
-        self.image_channels = 3
+        self.image_channels = 1
+        # self.image_channels = 3
         self.clip_denoised = True
 
         self.guidance_weight = guidance_wt
@@ -43,14 +59,9 @@ class Generator:
             self.rng = rng
 
         # Create diffusion model
-        model_diffusion_args = model_and_diffusion_defaults()
-        model_diffusion_args["image_size"] = self.size
-        model_diffusion_args["image_channels"] = self.image_channels
-        model_diffusion_args["num_channels"] = 128
-        model_diffusion_args["num_res_blocks"] = 3
-        model_diffusion_args["diffusion_steps"] = 1000
-        model_diffusion_args["noise_schedule"] = "linear"
-        model_diffusion_args["timestep_respacing"] = "ddim50"
+        model_diffusion_args = get_model_and_diffusion_defaults(
+            self.size, self.image_channels
+        )
 
         self.model, self.diffusion = create_model_and_diffusion(**model_diffusion_args)
 
@@ -84,24 +95,21 @@ class Generator:
             clip_denoised=self.clip_denoised,
             cond_fn=cond_fn,
         )
+        # sample = (
+        #     ((sample + 1) * 127.5)
+        #     .clamp(0, 255)
+        #     .to(torch.uint8)
+        #     .permute(0, 2, 3, 1)
+        #     .contiguous()
+        # )
         sample = (
-            ((sample + 1) * 127.5)
-            .clamp(0, 255)
+            ((sample + 1) * 0.5)
+            .clamp(0, 1)
+            .round()
             .to(torch.uint8)
             .permute(0, 2, 3, 1)
             .contiguous()
         )
-
-        # # TODO: The distributed loop is weird: why is all_gather needed here?
-        # gathered_samples = [
-        #     torch.zeros_like(sample) for _ in range(torch.distributed.get_world_size())
-        # ]
-        # torch.distributed.all_gather(
-        #     gathered_samples, sample
-        # )  # gather not supported with NCCL
-        # return np.concatenate(
-        #     [sample.numpy(force=True) for sample in gathered_samples], axis=0
-        # )
         return sample.numpy(force=True)
 
     @property
@@ -130,9 +138,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # cfg = GeneratorConfig(
+    #     generator_model_path=os.path.join(
+    #         OUTPUT_DIR, "diffusion_pretrain", "default", "model100000.pt"
+    #     )
+    # )
+
     cfg = GeneratorConfig(
         generator_model_path=os.path.join(
-            OUTPUT_DIR, "diffusion_pretrain", "default", "model100000.pt"
+            OUTPUT_DIR, "diffusion_pretrain", "rware_16_50_5_5_random", "model001000.pt"
         )
     )
 
@@ -143,7 +157,8 @@ if __name__ == "__main__":
     elif args.option == "guided":
         model_dict = classifier_defaults()
         model_dict["image_size"] = cfg.size
-        model_dict["image_channels"] = 3
+        # model_dict["image_channels"] = 3
+        model_dict["image_channels"] = 1
         model_dict["classifier_width"] = 128
         model_dict["classifier_depth"] = 2
         model_dict["classifier_attention_resolutions"] = "16, 8, 4"
@@ -176,5 +191,11 @@ if __name__ == "__main__":
     os.makedirs(data_dir)
 
     for i, env in enumerate(environment_batch):
+        env = env.transpose(2, 0, 1)
+        print(env.sum())
+        env = storage_to_rgb(
+            env, [1, 88, 132, 233, 162], [39, 185, 237, 238, 159], channel_first=False
+        )
         im = Image.fromarray(env)
+        # im = Image.fromarray(env)
         im.save(data_dir + "/%04d" % i + ".png")

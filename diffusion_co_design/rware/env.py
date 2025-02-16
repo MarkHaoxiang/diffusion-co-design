@@ -20,6 +20,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         self,
         env=None,
         reset_policy: TensorDictModule | None = None,
+        scenario_cfg=None,
         environment_objective=None,
         return_state=False,
         group_map=None,
@@ -43,6 +44,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         # Also, it's difficult to rewrite sync
         self._env._reset_policy = reset_policy
         self._env._environment_objective = environment_objective
+        self._env._scenario_cfg = scenario_cfg
 
     def _reset(self, tensordict: TensorDict | None = None, **kwargs):
         """Extract the layout from tensordict and pass to env"""
@@ -60,11 +62,21 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 tensordict.update(
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
-                layout = rgb_to_layout(
-                    tensordict.get(("environment_design", "layout_image")).numpy(
-                        force=True
+                if self._env._scenario_cfg is None:
+                    layout = rgb_to_layout(
+                        tensordict.get(("environment_design", "layout_image")).numpy(
+                            force=True
+                        ),
                     )
-                )
+                else:
+                    layout = rgb_to_layout(
+                        tensordict.get(("environment_design", "layout_image")).numpy(
+                            force=True
+                        ),
+                        agent_idxs=self._env._scenario_cfg.agent_idxs,
+                        goal_idxs=self._env._scenario_cfg.goal_idxs,
+                    )
+
             else:
                 td = TensorDict(
                     {
@@ -75,11 +87,20 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     }
                 )
                 reset_policy_output = self._env._reset_policy(td)
-                layout = rgb_to_layout(
-                    reset_policy_output.get(
-                        ("environment_design", "layout_image")
-                    ).numpy(force=True)
-                )
+                if self._env._scenario_cfg is None:
+                    layout = rgb_to_layout(
+                        reset_policy_output.get(
+                            ("environment_design", "layout_image")
+                        ).numpy(force=True),
+                    )
+                else:
+                    layout = rgb_to_layout(
+                        reset_policy_output.get(
+                            ("environment_design", "layout_image")
+                        ).numpy(force=True),
+                        agent_idxs=self._env._scenario_cfg.agent_idxs,
+                        goal_idxs=self._env._scenario_cfg.goal_idxs,
+                    )
             options = {"layout": layout}
         else:
             options = None
@@ -130,6 +151,7 @@ def create_env(
         reset_policy=design_policy,
         environment_objective=scenario_objective,
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
+        scenario_cfg=scenario,
         return_state=True,
         device=device,
     )

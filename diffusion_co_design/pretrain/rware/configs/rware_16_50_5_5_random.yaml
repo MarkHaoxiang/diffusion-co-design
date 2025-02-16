@@ -1,4 +1,4 @@
-experiment_name: default
+experiment_name: rware_16_50_5_5_random
 seed: 0
 size: 16
 n_agents: 5

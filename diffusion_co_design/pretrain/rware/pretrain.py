@@ -6,7 +6,9 @@ Modified from https://github.com/rllab-snu/ADD
 
 import argparse
 import os
-
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, TensorDataset
 from guided_diffusion import dist_util, logger
 from guided_diffusion.image_datasets import load_data
 from guided_diffusion.resample import create_named_schedule_sampler
@@ -17,7 +19,11 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from guided_diffusion.train_util import TrainLoop
+
 from diffusion_co_design.utils import OUTPUT_DIR
+from diffusion_co_design.pretrain.rware.generator import (
+    get_model_and_diffusion_defaults,
+)
 
 
 def main():
@@ -40,14 +46,29 @@ def main():
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("creating data loader...")
-    data = load_data(
-        data_dir=data_dir,
-        batch_size=args.batch_size,
-        image_size=args.image_size,
-        class_cond=args.class_cond,
-        random_flip=args.random_flip,
-        rgb=args.rgb,
-    )
+
+    # For RGB training
+    # data = load_data(
+    #     data_dir=data_dir,
+    #     batch_size=args.batch_size,
+    #     image_size=args.image_size,
+    #     class_cond=args.class_cond,
+    #     random_flip=args.random_flip,
+    #     rgb=args.rgb,
+    # )
+
+    # For storage channel training
+    data = np.load(data_dir + "/environments.npy")
+    data = torch.from_numpy(data).to(torch.float32)
+    data = TensorDataset(data)
+    data = DataLoader(data, batch_size=args.batch_size, shuffle=True)
+
+    def data_iterator(data):
+        while True:
+            for batch in data:
+                yield batch[0], {}
+
+    data = data_iterator(data)
 
     logger.log("training...")
     TrainLoop(
@@ -80,7 +101,7 @@ def create_argparser():
         microbatch=-1,  # -1 disables microbatches
         ema_rate="0.9999",  # comma-separated list of EMA values
         log_interval=10,
-        save_interval=100000,
+        save_interval=1000,
         resume_checkpoint="",
         use_fp16=False,
         fp16_scale_growth=1e-3,
@@ -89,14 +110,7 @@ def create_argparser():
         gpu_idx="0",
     )
     defaults.update(model_and_diffusion_defaults())
-
-    model_flags = dict(
-        image_size=16, image_channels=3, num_channels=128, num_res_blocks=3
-    )
-    diffusion_flags = dict(diffusion_steps=1000, noise_schedule="linear")
-
-    defaults.update(model_flags)
-    defaults.update(diffusion_flags)
+    defaults.update(get_model_and_diffusion_defaults(size=16, image_channels=1))
 
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
