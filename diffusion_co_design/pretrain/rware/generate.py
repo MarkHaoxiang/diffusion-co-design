@@ -49,6 +49,7 @@ def generate(
     n: int = 1,
     disable_tqdm=True,
     rgb: bool = False,
+    training_dataset: bool = False,
 ) -> list[np.ndarray]:
     # Possible positions
     remaining_idxs = []
@@ -75,10 +76,12 @@ def generate(
 
         # Instead, generate just the shelf layer
         else:
-            env = np.zeros((size, size, 1), dtype=np.float32)
+            dtype = np.float32 if training_dataset else np.uint8
+            env = np.zeros((size, size, 1), dtype=dtype)
             for idx in shelf_idxs:
                 env[idx // size, idx % size] = 1.0
-            env = env - 0.5
+            if training_dataset:
+                env = env - 0.5
             env = env.transpose(2, 0, 1)
 
         environments.append(env)
@@ -131,6 +134,7 @@ def generate_run(cfg: WarehouseRandomGeneratorConfig):
         n=cfg.n_samples,
         disable_tqdm=False,
         rgb=cfg.as_rgb_image,
+        training_dataset=True,
     )
 
     if cfg.as_rgb_image:

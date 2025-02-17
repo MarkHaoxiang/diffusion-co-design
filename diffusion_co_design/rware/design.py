@@ -13,8 +13,6 @@ from guided_diffusion.script_util import create_classifier, classifier_defaults
 
 from diffusion_co_design.utils import OUTPUT_DIR
 from diffusion_co_design.pretrain.rware.transform import (
-    rgb_to_layout,
-    storage_to_rgb,
     storage_to_layout,
 )
 from diffusion_co_design.pretrain.rware.generate import generate

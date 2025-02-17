@@ -1,7 +1,8 @@
+from functools import partial
 import numpy as np
 import torch
+from pydantic import BaseModel
 from torch import nn
-
 from guided_diffusion import dist_util
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
@@ -9,9 +10,36 @@ from guided_diffusion.script_util import (
 )
 from guided_diffusion.resample import create_named_schedule_sampler
 
-from pydantic import BaseModel
-
 from diffusion_co_design.pretrain.rware.transform import storage_to_rgb
+
+
+# Using Universal Guided Diffusion
+
+
+class OptimizerDetails:
+    def __init__(self):
+        self.num_recurrences = 4
+        self.operation_func = None
+        self.optimizer = "Adam"
+        self.lr = 0.0002
+        self.loss_func = None
+        self.backward_steps = 0
+        self.loss_cutoff = None
+        self.lr_scheduler = None
+        self.warm_start = None
+        self.old_img = None
+        self.fact = 0.5
+        self.print = False
+        self.print_every = None
+        self.folder = None
+        self.tv_loss = None
+        self.use_forward = True
+        self.forward_guidance_wt = 5.0
+        self.other_guidance_func = None
+        self.other_criterion = None
+        self.original_guidance = False
+        self.sampling_type = "ddim"
+        self.loss_save = None
 
 
 class GeneratorConfig(BaseModel):
@@ -75,7 +103,9 @@ class Generator:
         # Schedule sampler (for training time dependent diffusion)
         self.schedule_sampler = create_named_schedule_sampler("uniform", self.diffusion)
 
-    def generate_batch(self, value: nn.Module | None = None):
+    def generate_batch(
+        self, value: nn.Module | None = None, use_operation: bool = False
+    ):
         initial_noise = torch.randn(self.shape, generator=self.rng, device=device)
 
         if value is not None:
@@ -88,21 +118,24 @@ class Generator:
         else:
             cond_fn = None
 
-        sample = self.diffusion.ddim_sample_loop(
-            model=self.model,
-            shape=self.shape,
-            noise=initial_noise,
-            clip_denoised=self.clip_denoised,
-            cond_fn=cond_fn,
-        )
-        # RGB
-        # sample = (
-        #     ((sample + 1) * 127.5)
-        #     .clamp(0, 255)
-        #     .to(torch.uint8)
-        #     .permute(0, 2, 3, 1)
-        #     .contiguous()
-        # )
+        if not use_operation:
+            sample = self.diffusion.ddim_sample_loop(
+                model=self.model,
+                shape=self.shape,
+                noise=initial_noise,
+                clip_denoised=self.clip_denoised,
+                cond_fn=cond_fn,
+            )
+        else:
+            operation = OptimizerDetails()
+            sample = self.diffusion.ddim_sample_loop_operation(
+                model=self.model,
+                shape=self.shape,
+                noise=initial_noise,
+                operated_image=None,
+                operation=operation,
+                cond_fn=cond_fn,
+            )
 
         # Storage
         sample = (
