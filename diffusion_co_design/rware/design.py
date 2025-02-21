@@ -14,6 +14,8 @@ from guided_diffusion.script_util import create_classifier, classifier_defaults
 from diffusion_co_design.utils import OUTPUT_DIR
 from diffusion_co_design.pretrain.rware.transform import (
     storage_to_layout,
+    rgb_to_layout,
+    storage_to_rgb,
 )
 from diffusion_co_design.pretrain.rware.generate import generate
 from diffusion_co_design.pretrain.rware.generator import Generator, GeneratorConfig
@@ -67,6 +69,9 @@ class Designer(nn.Module, ABC):
     def get_logs(self):
         return {}
 
+    def get_model(self):
+        return None
+
 
 class RandomDesigner(Designer):
     def __init__(self, scenario: ScenarioConfig):
@@ -91,7 +96,7 @@ class DiffusionDesigner(Designer):
         self,
         scenario: ScenarioConfig,
         batch_size: int,
-        buffer_size: int = 512,
+        buffer_size: int = 1024,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario)
@@ -110,7 +115,7 @@ class DiffusionDesigner(Designer):
         )
         self.criterion = torch.nn.MSELoss()
 
-        self.batch_size = 8
+        self.batch_size = 32
         self.env_buffer = ReplayBuffer(
             storage=LazyTensorStorage(max_size=buffer_size),
             sampler=SamplerWithoutReplacement(),
@@ -128,9 +133,10 @@ class DiffusionDesigner(Designer):
             batch_size=batch_size,
             generator_model_path=os.path.join(pretrain_dir, latest_checkpoint),
             size=scenario.size,
+            num_channels=1,
         )
         self.n_update_iterations = 5
-        self.generator = Generator(gen_cfg, guidance_wt=50.0)
+        self.generator = Generator(gen_cfg, guidance_wt=0.0)
         self.device = device
 
         self.running_loss = 0
@@ -139,13 +145,14 @@ class DiffusionDesigner(Designer):
     def update(self, sampling_td):
         super().update(sampling_td)
         # Update replay buffer
+        return
         done = sampling_td.get(("next", "done"))
         X = sampling_td.get("state")[done.squeeze()]
         y = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[done]
 
         # Convert to RGB
         # X = storage_to_rgb(
-        # X.numpy(force=True), self.scenario.agent_idxs, self.scenario.goal_idxs
+        #     X.numpy(force=True), self.scenario.agent_idxs, self.scenario.goal_idxs
         # )
         X = torch.tensor(X, dtype=torch.float32, device=y.device)
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
@@ -175,7 +182,8 @@ class DiffusionDesigner(Designer):
     def reset_env_buffer(self):
         batch = []
         self.model.eval()
-        for env in self.generator.generate_batch(value=self.model):
+        for env in self.generator.generate_batch():
+            # for env in self.generator.generate_batch(value=self.model):
             batch.append(env)
         return batch
 
@@ -252,6 +260,11 @@ class DiskDesigner(Designer):
         if self.is_master:
             return self.master_designer.get_logs()
         return super().get_logs()
+
+    def get_model(self):
+        if self.is_master:
+            return self.master_designer.get_model()
+        return super().get_model()
 
 
 class FixedDesigner(Designer):

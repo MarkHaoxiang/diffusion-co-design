@@ -7,6 +7,7 @@ Modified from https://github.com/rllab-snu/ADD
 import argparse
 import os
 import numpy as np
+from omegaconf import OmegaConf
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from guided_diffusion import dist_util, logger
@@ -21,6 +22,7 @@ from guided_diffusion.script_util import (
 from guided_diffusion.train_util import TrainLoop
 
 from diffusion_co_design.utils import OUTPUT_DIR
+from diffusion_co_design.pretrain.rware.generate import generate
 from diffusion_co_design.pretrain.rware.generator import (
     get_model_and_diffusion_defaults,
 )
@@ -58,17 +60,39 @@ def main():
     # )
 
     # For storage channel training
-    data = np.load(data_dir + "/environments.npy")
-    data = torch.from_numpy(data).to(torch.float32)
-    data = TensorDataset(data)
-    data = DataLoader(data, batch_size=args.batch_size, shuffle=True)
+    # data = np.load(data_dir + "/environments.npy")
+    # data = torch.from_numpy(data).to(torch.float32)
+    # data = TensorDataset(data)
+    # data = DataLoader(data, batch_size=args.batch_size, shuffle=True)
 
-    def data_iterator(data):
+    # def data_iterator(data):
+    #     while True:
+    #         for batch in data:
+    #             yield batch[0], {}
+
+    # Training on the true underlying distribution
+    # By generation samples on the fly
+    data_config = OmegaConf.load(os.path.join(data_dir, "config.yaml"))
+
+    def data_iterator():
         while True:
-            for batch in data:
-                yield batch[0], {}
+            batch = torch.from_numpy(
+                np.stack(
+                    generate(
+                        size=data_config.size,
+                        n_shelves=data_config.n_shelves,
+                        goal_idxs=data_config.goal_idxs,
+                        agent_idxs=data_config.agent_idxs,
+                        n=args.batch_size,
+                        rgb=False,
+                        training_dataset=True,
+                    )
+                )
+            )
+            yield batch, {}
 
-    data = data_iterator(data)
+    # data = data_iterator(data)
+    data = data_iterator()
 
     logger.log("training...")
     TrainLoop(

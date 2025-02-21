@@ -67,6 +67,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
                 layout = storage_to_layout(
+                    # layout = rgb_to_layout(
                     tensordict.get(("environment_design", "layout_image")).numpy(
                         force=True
                     ),
@@ -85,6 +86,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 )
                 reset_policy_output = self._env._reset_policy(td)
                 layout = storage_to_layout(
+                    # layout = rgb_to_layout(
                     reset_policy_output.get(
                         ("environment_design", "layout_image")
                     ).numpy(force=True),

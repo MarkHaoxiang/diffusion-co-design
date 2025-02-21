@@ -10,6 +10,7 @@ from guided_diffusion.script_util import (
 )
 from guided_diffusion.resample import create_named_schedule_sampler
 
+from diffusion_co_design.pretrain.rware.generate import generate
 from diffusion_co_design.pretrain.rware.transform import storage_to_rgb
 
 
@@ -138,6 +139,13 @@ class Generator:
             )
 
         # Storage
+        # sample = (
+        #     ((sample + 1) * 127.5)
+        #     .clamp(0, 255)
+        #     .to(torch.uint8)
+        #     .permute(0, 2, 3, 1)
+        #     .contiguous()
+        # )
         sample = (
             ((sample + 1) * 0.5)
             .clamp(0, 1)
@@ -174,15 +182,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # cfg = GeneratorConfig(
-    #     generator_model_path=os.path.join(
-    #         OUTPUT_DIR, "diffusion_pretrain", "default", "model100000.pt"
-    #     )
-    # )
-
     cfg = GeneratorConfig(
         generator_model_path=os.path.join(
-            OUTPUT_DIR, "diffusion_pretrain", "rware_16_50_5_5_random", "model040000.pt"
+            OUTPUT_DIR, "diffusion_pretrain", "rware_16_50_5_5_random", "model100000.pt"
         )
     )
 

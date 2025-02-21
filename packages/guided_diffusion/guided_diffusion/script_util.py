@@ -1,4 +1,5 @@
 import sys, os
+
 sys.path.append(os.path.join(os.getcwd(), "latent_guided_diffusion"))
 import argparse
 import inspect
@@ -130,19 +131,23 @@ def create_model_and_diffusion(
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
     )
-    diffusion = create_gaussian_diffusion(
-        steps=diffusion_steps,
-        learn_sigma=learn_sigma,
-        noise_schedule=noise_schedule,
-        use_kl=use_kl,
-        predict_xstart=predict_xstart,
-        rescale_timesteps=rescale_timesteps,
-        rescale_learned_sigmas=rescale_learned_sigmas,
-        timestep_respacing=timestep_respacing,
-    ) if not use_ldm else create_ldm_diffusion(
-        # config_path="latent_guided_diffusion/configs/latent-diffusion/lsun_churches-ldm-kl-8.yaml",
-        config_path=ldm_config_path,
-        # model_path="latent_guided_diffusion/models/ldm/lsun_churches256/model.ckpt",
+    diffusion = (
+        create_gaussian_diffusion(
+            steps=diffusion_steps,
+            learn_sigma=learn_sigma,
+            noise_schedule=noise_schedule,
+            use_kl=use_kl,
+            predict_xstart=predict_xstart,
+            rescale_timesteps=rescale_timesteps,
+            rescale_learned_sigmas=rescale_learned_sigmas,
+            timestep_respacing=timestep_respacing,
+        )
+        if not use_ldm
+        else create_ldm_diffusion(
+            # config_path="latent_guided_diffusion/configs/latent-diffusion/lsun_churches-ldm-kl-8.yaml",
+            config_path=ldm_config_path,
+            # model_path="latent_guided_diffusion/models/ldm/lsun_churches256/model.ckpt",
+        )
     )
     return model, diffusion
 
@@ -243,19 +248,23 @@ def create_classifier_and_diffusion(
         classifier_pool,
         output_dim,
     )
-    diffusion = create_gaussian_diffusion(
-        steps=diffusion_steps,
-        learn_sigma=learn_sigma,
-        noise_schedule=noise_schedule,
-        use_kl=use_kl,
-        predict_xstart=predict_xstart,
-        rescale_timesteps=rescale_timesteps,
-        rescale_learned_sigmas=rescale_learned_sigmas,
-        timestep_respacing=timestep_respacing,
-    ) if not use_ldm else create_ldm_diffusion(
-        # config_path="latent_guided_diffusion/configs/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml",
-        config_path=ldm_config_path,
-        # model_path="latent_guided_diffusion/models/ldm/lsun_beds256/model.ckpt",
+    diffusion = (
+        create_gaussian_diffusion(
+            steps=diffusion_steps,
+            learn_sigma=learn_sigma,
+            noise_schedule=noise_schedule,
+            use_kl=use_kl,
+            predict_xstart=predict_xstart,
+            rescale_timesteps=rescale_timesteps,
+            rescale_learned_sigmas=rescale_learned_sigmas,
+            timestep_respacing=timestep_respacing,
+        )
+        if not use_ldm
+        else create_ldm_diffusion(
+            # config_path="latent_guided_diffusion/configs/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml",
+            config_path=ldm_config_path,
+            # model_path="latent_guided_diffusion/models/ldm/lsun_beds256/model.ckpt",
+        )
     )
     return classifier, diffusion
 
@@ -283,7 +292,7 @@ def create_classifier(
     elif image_size == 32:
         channel_mult = (1, 2, 2, 2)
     elif image_size == 16:
-            channel_mult = (1, 2, 2, 2)
+        channel_mult = (1, 2, 2, 2)
     else:
         raise ValueError(f"unsupported image size: {image_size}")
 

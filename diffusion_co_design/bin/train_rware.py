@@ -264,6 +264,12 @@ def train(cfg: TrainingConfig):
                     critic.state_dict(),
                     join(checkpoint_dir, f"critic_{iteration}.pt"),
                 )
+                model = master_designer.get_model()
+                if model is not None:
+                    torch.save(
+                        model.state_dict(),
+                        join(checkpoint_dir, f"designer_{iteration}.pt"),
+                    )
 
             pbar.update()
             sampling_start = time.time()
