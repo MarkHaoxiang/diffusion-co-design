@@ -139,21 +139,25 @@ class Generator:
             )
 
         # Storage
-        # sample = (
-        #     ((sample + 1) * 127.5)
-        #     .clamp(0, 255)
-        #     .to(torch.uint8)
-        #     .permute(0, 2, 3, 1)
-        #     .contiguous()
-        # )
-        sample = (
-            ((sample + 1) * 0.5)
-            .clamp(0, 1)
-            .round()
-            .to(torch.uint8)
-            .permute(0, 2, 3, 1)
-            .contiguous()
-        )
+        if self.image_channels == 3:
+            sample = (
+                ((sample + 1) * 127.5)
+                .clamp(0, 255)
+                .to(torch.uint8)
+                .permute(0, 2, 3, 1)
+                .contiguous()
+            )
+        elif self.image_channels == 1:
+            sample = (
+                ((sample + 1) * 0.5)
+                .clamp(0, 1)
+                .round()
+                .to(torch.uint8)
+                .permute(0, 2, 3, 1)
+                .contiguous()
+            )
+        else:
+            assert False, "3 channels for RGB, 1 channel for storage only"
         return sample.numpy(force=True)
 
     @property
