@@ -140,7 +140,7 @@ def create_env(
             sensor_range=3,
             max_steps=scenario.max_steps,
             reward_type=RewardRegistry.SHAPED,
-            observation_type=ObservationRegistry.IMAGE_LAYOUT,
+            observation_type=ObservationRegistry.SHAPED,
             image_observation_layers=[
                 ImageLayer.STORAGE,
             ],

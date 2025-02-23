@@ -7,7 +7,6 @@ import hydra.core
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
-import torch.multiprocessing as mp
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators

@@ -140,6 +140,7 @@ class DiffusionDesigner(Designer):
 
     def update(self, sampling_td):
         super().update(sampling_td)
+        return
         # Update replay buffer
         done = sampling_td.get(("next", "done"))
         X = sampling_td.get("state")[done.squeeze()]

@@ -32,22 +32,6 @@ class PolicyConfig(BaseModel):
     share_params: bool = True
 
 
-# class Critic(nn.Module):
-#     # TODO
-#     def __init__(self, env: RwareCoDesignWrapper):
-#         super().__init__()
-#         critic_net_dict = classifier_defaults()  # This creates an internal unet
-
-#         critic_net_dict["image_size"] = env.layout.grid_size
-#         critic_net_dict["classifier_attention_resolutions"] = "16, 8, 4"
-#         critic_net_dict["output_dim"] = 128
-
-#         self.unet = create_classifier(**critic_net_dict)
-
-#     def forward(image, features):
-#         pass
-
-
 def rware_models(
     env: RwareCoDesignWrapper, cfg: PolicyConfig, device: DEVICE_TYPING | None
 ):
@@ -75,21 +59,7 @@ def rware_models(
     )
 
     # Policy
-    policy_cnn_net_1 = MultiAgentConvNet(
-        n_agents=env.num_agents,
-        centralized=False,
-        share_params=cfg.share_params,
-        kernel_sizes=cfg.kernel_sizes,
-        num_cells=cfg.num_cells,
-        strides=cfg.strides,
-        device=device,
-    )
-    policy_cnn_module_1 = TensorDictModule(
-        module=policy_cnn_net_1,
-        in_keys=[("agents", "observation", "global_image_float")],
-        out_keys=[("agents", "observation", "global_image_features")],
-    )
-    policy_cnn_net_2 = MultiAgentConvNet(
+    policy_cnn_net = MultiAgentConvNet(
         n_agents=env.num_agents,
         centralized=False,
         share_params=cfg.share_params,
@@ -98,8 +68,8 @@ def rware_models(
         strides=cfg.strides,
         device=device,
     )
-    policy_cnn_module_2 = TensorDictModule(
-        module=policy_cnn_net_2,
+    policy_cnn_module = TensorDictModule(
+        module=policy_cnn_net,
         in_keys=[("agents", "observation", "local_image_float")],
         out_keys=[("agents", "observation", "local_image_features")],
     )
@@ -118,15 +88,13 @@ def rware_models(
         module=policy_mlp_net,
         in_keys=[
             ("agents", "observation", "features"),
-            ("agents", "observation", "global_image_features"),
             ("agents", "observation", "local_image_features"),
         ],
         out_keys=[("agents", "logits")],
     )
     policy_module = TensorDictSequential(
         dtype_cast,
-        policy_cnn_module_1,
-        policy_cnn_module_2,
+        policy_cnn_module,
         policy_mlp_module,
         selected_out_keys=[("agents", "logits")],
     )
@@ -142,23 +110,7 @@ def rware_models(
     )
 
     # Critic
-    # TODO: A unet may be needed for diffusion
-    # TODO: We need a custom module to collect the shared observations
-    critic_cnn_net_1 = MultiAgentConvNet(
-        n_agents=env.num_agents,
-        centralized=False,
-        share_params=cfg.share_params,
-        kernel_sizes=cfg.kernel_sizes,
-        num_cells=cfg.num_cells,
-        strides=cfg.strides,
-        device=device,
-    )
-    critic_cnn_module_1 = TensorDictModule(
-        module=critic_cnn_net_1,
-        in_keys=[("agents", "observation", "global_image_float")],
-        out_keys=[("agents", "observation", "critic_global_image_features")],
-    )
-    critic_cnn_net_2 = MultiAgentConvNet(
+    critic_cnn_net = MultiAgentConvNet(
         n_agents=env.num_agents,
         centralized=False,
         share_params=cfg.share_params,
@@ -167,8 +119,8 @@ def rware_models(
         strides=cfg.strides,
         device=device,
     )
-    critic_cnn_module_2 = TensorDictModule(
-        module=critic_cnn_net_2,
+    critic_cnn_module = TensorDictModule(
+        module=critic_cnn_net,
         in_keys=[("agents", "observation", "local_image_float")],
         out_keys=[("agents", "observation", "critic_local_image_features")],
     )
@@ -188,14 +140,12 @@ def rware_models(
         in_keys=[
             ("agents", "observation", "features"),
             ("agents", "observation", "critic_local_image_features"),
-            ("agents", "observation", "critic_global_image_features"),
         ],
         out_keys=[("agents", "state_value")],
     )
     critic = TensorDictSequential(
         dtype_cast,
-        critic_cnn_module_1,
-        critic_cnn_module_2,
+        critic_cnn_module,
         critic_mlp_module,
         selected_out_keys=[("agents", "state_value")],
     )

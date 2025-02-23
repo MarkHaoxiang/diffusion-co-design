@@ -3,7 +3,7 @@ defaults:
   - shared/training@_here_
 
 designer: diffusion
-experiment_name: env_diffusion_check
+experiment_name: new_obs_no_map_diffusion
 n_iters: 5_000
 n_epochs: 10
 memory_management: gpu
