@@ -98,6 +98,16 @@ class RwareCoDesignWrapper(PettingZooWrapper):
             options = None
 
         tensordict_out = super()._reset(tensordict, options=options, **kwargs)
+
+        if self.return_state:
+            tensordict_out["state"] = self._env.state()
+
+        return tensordict_out
+
+    def _step(self, tensordict):
+        tensordict_out = super()._step(tensordict)
+        if self.return_state:
+            tensordict_out["state"] = self._env.state()
         return tensordict_out
 
 

@@ -11,7 +11,7 @@ from tensordict.nn import TensorDictModule
 from pydantic import BaseModel
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 
-from diffusion_co_design.utils import OUTPUT_DIR
+from diffusion_co_design.utils import OUTPUT_DIR, get_latest_model
 from diffusion_co_design.pretrain.rware.transform import (
     storage_to_layout,
     rgb_to_layout,
@@ -123,15 +123,11 @@ class DiffusionDesigner(Designer):
         )
 
         pretrain_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", scenario.name)
-        files = os.listdir(pretrain_dir)
-        checkpoint_files = [f for f in files if re.match(r"model\d+\.pt", f)]
-        latest_checkpoint = max(
-            checkpoint_files, key=lambda x: int(re.search(r"\d+", x).group())
-        )
+        latest_checkpoint = get_latest_model(pretrain_dir, "model")
 
         gen_cfg = GeneratorConfig(
             batch_size=batch_size,
-            generator_model_path=os.path.join(pretrain_dir, latest_checkpoint),
+            generator_model_path=latest_checkpoint,
             size=scenario.size,
             num_channels=1,
         )
@@ -145,7 +141,6 @@ class DiffusionDesigner(Designer):
     def update(self, sampling_td):
         super().update(sampling_td)
         # Update replay buffer
-        return
         done = sampling_td.get(("next", "done"))
         X = sampling_td.get("state")[done.squeeze()]
         y = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[done]
