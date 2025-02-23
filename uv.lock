@@ -372,7 +372,6 @@ dependencies = [
     { name = "matplotlib" },
     { name = "moviepy" },
     { name = "numpy" },
-    { name = "pettingzoo", extra = ["butterfly"] },
     { name = "pydantic" },
     { name = "rware", extra = ["pettingzoo"] },
     { name = "torch" },
@@ -398,7 +397,6 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "moviepy", specifier = "==1.0.3" },
     { name = "numpy", specifier = ">=2.2.2" },
-    { name = "pettingzoo", extras = ["butterfly"], specifier = ">=1.24.3" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "rware", extras = ["pettingzoo", "dev"], editable = "packages/robotic-warehouse" },
     { name = "torch", specifier = ">=2.6.0" },
@@ -1381,12 +1379,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/4e/eae7b6ecb801573fbec0c76b0fd1dd95bfd1a7fd8770bdd20242044e91f0/pettingzoo-1.24.3-py3-none-any.whl", hash = "sha256:23ed90517d2e8a7098bdaf5e31234b3a7f7b73ca578d70d1ca7b9d0cb0e37982", size = 847753 },
 ]
 
-[package.optional-dependencies]
-butterfly = [
-    { name = "pygame" },
-    { name = "pymunk" },
-]
-
 [[package]]
 name = "pexpect"
 version = "4.9.0"
@@ -1637,21 +1629,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pygame"
-version = "2.3.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8f/2d/3ecf1c23d48de693e0b0b4b1d02db245934db06d5052c4d4d3eaa68f7b6f/pygame-2.3.0.tar.gz", hash = "sha256:884b92c9cbf0bfaf8b8dd0f75a746613c55447d307ddd1addf903709b3b9f89f", size = 12875621 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/5c/2c9f91c1638b694cbe5c47d79696c21a02fd5019ca1e4091b0fdd9d0c0e6/pygame-2.3.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:82e5806fd797bd1b27fae705683f6822ae5276ec9cda42e6e21bba61985b763a", size = 13040214 },
-    { url = "https://files.pythonhosted.org/packages/f8/f9/ce0ee184b3befa562af3a3e02fb36c871cf7553409175697c9cb2f9e592d/pygame-2.3.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:fab0457ab07e8abb99de2b83c0a71f98bdf79afb01ff611873e4333fd8649f02", size = 12149517 },
-    { url = "https://files.pythonhosted.org/packages/9e/68/0ff882dca6f8495737d1940979d74bf561ca2c85ae170db6c5ded8a7ecae/pygame-2.3.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ad8fa7a91fa8f2a4fa46366142763675a0a11b7c34b06dfc20b1095d116da820", size = 13418354 },
-    { url = "https://files.pythonhosted.org/packages/1a/ec/359f432707cb7e53db09d576c51b14e42f3358e2cfea45d61ef2ba7a033a/pygame-2.3.0-cp311-cp311-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:cfff49dbb7fcc2a9a88e3f25fda7f181ee4957fd89df78c47fa64c689d19b8a9", size = 14095450 },
-    { url = "https://files.pythonhosted.org/packages/d5/09/301c74305ed91d424a27d3d850aca236fac369630f8cc5ff4fd9c37f06a5/pygame-2.3.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a5afd712bd7307d034e6940f3025c4b769656fd4cbb38fbdbd6af0f93d6c8386", size = 13775711 },
-    { url = "https://files.pythonhosted.org/packages/76/3d/17dc38294442e2ecd80f33f14e596ffb88452f7d294b6b1dd6015154a65d/pygame-2.3.0-cp311-cp311-win32.whl", hash = "sha256:fa18acc2d6f0d09575802e1db11845fc0f83f9777cc385c51380125df92f3dc9", size = 10186034 },
-    { url = "https://files.pythonhosted.org/packages/b6/8f/9d75f4b91a7ee9f7993a1ac4d2afc39b29828f4faa3ce4b339a2801a01d7/pygame-2.3.0-cp311-cp311-win_amd64.whl", hash = "sha256:101c57141d705ca1930377c324d2c7acd3099f1b4ac676981bdf5d5b329842c8", size = 10537364 },
-]
-
-[[package]]
 name = "pyglet"
 version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1668,15 +1645,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/7c/2d/c3338d48ea6cc0feb
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8a/0b/9fcc47d19c48b59121088dd6da2488a49d5f72dacf8262e2790a1d2c7d15/pygments-2.19.1-py3-none-any.whl", hash = "sha256:9ea1544ad55cecf4b8242fab6dd35a93bbce657034b0611ee383099054ab6d8c", size = 1225293 },
 ]
-
-[[package]]
-name = "pymunk"
-version = "6.2.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cffi" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d3/03/6d80fc57859183ecfe9abb8b27463031822c0fcfbd806d8bdb85bc315440/pymunk-6.2.0.zip", hash = "sha256:c33d727578d4675372ab9b119db35feac98a210985564f6ba6b15d469e7472e4", size = 7063216 }
 
 [[package]]
 name = "pyparsing"
