@@ -33,7 +33,7 @@ class AttentionPool2d(nn.Module):
     ):
         super().__init__()
         self.positional_embedding = nn.Parameter(
-            th.randn(embed_dim, spacial_dim ** 2 + 1) / embed_dim ** 0.5
+            th.randn(embed_dim, spacial_dim**2 + 1) / embed_dim**0.5
         )
         self.qkv_proj = conv_nd(1, embed_dim, 3 * embed_dim, 1)
         self.c_proj = conv_nd(1, embed_dim, output_dim or embed_dim, 1)
@@ -278,9 +278,9 @@ class AttentionBlock(nn.Module):
         if num_head_channels == -1:
             self.num_heads = num_heads
         else:
-            assert (
-                channels % num_head_channels == 0
-            ), f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
+            assert channels % num_head_channels == 0, (
+                f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
+            )
             self.num_heads = channels // num_head_channels
         self.use_checkpoint = use_checkpoint
         self.norm = normalization(channels)
@@ -322,7 +322,7 @@ def count_flops_attn(model, _x, y):
     # We perform two matmuls with the same number of ops.
     # The first computes the weight matrix, the second computes
     # the combination of the value vectors.
-    matmul_ops = 2 * b * (num_spatial ** 2) * c
+    matmul_ops = 2 * b * (num_spatial**2) * c
     model.total_ops += th.DoubleTensor([matmul_ops])
 
 
@@ -393,31 +393,28 @@ class QKVAttention(nn.Module):
     def count_flops(model, _x, y):
         return count_flops_attn(model, _x, y)
 
+
 class SimpleFlowModel(nn.Module):
-    def __init__(
-        self,
-        data_shape,
-        hidden_dim
-        ):
+    def __init__(self, data_shape, hidden_dim):
         super().__init__()
-        
+
         self.hidden_dim = hidden_dim
         self.data_shape = data_shape
         self.layer_1 = nn.Linear(1, hidden_dim)
         self.layer_2 = nn.Linear(hidden_dim, hidden_dim)
         self.layer_3 = nn.Linear(hidden_dim, hidden_dim)
         self.layer_4 = nn.Linear(hidden_dim, 1)
-        
+
         self.emb_layer_1 = nn.Linear(hidden_dim, hidden_dim)
         self.emb_layer_2 = nn.Linear(hidden_dim, hidden_dim)
         self.emb_layer_3 = nn.Linear(hidden_dim, hidden_dim)
 
         self.activation = nn.SiLU()
-        
+
     def forward(self, input, timesteps, y=None):
         emb = timestep_embedding(timesteps, self.hidden_dim)
         emb = emb.unsqueeze(dim=1)
-        
+
         x = self.layer_1(input.view(input.shape[0], -1, 1))
         x = self.activation(x)
         emb = self.emb_layer_1(emb)
@@ -436,7 +433,8 @@ class SimpleFlowModel(nn.Module):
         x = self.layer_4(x + emb)
 
         return x.view(x.shape[0], self.data_shape[0], self.data_shape[1])
-                
+
+
 class UNetModel(nn.Module):
     """
     The full UNet model with attention and timestep embedding.
@@ -684,9 +682,9 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        assert (y is not None) == (
-            self.num_classes is not None
-        ), "must specify y if and only if the model is class-conditional"
+        assert (y is not None) == (self.num_classes is not None), (
+            "must specify y if and only if the model is class-conditional"
+        )
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
@@ -723,6 +721,7 @@ class SuperResModel(UNetModel):
         x = th.cat([x, upsampled], dim=1)
         return super().forward(x, timesteps, **kwargs)
 
+
 class SimpleSelfAttention(nn.Module):
     def __init__(self, input_dim):
         super(SimpleSelfAttention, self).__init__()
@@ -731,24 +730,19 @@ class SimpleSelfAttention(nn.Module):
         self.key = nn.Linear(input_dim, input_dim)
         self.value = nn.Linear(input_dim, input_dim)
         self.softmax = nn.Softmax(dim=2)
-        
+
     def forward(self, x):
         queries = self.query(x)
         keys = self.key(x)
         values = self.value(x)
-        scores = th.bmm(queries, keys.transpose(1, 2)) / (self.input_dim ** 0.5)
+        scores = th.bmm(queries, keys.transpose(1, 2)) / (self.input_dim**0.5)
         attention = self.softmax(scores)
         weighted = th.bmm(attention, values)
         return weighted
 
+
 class EncoderLinearAttentionModel(nn.Module):
-    def __init__(
-        self,
-        input_dim,
-        output_dim,
-        hidden_dim,
-        dummy_dim=0
-    ):
+    def __init__(self, input_dim, output_dim, hidden_dim, dummy_dim=0):
         super().__init__()
 
         self.input_dim = input_dim
@@ -771,8 +765,8 @@ class EncoderLinearAttentionModel(nn.Module):
         self.output_layer = nn.Linear(hidden_dim, output_dim)
 
         self.activation = nn.SiLU()
-    def forward(self, input, timesteps):
 
+    def forward(self, input, timesteps):
         emb = timestep_embedding(timesteps, self.hidden_dim)
 
         x = self.layer_1(input)
@@ -786,12 +780,12 @@ class EncoderLinearAttentionModel(nn.Module):
         emb = self.emb_layer_2(emb)
         emb = self.activation(emb)
 
-        x = self.layer_3(x+emb)
+        x = self.layer_3(x + emb)
         x = self.activation(x)
         emb = self.emb_layer_3(emb)
         emb = self.activation(emb)
 
-        x = self.layer_4(x+emb)
+        x = self.layer_4(x + emb)
         x = self.activation(x)
         emb = self.emb_layer_4(emb)
         emb = self.activation(emb)
@@ -799,13 +793,9 @@ class EncoderLinearAttentionModel(nn.Module):
         x = self.output_layer(x + emb)
         return x
 
+
 class EncoderLinearModel(nn.Module):
-    def __init__(
-        self,
-        input_dim,
-        output_dim,
-        hidden_dim
-    ):
+    def __init__(self, input_dim, output_dim, hidden_dim):
         super().__init__()
 
         self.input_dim = input_dim
@@ -832,7 +822,7 @@ class EncoderLinearModel(nn.Module):
         x = input.clone()
         x = x.view(x.shape[0], -1)
         emb = timestep_embedding(timesteps, self.hidden_dim)
-        
+
         x = self.layer_1(x)
         x = self.activation(x)
         emb = self.emb_layer_1(emb)
@@ -855,6 +845,7 @@ class EncoderLinearModel(nn.Module):
 
         x = self.output_layer(x + emb)
         return x
+
 
 class EncoderUNetModel(nn.Module):
     """
@@ -1003,7 +994,7 @@ class EncoderUNetModel(nn.Module):
                 nn.Linear(ch, 2048),
                 normalization(2048),
                 nn.SiLU(),
-                nn.Linear(2048, self.out_channels)
+                nn.Linear(2048, self.out_channels),
             )
         elif pool == "adaptive":
             self.out = nn.Sequential(
@@ -1051,7 +1042,8 @@ class EncoderUNetModel(nn.Module):
         """
         self.input_blocks.apply(convert_module_to_f32)
         self.middle_block.apply(convert_module_to_f32)
-    def get_feature_vector(self,x, timesteps=None):
+
+    def get_feature_vector(self, x, timesteps=None):
         if timesteps is None:
             timesteps = th.zeros(x.shape[0], dtype=th.long, device=x.device)
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
@@ -1064,6 +1056,7 @@ class EncoderUNetModel(nn.Module):
                 results.append(h.type(x.dtype).mean(dim=(2, 3)))
         h = self.middle_block(h, emb)
         return h
+
     def forward(self, x, timesteps=None):
         """
         Apply the model to an input batch.

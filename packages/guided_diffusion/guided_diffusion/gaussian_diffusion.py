@@ -303,9 +303,12 @@ class GaussianDiffusion:
                 self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
             )
             model_mean = model_output
+            pass
         elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
             if self.model_mean_type == ModelMeanType.START_X:
                 pred_xstart = process_xstart(model_output)
+
+                pass
             else:
                 pred_xstart = process_xstart(
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
@@ -641,6 +644,14 @@ class GaussianDiffusion:
                     )
 
             if operation.use_forward:
+                model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+                pred_xstart = self._predict_xstart_from_eps(
+                    x_t=x, t=t, eps=model_output
+                )
+                pred_xstart.clamp(-1, 1)
+                out = {}
+                out["pred_xstart"] = pred_xstart
+
                 with th.enable_grad():
                     x_in = x.detach().requires_grad_(True)
 
@@ -770,11 +781,12 @@ class GaussianDiffusion:
                 # else:
                 loss = criterion(op_im, operated_image)
 
-                for __ in range(loss.shape[0]):
-                    if loss[__] < loss_cutoff:
-                        weights[__] = zeros[__]
-                    else:
-                        weights[__] = ones[__]
+                # for __ in range(loss.shape[0]):
+                #     if loss[__] < loss_cutoff:
+                #         weights[__] = zeros[__]
+                #     else:
+                #         weights[__] = ones[__]
+                weights = ones
 
                 before_x = th.clone(x0.data)
                 m_loss = loss.sum()

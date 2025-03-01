@@ -85,14 +85,10 @@ class SpacedDiffusion(GaussianDiffusion):
         kwargs["betas"] = np.array(new_betas)
         super().__init__(**kwargs)
 
-    def p_mean_variance(
-        self, model, *args, **kwargs
-    ):  # pylint: disable=signature-differs
+    def p_mean_variance(self, model, *args, **kwargs):  # pylint: disable=signature-differs
         return super().p_mean_variance(self._wrap_model(model), *args, **kwargs)
 
-    def training_losses(
-        self, model, *args, **kwargs
-    ):  # pylint: disable=signature-differs
+    def training_losses(self, model, *args, **kwargs):  # pylint: disable=signature-differs
         return super().training_losses(self._wrap_model(model), *args, **kwargs)
 
     def condition_mean(self, cond_fn, *args, **kwargs):
@@ -113,16 +109,24 @@ class SpacedDiffusion(GaussianDiffusion):
         return t
 
 
-class _WrappedModel:
+class _WrappedModel(th.nn.Module):
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):
+        super().__init__()
         self.model = model
+        if isinstance(model, _WrappedModel):
+            self.should_wrap = False
+        else:
+            self.should_wrap = True
         self.timestep_map = timestep_map
         self.rescale_timesteps = rescale_timesteps
         self.original_num_steps = original_num_steps
 
-    def __call__(self, x, ts, **kwargs):
-        map_tensor = th.tensor(self.timestep_map, device=ts.device, dtype=ts.dtype)
-        new_ts = map_tensor[ts]
-        if self.rescale_timesteps:
-            new_ts = new_ts.float() * (1000.0 / self.original_num_steps)
-        return self.model(x, new_ts, **kwargs)
+    def forward(self, x, ts, **kwargs):
+        if self.should_wrap:
+            map_tensor = th.tensor(self.timestep_map, device=ts.device, dtype=ts.dtype)
+            new_ts = map_tensor[ts]
+            if self.rescale_timesteps:
+                new_ts = new_ts.float() * (1000.0 / self.original_num_steps)
+            return self.model(x, new_ts, **kwargs)
+        else:
+            return self.model(x, ts, **kwargs)

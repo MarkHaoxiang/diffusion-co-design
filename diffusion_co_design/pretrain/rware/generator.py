@@ -9,6 +9,7 @@ from guided_diffusion.script_util import (
     create_model_and_diffusion,
 )
 from guided_diffusion.resample import create_named_schedule_sampler
+from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
 
 from diffusion_co_design.pretrain.rware.generate import generate
 from diffusion_co_design.pretrain.rware.transform import storage_to_rgb
@@ -19,28 +20,29 @@ from diffusion_co_design.pretrain.rware.transform import storage_to_rgb
 
 class OptimizerDetails:
     def __init__(self):
-        self.num_recurrences = 4
-        self.operation_func = None
-        self.optimizer = "Adam"
+        self.num_recurrences = 4  # Self-recurrence to increase inference time compute
+        self.operation_func = None  # Set as none, probably some sort of mask
+        self.optimizer = "Adam"  # Optim for backprop on expected image
         self.lr = 0.0002
-        self.loss_func = None
+        self.loss_func = None  # Important: this is the guidance model. Also 'criterion', takes in pred_xstart and any extra info in operated_image
         self.backward_steps = 0
-        self.loss_cutoff = None
+        self.loss_cutoff = None  # disabled, ignore
         self.lr_scheduler = None
         self.warm_start = None
-        self.old_img = None
-        self.fact = 0.5
-        self.print = False
-        self.print_every = None
-        self.folder = None
-        self.tv_loss = None
-        self.use_forward = True
+        self.old_img = None  # Ignore
+        self.fact = 0  # Ignore
+        self.print = False  # Ignore
+        self.print_every = None  # Ignore
+        self.folder = None  # Ignore
+        self.tv_loss = None  # Ignore
+        self.use_forward = True  # Set true to use forward. Not sure if this should be enabled when using backward.
         self.forward_guidance_wt = 5.0
         self.other_guidance_func = None
         self.other_criterion = None
         self.original_guidance = False
         self.sampling_type = "ddim"
         self.loss_save = None
+        self.operated_image = None
 
 
 class GeneratorConfig(BaseModel):
@@ -97,15 +99,26 @@ class Generator:
         self.model.load_state_dict(
             dist_util.load_state_dict(cfg.generator_model_path, map_location="cpu")
         )
-        dist_util.setup_dist()
         self.model.to(device)
         self.model.eval()
+        if isinstance(self.diffusion, SpacedDiffusion):
+            self.model = _WrappedModel(
+                self.model,
+                self.diffusion.timestep_map,
+                self.diffusion.rescale_timesteps,
+                self.diffusion.original_num_steps,
+            )
+
+        dist_util.setup_dist()
 
         # Schedule sampler (for training time dependent diffusion)
         self.schedule_sampler = create_named_schedule_sampler("uniform", self.diffusion)
 
     def generate_batch(
-        self, value: nn.Module | None = None, use_operation: bool = False
+        self,
+        value: nn.Module | None = None,
+        use_operation: bool = False,
+        operation_override: OptimizerDetails | None = None,
     ):
         initial_noise = torch.randn(self.shape, generator=self.rng, device=device)
 
@@ -128,14 +141,28 @@ class Generator:
                 cond_fn=cond_fn,
             )
         else:
-            operation = OptimizerDetails()
+            assert value is not None
+            operation = (
+                OptimizerDetails() if operation_override is None else operation_override
+            )
+            operation.forward_guidance_wt = self.guidance_weight
+
+            def criterion(x: torch.Tensor, additional: torch.Tensor | None = None):
+                if additional is not None:
+                    additional_batch = additional.unsqueeze(0).expand(
+                        x.shape[0], -1, -1, -1
+                    )
+                    x = torch.cat([x, additional_batch], dim=1)
+                return -value(x)
+
+            operation.loss_func = criterion
             sample = self.diffusion.ddim_sample_loop_operation(
                 model=self.model,
                 shape=self.shape,
                 noise=initial_noise,
-                operated_image=None,
+                operated_image=operation.operated_image,
                 operation=operation,
-                cond_fn=cond_fn,
+                model_kwargs={},
             )
 
         # Storage
