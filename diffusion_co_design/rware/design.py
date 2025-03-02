@@ -18,7 +18,11 @@ from diffusion_co_design.pretrain.rware.transform import (
     storage_to_rgb,
 )
 from diffusion_co_design.pretrain.rware.generate import generate
-from diffusion_co_design.pretrain.rware.generator import Generator, GeneratorConfig
+from diffusion_co_design.pretrain.rware.generator import (
+    Generator,
+    GeneratorConfig,
+    OptimizerDetails,
+)
 
 
 class ScenarioConfig(BaseModel):
@@ -95,8 +99,9 @@ class DiffusionDesigner(Designer):
     def __init__(
         self,
         scenario: ScenarioConfig,
-        batch_size: int,
-        buffer_size: int = 1024,
+        generator_batch_size: int,
+        train_batch_size: int = 64,
+        buffer_size: int = 2048,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario)
@@ -115,7 +120,7 @@ class DiffusionDesigner(Designer):
         )
         self.criterion = torch.nn.MSELoss()
 
-        self.batch_size = 32
+        self.batch_size = train_batch_size
         self.env_buffer = ReplayBuffer(
             storage=LazyTensorStorage(max_size=buffer_size),
             sampler=SamplerWithoutReplacement(),
@@ -126,13 +131,13 @@ class DiffusionDesigner(Designer):
         latest_checkpoint = get_latest_model(pretrain_dir, "model")
 
         gen_cfg = GeneratorConfig(
-            batch_size=batch_size,
+            batch_size=generator_batch_size,
             generator_model_path=latest_checkpoint,
             size=scenario.size,
             num_channels=1,
         )
         self.n_update_iterations = 5
-        self.generator = Generator(gen_cfg, guidance_wt=0.0)
+        self.generator = Generator(gen_cfg, guidance_wt=50.0)
         self.device = device
 
         self.running_loss = 0
@@ -140,7 +145,7 @@ class DiffusionDesigner(Designer):
 
     def update(self, sampling_td):
         super().update(sampling_td)
-        return
+
         # Update replay buffer
         done = sampling_td.get(("next", "done"))
         X = sampling_td.get("state")[done.squeeze()]
@@ -150,7 +155,8 @@ class DiffusionDesigner(Designer):
         # X = storage_to_rgb(
         #     X.numpy(force=True), self.scenario.agent_idxs, self.scenario.goal_idxs
         # )
-        X = torch.tensor(X, dtype=torch.float32, device=y.device)
+        # X = torch.tensor(X, dtype=torch.float32, device=y.device)
+        X = X.to(dtype=torch.float32)
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
         self.env_buffer.extend(data)
 
@@ -162,13 +168,14 @@ class DiffusionDesigner(Designer):
                 self.optim.zero_grad()
                 sample = self.env_buffer.sample(batch_size=self.batch_size)
                 X_batch = sample.get("env").to(dtype=torch.float32, device=self.device)
+                X_batch = X_batch * 2 - 1
                 y_batch = sample.get("episode_reward").to(
                     dtype=torch.float32, device=self.device
                 )
-                t, _ = self.generator.schedule_sampler.sample(len(X_batch), self.device)
-                X_batch = self.generator.diffusion.q_sample(X_batch, t)
-
-                y_pred = self.model(X_batch, t).squeeze()
+                # t, _ = self.generator.schedule_sampler.sample(len(X_batch), self.device)
+                # X_batch = self.generator.diffusion.q_sample(X_batch, t)
+                # y_pred = self.model(X_batch, t).squeeze()
+                y_pred = self.model(X_batch).squeeze()
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 self.running_loss += loss.item()
@@ -177,8 +184,17 @@ class DiffusionDesigner(Designer):
 
     def reset_env_buffer(self):
         batch = []
+        operation = OptimizerDetails()
+        operation.num_recurrences = 4
+        operation.backward_steps = 0
+        # operation.operated_image = goal_map * 2 - 1
+
         self.model.eval()
-        for env in self.generator.generate_batch():
+
+        for env in self.generator.generate_batch(
+            value=self.model, use_operation=True, operation_override=operation
+        ):
+            # for env in self.generator.generate_batch():
             # for env in self.generator.generate_batch(value=self.model):
             batch.append(env)
         return batch
@@ -306,7 +322,9 @@ class DesignerRegistry:
                     lock,
                     artifact_dir,
                     DiffusionDesigner(
-                        scenario, batch_size=environment_batch_size, device=device
+                        scenario,
+                        generator_batch_size=environment_batch_size,
+                        device=device,
                     ),
                 )
                 env = DiskDesigner(
