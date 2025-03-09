@@ -1,9 +1,10 @@
-experiment_name: rware_16_50_5_4_corners
+name: rware_16_50_5_4_corners
 seed: 0
-size: 8
+size: 16
 n_agents: 5
 n_shelves: 50
 n_goals: 4
+n_colors: 4
 n_samples: 1_000_000
 goal_idxs:
 - 0
@@ -16,3 +17,8 @@ agent_idxs:
 - 20
 - 44
 - 241
+goal_colors:
+- 0
+- 1
+- 2
+- 3

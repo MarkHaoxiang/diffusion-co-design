@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 import os
-import re
 import pickle as pkl
 
 import torch
@@ -14,10 +13,11 @@ from guided_diffusion.script_util import create_classifier, classifier_defaults
 from diffusion_co_design.utils import OUTPUT_DIR, get_latest_model
 from diffusion_co_design.pretrain.rware.transform import (
     storage_to_layout,
-    rgb_to_layout,
-    storage_to_rgb,
 )
-from diffusion_co_design.pretrain.rware.generate import generate
+from diffusion_co_design.pretrain.rware.generate import (
+    generate,
+    WarehouseRandomGeneratorConfig,
+)
 from diffusion_co_design.pretrain.rware.generator import (
     Generator,
     GeneratorConfig,
@@ -25,13 +25,12 @@ from diffusion_co_design.pretrain.rware.generator import (
 )
 
 
-class ScenarioConfig(BaseModel):
-    name: str
-    size: int
-    n_shelves: int
-    agent_idxs: list[int]
-    goal_idxs: list[int]
-    max_steps: int = 500
+class ScenarioConfig(WarehouseRandomGeneratorConfig):
+    pass
+
+
+class DesignerConfig(BaseModel):
+    type: str
 
 
 class Designer(nn.Module, ABC):
@@ -292,7 +291,7 @@ class FixedDesigner(Designer):
 
 
 class DesignerRegistry:
-    FIXED = "none"  # Good for testing
+    FIXED = "fixed"
     RANDOM = "random"
     RL = "rl"
     DIFFUSION = "diffusion"
@@ -300,13 +299,13 @@ class DesignerRegistry:
 
     @staticmethod
     def get(
-        designer: str,
+        designer: DesignerConfig,
         scenario: ScenarioConfig,
-        artifact_dir,
+        artifact_dir: str,
         environment_batch_size: int,
         device: torch.device,
     ) -> tuple[Designer, Designer]:
-        match designer:
+        match designer.type:
             case DesignerRegistry.FIXED:
                 fixed = FixedDesigner(scenario)
                 return fixed, fixed

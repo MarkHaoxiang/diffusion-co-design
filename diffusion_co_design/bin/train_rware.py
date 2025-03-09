@@ -31,13 +31,13 @@ from diffusion_co_design.utils import (
 )
 from diffusion_co_design.rware.env import ScenarioConfig, create_batched_env, create_env
 from diffusion_co_design.rware.model import rware_models, PolicyConfig
-from diffusion_co_design.rware.design import DesignerRegistry
+from diffusion_co_design.rware.design import DesignerRegistry, DesignerConfig
 
 
 class TrainingConfig(BaseModel):
     # Problem definition: Built with diffusion.datasets.rware.generate
     experiment_name: str
-    designer: str
+    designer: DesignerConfig
     scenario: ScenarioConfig
     # Sampling and training
     memory_management: MEMORY_MANAGEMENT = "gpu"

@@ -1,31 +1,15 @@
 defaults:
   - _self_
-  - shared/training@_here_
+  - metadata/training@_here_
+  - designer: fixed
+  - scenario: rware_16_50_5_5_random
 
-designer: diffusion
-experiment_name: diffusion_designer_50_no_map
+experiment_name: diffusion_2
 n_iters: 5_000
 n_epochs: 10
 memory_management: gpu
 minibatch_size: 1000
 n_mini_batches: 10
-scenario:
-  name: rware_16_50_5_5_random
-  # name: default
-  size: 16
-  n_shelves: 50
-  agent_idxs:
-  - 1
-  - 88
-  - 132
-  - 233
-  - 162
-  goal_idxs:
-  - 39
-  - 185
-  - 237
-  - 238
-  - 159
 
 logging:
   type: wandb
