@@ -9,9 +9,7 @@ import os
 import numpy as np
 from omegaconf import OmegaConf
 import torch
-from torch.utils.data import DataLoader, TensorDataset
 from guided_diffusion import dist_util, logger
-from guided_diffusion.image_datasets import load_data
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
@@ -35,6 +33,9 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
     data_dir = os.path.join(OUTPUT_DIR, "diffusion_datasets", args.experiment_name)
+    data_config = OmegaConf.load(os.path.join(data_dir, "config.yaml"))
+    args.image_channels = data_config.n_colors
+
     log_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", args.experiment_name)
 
     dist_util.setup_dist()
@@ -49,16 +50,6 @@ def main():
 
     logger.log("creating data loader...")
 
-    # For RGB training
-    # data = load_data(
-    #     data_dir=data_dir,
-    #     batch_size=args.batch_size,
-    #     image_size=args.image_size,
-    #     class_cond=args.class_cond,
-    #     random_flip=args.random_flip,
-    #     rgb=args.rgb,
-    # )
-
     # For storage channel training
     # data = np.load(data_dir + "/environments.npy")
     # data = torch.from_numpy(data).to(torch.float32)
@@ -72,7 +63,6 @@ def main():
 
     # Training on the true underlying distribution
     # By generation samples on the fly
-    data_config = OmegaConf.load(os.path.join(data_dir, "config.yaml"))
 
     def data_iterator():
         while True:
@@ -83,8 +73,8 @@ def main():
                         n_shelves=data_config.n_shelves,
                         goal_idxs=data_config.goal_idxs,
                         agent_idxs=data_config.agent_idxs,
+                        n_colors=data_config.n_colors,
                         n=args.batch_size,
-                        rgb=False,
                         training_dataset=True,
                     )
                 )
@@ -116,7 +106,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="default",
+        experiment_name="rware_16_50_5_4_corners",
         schedule_sampler="uniform",
         lr=1e-4,
         weight_decay=0.0,
@@ -130,7 +120,6 @@ def create_argparser():
         use_fp16=False,
         fp16_scale_growth=1e-3,
         random_flip=False,
-        rgb=True,
         gpu_idx="0",
     )
     defaults.update(model_and_diffusion_defaults())

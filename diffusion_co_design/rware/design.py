@@ -147,15 +147,9 @@ class DiffusionDesigner(Designer):
 
         # Update replay buffer
         done = sampling_td.get(("next", "done"))
-        X = sampling_td.get("state")[done.squeeze()]
+        X = sampling_td.get("state")[done.squeeze()].to(dtype=torch.float32)
         y = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[done]
 
-        # Convert to RGB
-        # X = storage_to_rgb(
-        #     X.numpy(force=True), self.scenario.agent_idxs, self.scenario.goal_idxs
-        # )
-        # X = torch.tensor(X, dtype=torch.float32, device=y.device)
-        X = X.to(dtype=torch.float32)
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
         self.env_buffer.extend(data)
 

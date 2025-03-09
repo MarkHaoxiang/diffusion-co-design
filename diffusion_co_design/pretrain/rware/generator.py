@@ -1,7 +1,4 @@
-from functools import partial
-import numpy as np
 import torch
-from pydantic import BaseModel
 from torch import nn
 from guided_diffusion import dist_util
 from guided_diffusion.script_util import (
@@ -10,9 +7,6 @@ from guided_diffusion.script_util import (
 )
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
-
-from diffusion_co_design.pretrain.rware.generate import generate
-from diffusion_co_design.pretrain.rware.transform import storage_to_rgb
 
 
 # Using Universal Guided Diffusion
@@ -45,13 +39,6 @@ class OptimizerDetails:
         self.operated_image = None
 
 
-class GeneratorConfig(BaseModel):
-    generator_model_path: str
-    size: int = 16
-    batch_size: int = 32
-    num_channels: int = 1
-
-
 device = dist_util.dev()
 
 
@@ -71,15 +58,18 @@ def get_model_and_diffusion_defaults(size, image_channels):
 class Generator:
     def __init__(
         self,
-        cfg: GeneratorConfig,
+        generator_model_path: str,
+        num_channels: int,
+        size: int,
+        batch_size: int = 32,
         rng: torch.Generator | None = None,
-        guidance_wt: float = 10.0,
+        guidance_wt: float = 50.0,
     ):
         super().__init__()
 
-        self.size = cfg.size
-        self.batch_size = cfg.batch_size
-        self.image_channels = cfg.num_channels
+        self.size = size
+        self.batch_size = batch_size
+        self.image_channels = num_channels
         self.clip_denoised = True
 
         self.guidance_weight = guidance_wt
@@ -97,7 +87,7 @@ class Generator:
         self.model, self.diffusion = create_model_and_diffusion(**model_diffusion_args)
 
         self.model.load_state_dict(
-            dist_util.load_state_dict(cfg.generator_model_path, map_location="cpu")
+            dist_util.load_state_dict(generator_model_path, map_location="cpu")
         )
         self.model.to(device)
         self.model.eval()
@@ -166,105 +156,16 @@ class Generator:
             )
 
         # Storage
-        if self.image_channels == 3:
-            sample = (
-                ((sample + 1) * 127.5)
-                .clamp(0, 255)
-                .to(torch.uint8)
-                .permute(0, 2, 3, 1)
-                .contiguous()
-            )
-        elif self.image_channels == 1:
-            sample = (
-                ((sample + 1) * 0.5)
-                .clamp(0, 1)
-                .round()
-                .to(torch.uint8)
-                .permute(0, 2, 3, 1)
-                .contiguous()
-            )
-        else:
-            assert False, "3 channels for RGB, 1 channel for storage only"
+        sample = (
+            ((sample + 1) * 0.5)
+            .clamp(0, 1)
+            .round()
+            .to(torch.uint8)
+            # .permute(0, 2, 3, 1)
+            .contiguous()
+        )
         return sample.numpy(force=True)
 
     @property
     def shape(self):
         return (self.batch_size, self.image_channels, self.size, self.size)
-
-
-# uv run python -m diffusion_co_design.pretrain.rware.generator unguided
-# uv run python -m diffusion_co_design.pretrain.rware.generator guided
-
-if __name__ == "__main__":
-    import argparse
-    import os
-    import shutil
-    from PIL import Image
-
-    from guided_diffusion.script_util import create_classifier, classifier_defaults
-
-    from diffusion_co_design.utils import OUTPUT_DIR
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "option",
-        type=str,
-        choices=["unguided", "guided"],
-    )
-    args = parser.parse_args()
-
-    cfg = GeneratorConfig(
-        generator_model_path=os.path.join(
-            OUTPUT_DIR, "diffusion_pretrain", "rware_16_50_5_5_random", "model100000.pt"
-        )
-    )
-
-    if args.option == "unguided":
-        # Generate a unguided batch
-        generator = Generator(cfg)
-        environment_batch = generator.generate_batch()
-    elif args.option == "guided":
-        model_dict = classifier_defaults()
-        model_dict["image_size"] = cfg.size
-        # model_dict["image_channels"] = 3
-        model_dict["image_channels"] = 1
-        model_dict["classifier_width"] = 128
-        model_dict["classifier_depth"] = 2
-        model_dict["classifier_attention_resolutions"] = "16, 8, 4"
-        model_dict["output_dim"] = 1
-        model = create_classifier(**model_dict).to(device)
-
-        # class PseudoValue(torch.nn.Module):
-        #     def __init__(self, size):
-        #         super().__init__()
-        #         self.size = size
-
-        #     def forward(self, x, t):
-        #         indices = (
-        #             torch.arange(self.size, dtype=torch.float32)
-        #             .view(-1, 1)
-        #             .expand(self.size, self.size)
-        #         ).to(x.device)
-        #         channel = x[..., 0, :, :]
-        #         return (channel * indices).sum(dim=(-2, -1))
-        # model = PseudoValue(cfg.size)
-        generator = Generator(cfg, guidance_wt=10)
-        environment_batch = generator.generate_batch(value=model)
-    else:
-        raise NotImplementedError()
-
-    # Save to disk
-    data_dir = "test_diffusion_output"
-    if os.path.exists(data_dir):
-        shutil.rmtree(path=data_dir)
-    os.makedirs(data_dir)
-
-    for i, env in enumerate(environment_batch):
-        env = env.transpose(2, 0, 1)
-        print(env.sum())
-        env = storage_to_rgb(
-            env, [1, 88, 132, 233, 162], [39, 185, 237, 238, 159], channel_first=False
-        )
-        im = Image.fromarray(env)
-        # im = Image.fromarray(env)
-        im.save(data_dir + "/%04d" % i + ".png")

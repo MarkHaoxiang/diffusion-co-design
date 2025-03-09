@@ -1,7 +1,5 @@
-import os
 import numpy as np
 
-from diffusion_co_design.utils import OUTPUT_DIR
 from rware.layout import Layout, ImageLayer
 
 
@@ -13,6 +11,12 @@ def storage_to_layout(
 ):
     n_colors = shelf_im.shape[0]
     size = shelf_im.shape[1]
+
+    # Prevent duplicate shelves
+    fc = np.argmax(shelf_im, axis=0)
+    mask = np.zeros_like(shelf_im)
+    mask[fc, np.arange(shelf_im.shape[1])[:, None], np.arange(shelf_im.shape[2])] = 1
+    shelf_im = shelf_im * mask
 
     agent_im = np.zeros((1, size, size))
     goal_im = np.zeros((1, size, size))
