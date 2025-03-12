@@ -106,7 +106,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="rware_16_50_5_4_corners",
+        experiment_name="rware_16_50_5_5_random",
         schedule_sampler="uniform",
         lr=1e-4,
         weight_decay=0.0,

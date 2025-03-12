@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import os
 import pickle as pkl
 
+import numpy as np
 import torch
 from torch import nn
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
@@ -20,7 +21,6 @@ from diffusion_co_design.pretrain.rware.generate import (
 )
 from diffusion_co_design.pretrain.rware.generator import (
     Generator,
-    GeneratorConfig,
     OptimizerDetails,
 )
 
@@ -44,16 +44,11 @@ class Designer(nn.Module, ABC):
         raise NotImplementedError()
 
     def generate_environment(self, objective):
-        # return rgb_to_layout(
-        #     self.generate_environment_image(objective),
-        #     self.scenario.agent_idxs,
-        #     self.scenario.goal_idxs,
-        # )
-
         return storage_to_layout(
             self.generate_environment_image(objective),
             self.scenario.agent_idxs,
             self.scenario.goal_idxs,
+            self.scenario.goal_colors,
         )
 
     def to_td_module(self):
@@ -84,6 +79,7 @@ class RandomDesigner(Designer):
             scenario.n_shelves,
             scenario.agent_idxs,
             scenario.goal_idxs,
+            scenario.n_colors,
         )
 
     def forward(self, objective):
@@ -94,21 +90,32 @@ class RandomDesigner(Designer):
         return self.forward(objective)
 
 
-class DiffusionDesigner(Designer):
+class CentralisedDesigner(Designer):
+    @abstractmethod
+    def reset_env_buffer(self) -> list:
+        raise NotImplementedError
+
+    def forward(self, objective):
+        raise NotImplementedError("Use with disk designer")
+
+    def generate_environment_image(self, objective):
+        raise NotImplementedError("Use with disk designer")
+
+
+class ValueDesigner(CentralisedDesigner):
     def __init__(
         self,
         scenario: ScenarioConfig,
-        generator_batch_size: int,
+        n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario)
-        self.generator = None
+
         model_dict = classifier_defaults()
         model_dict["image_size"] = scenario.size
-        # model_dict["image_channels"] = 3
-        model_dict["image_channels"] = 1
+        model_dict["image_channels"] = scenario.n_colors
         model_dict["classifier_width"] = 128
         model_dict["classifier_depth"] = 2
         model_dict["classifier_attention_resolutions"] = "16, 8, 4"
@@ -126,21 +133,9 @@ class DiffusionDesigner(Designer):
             batch_size=self.batch_size,
         )
 
-        pretrain_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", scenario.name)
-        latest_checkpoint = get_latest_model(pretrain_dir, "model")
-
-        gen_cfg = GeneratorConfig(
-            batch_size=generator_batch_size,
-            generator_model_path=latest_checkpoint,
-            size=scenario.size,
-            num_channels=1,
-        )
-        self.n_update_iterations = 5
-        self.generator = Generator(gen_cfg, guidance_wt=50.0)
+        self.n_update_iterations = n_update_iterations
         self.device = device
-
         self.running_loss = 0
-        # self.generator.model.share_memory()
 
     def update(self, sampling_td):
         super().update(sampling_td)
@@ -175,6 +170,83 @@ class DiffusionDesigner(Designer):
                 self.optim.step()
             self.running_loss = self.running_loss / self.n_update_iterations
 
+    def get_logs(self):
+        return {"designer_loss": self.running_loss}
+
+
+class SamplingDesigner(ValueDesigner):
+    def __init__(
+        self,
+        scenario: ScenarioConfig,
+        generator_batch_size: int,
+        n_sample: int = 5,
+        n_update_iterations: int = 5,
+        train_batch_size: int = 64,
+        buffer_size: int = 2048,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(
+            scenario, n_update_iterations, train_batch_size, buffer_size, device
+        )
+        self._generate_args = (
+            scenario.size,
+            scenario.n_shelves,
+            scenario.agent_idxs,
+            scenario.goal_idxs,
+            scenario.n_colors,
+        )
+        self.n_sample = n_sample
+        self.generator_batch_size = generator_batch_size
+
+    def reset_env_buffer(self):
+        self.model.eval()
+        X_numpy: np.ndarray = np.array(
+            generate(*self._generate_args, n=self.generator_batch_size * self.n_sample)
+        )
+        X_torch = torch.tensor(X_numpy, dtype=torch.float32, device=self.device)
+        X_torch = X_torch * 2 - 1
+        y: torch.Tensor = self.model(X_torch).squeeze()
+
+        y = y.reshape(self.generator_batch_size, self.n_sample)
+        X_numpy = X_numpy.reshape(
+            (self.generator_batch_size, self.n_sample, *X_numpy.shape[1:])
+        )
+        indices = y.argmax(dim=1).numpy(force=True)
+        batch = list(X_numpy[np.arange(self.generator_batch_size), indices])
+
+        return batch
+
+
+class DiffusionDesigner(ValueDesigner):
+    def __init__(
+        self,
+        scenario: ScenarioConfig,
+        generator_batch_size: int,
+        n_update_iterations: int = 5,
+        train_batch_size: int = 64,
+        buffer_size: int = 2048,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(
+            scenario,
+            n_update_iterations=n_update_iterations,
+            train_batch_size=train_batch_size,
+            buffer_size=buffer_size,
+            device=device,
+        )
+        self.generator = None
+
+        pretrain_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", scenario.name)
+        latest_checkpoint = get_latest_model(pretrain_dir, "model")
+
+        self.generator = Generator(
+            generator_model_path=latest_checkpoint,
+            num_channels=scenario.n_colors,
+            size=scenario.size,
+            batch_size=generator_batch_size,
+            guidance_wt=50.0,
+        )
+
     def reset_env_buffer(self):
         batch = []
         operation = OptimizerDetails()
@@ -192,15 +264,6 @@ class DiffusionDesigner(Designer):
             batch.append(env)
         return batch
 
-    def forward(self, objective):
-        return self.generate_environment_image(objective)
-
-    def generate_environment_image(self, objective):
-        raise NotImplementedError("Use with disk designer")
-
-    def get_logs(self):
-        return {"designer_loss": self.running_loss}
-
 
 class DiskDesigner(Designer):
     """Hack for parallel execution"""
@@ -214,7 +277,7 @@ class DiskDesigner(Designer):
         scenario,
         lock,
         artifact_dir,
-        master_designer: DiffusionDesigner | None = None,
+        master_designer: CentralisedDesigner | None = None,
     ):
         super().__init__(scenario)
         self.is_master = master_designer is not None
@@ -290,6 +353,7 @@ class DesignerRegistry:
     RL = "rl"
     DIFFUSION = "diffusion"
     DIFFUSION_SHARED = "diffusion_shared"
+    SAMPLING = "sampling"
 
     @staticmethod
     def get(
@@ -328,5 +392,23 @@ class DesignerRegistry:
                 return master, env
             case DesignerRegistry.DIFFUSION_SHARED:
                 raise NotImplementedError()
+            case DesignerRegistry.SAMPLING:
+                lock = torch.multiprocessing.Lock()
+                master = DiskDesigner(
+                    scenario,
+                    lock,
+                    artifact_dir,
+                    SamplingDesigner(
+                        scenario,
+                        generator_batch_size=environment_batch_size,
+                        device=device,
+                    ),
+                )
+                env = DiskDesigner(
+                    scenario,
+                    lock,
+                    artifact_dir,
+                )
+                return master, env
             case _:
                 raise ValueError(f"Unknown designer type {designer}")

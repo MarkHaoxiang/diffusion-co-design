@@ -26,6 +26,7 @@ class WarehouseRandomGeneratorConfig(BaseModel):
     goal_idxs: list[int] | None = None
     goal_colors: list[int] | None = None
     n_colors: int = 1
+    max_steps: int = 500
 
 
 def generate(

@@ -12,7 +12,6 @@ from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
 from diffusion_co_design.pretrain.rware.transform import (
-    rgb_to_layout,
     storage_to_layout,
 )
 from diffusion_co_design.rware.design import ScenarioConfig, Designer
@@ -73,6 +72,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     ),
                     agent_idxs=self._env._scenario_cfg.agent_idxs,
                     goal_idxs=self._env._scenario_cfg.goal_idxs,
+                    goal_colors=self._env._scenario_cfg.goal_colors,
                 )
 
             else:
@@ -92,6 +92,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     ).numpy(force=True),
                     agent_idxs=self._env._scenario_cfg.agent_idxs,
                     goal_idxs=self._env._scenario_cfg.goal_idxs,
+                    goal_colors=self._env._scenario_cfg.goal_colors,
                 )
             options = {"layout": layout}
         else:
