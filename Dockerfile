@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y libopenmpi-dev
 # Install UV
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# Install xorg virtual frame buffer
+RUN apt-get install -y xvfb
+
 WORKDIR /app
 
 # Install project dependencies
