@@ -1,0 +1,1 @@
+xvfb-run -s "-screen 0 1400x900x24" uv run python -m diffusion_co_design.bin.train_rware
