@@ -31,6 +31,12 @@ class ScenarioConfig(WarehouseRandomGeneratorConfig):
 
 class DesignerConfig(BaseModel):
     type: str
+    value_n_update_iterations: int = 5
+    value_train_batch_size: int = 64
+    value_buffer_size: int = 4096
+    value_weight_decay: float = 0.05
+    value_lr: float = 3e-5
+    diffusion_guidance_wt: float = 100
 
 
 class Designer(nn.Module, ABC):
@@ -109,6 +115,8 @@ class ValueDesigner(CentralisedDesigner):
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
+        lr: float = 3e-5,
+        weight_decay: float = 0.05,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario)
@@ -122,7 +130,7 @@ class ValueDesigner(CentralisedDesigner):
         model_dict["output_dim"] = 1
         self.model = create_classifier(**model_dict).to(device)
         self.optim = torch.optim.Adam(
-            self.model.parameters(), lr=3e-4, weight_decay=0.05
+            self.model.parameters(), lr=lr, weight_decay=weight_decay
         )
         self.criterion = torch.nn.MSELoss()
 
@@ -173,6 +181,9 @@ class ValueDesigner(CentralisedDesigner):
     def get_logs(self):
         return {"designer_loss": self.running_loss}
 
+    def get_model(self):
+        return self.model
+
 
 class SamplingDesigner(ValueDesigner):
     def __init__(
@@ -183,10 +194,18 @@ class SamplingDesigner(ValueDesigner):
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
+        lr: float = 3e-5,
+        weight_decay: float = 0.05,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
-            scenario, n_update_iterations, train_batch_size, buffer_size, device
+            scenario,
+            n_update_iterations=n_update_iterations,
+            train_batch_size=train_batch_size,
+            buffer_size=buffer_size,
+            lr=lr,
+            weight_decay=weight_decay,
+            device=device,
         )
         self._generate_args = (
             scenario.size,
@@ -225,6 +244,9 @@ class DiffusionDesigner(ValueDesigner):
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
+        lr: float = 3e-5,
+        weight_decay: float = 0.05,
+        guidance_weight: float = 100,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -232,6 +254,8 @@ class DiffusionDesigner(ValueDesigner):
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
             buffer_size=buffer_size,
+            lr=lr,
+            weight_decay=weight_decay,
             device=device,
         )
         self.generator = None
@@ -244,7 +268,7 @@ class DiffusionDesigner(ValueDesigner):
             num_channels=scenario.n_colors,
             size=scenario.size,
             batch_size=generator_batch_size,
-            guidance_wt=50.0,
+            guidance_wt=guidance_weight,
         )
 
     def reset_env_buffer(self):
@@ -381,6 +405,12 @@ class DesignerRegistry:
                     DiffusionDesigner(
                         scenario,
                         generator_batch_size=environment_batch_size,
+                        n_update_iterations=designer.value_n_update_iterations,
+                        train_batch_size=designer.value_train_batch_size,
+                        buffer_size=designer.value_buffer_size,
+                        lr=designer.value_lr,
+                        weight_decay=designer.value_weight_decay,
+                        guidance_weight=designer.diffusion_guidance_wt,
                         device=device,
                     ),
                 )
@@ -401,6 +431,11 @@ class DesignerRegistry:
                     SamplingDesigner(
                         scenario,
                         generator_batch_size=environment_batch_size,
+                        n_update_iterations=designer.value_n_update_iterations,
+                        train_batch_size=designer.value_train_batch_size,
+                        buffer_size=designer.value_buffer_size,
+                        lr=designer.value_lr,
+                        weight_decay=designer.value_weight_decay,
                         device=device,
                     ),
                 )

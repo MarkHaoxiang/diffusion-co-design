@@ -4,7 +4,7 @@ defaults:
   - designer: diffusion
   - scenario: rware_16_50_5_4_corners
 
-experiment_name: corners_diffusion
+experiment_name: corners_diffusion_200
 n_iters: 5_000
 n_epochs: 10
 memory_management: gpu
