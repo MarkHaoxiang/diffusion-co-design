@@ -5,3 +5,4 @@ value_buffer_size: 2048
 value_weight_decay: 0.05
 value_lr: 3e-5
 diffusion_guidance_wt: 200
+diffusion_num_recurrences: 4

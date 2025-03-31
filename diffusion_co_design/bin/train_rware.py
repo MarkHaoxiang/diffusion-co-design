@@ -32,6 +32,7 @@ from diffusion_co_design.utils import (
 from diffusion_co_design.rware.env import ScenarioConfig, create_batched_env, create_env
 from diffusion_co_design.rware.model import rware_models, PolicyConfig
 from diffusion_co_design.rware.design import DesignerRegistry, DesignerConfig
+from diffusion_co_design.utils import start_from_checkpoint
 
 
 class TrainingConfig(BaseModel):
@@ -56,6 +57,7 @@ class TrainingConfig(BaseModel):
     policy: PolicyConfig = PolicyConfig()
     # Logging
     logging: LoggingConfig = LoggingConfig()
+    start_from_checkpoint: str | None = None
 
     @property
     def frames_per_batch(self) -> int:
@@ -150,6 +152,14 @@ def train(cfg: TrainingConfig):
         full_config=cfg,
     )
     log_training = LogTraining()
+
+    start_from_checkpoint(
+        training_dir=cfg.start_from_checkpoint,
+        models=[
+            (policy, "policy_"),
+            (critic, "critic_"),
+        ],
+    )
 
     # Main Training Loop
     master_designer.reset()

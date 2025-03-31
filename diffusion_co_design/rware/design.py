@@ -37,6 +37,7 @@ class DesignerConfig(BaseModel):
     value_weight_decay: float = 0.05
     value_lr: float = 3e-5
     diffusion_guidance_wt: float = 100
+    diffusion_num_recurrences: int = 4
 
 
 class Designer(nn.Module, ABC):
@@ -53,6 +54,7 @@ class Designer(nn.Module, ABC):
         return storage_to_layout(
             self.generate_environment_image(objective),
             self.scenario.agent_idxs,
+            self.scenario.agent_colors,
             self.scenario.goal_idxs,
             self.scenario.goal_colors,
         )
@@ -247,6 +249,7 @@ class DiffusionDesigner(ValueDesigner):
         lr: float = 3e-5,
         weight_decay: float = 0.05,
         guidance_weight: float = 100,
+        num_recurrences: int = 4,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -271,10 +274,12 @@ class DiffusionDesigner(ValueDesigner):
             guidance_wt=guidance_weight,
         )
 
+        self.num_recurrences = num_recurrences
+
     def reset_env_buffer(self):
         batch = []
         operation = OptimizerDetails()
-        operation.num_recurrences = 4
+        operation.num_recurrences = self.num_recurrences
         operation.backward_steps = 0
         # operation.operated_image = goal_map * 2 - 1
 
@@ -411,6 +416,7 @@ class DesignerRegistry:
                         lr=designer.value_lr,
                         weight_decay=designer.value_weight_decay,
                         guidance_weight=designer.diffusion_guidance_wt,
+                        num_recurrences=designer.diffusion_num_recurrences,
                         device=device,
                     ),
                 )

@@ -6,17 +6,23 @@ n_shelves: 50
 n_goals: 4
 n_colors: 4
 n_samples: 1_000_000
-goal_idxs:
-- 0
-- 15
-- 240
-- 255
 agent_idxs:
 - 116
 - 238
 - 20
 - 44
 - 241
+agent_colors:
+- -1
+- -1
+- -1
+- -1
+- -1
+goal_idxs:
+- 0
+- 15
+- 240
+- 255
 goal_colors:
 - 0
 - 1

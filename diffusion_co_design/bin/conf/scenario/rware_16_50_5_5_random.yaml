@@ -12,6 +12,12 @@ agent_idxs:
 - 132
 - 233
 - 162
+agent_colors:
+- -1
+- -1
+- -1
+- -1
+- -1
 goal_idxs:
 - 39
 - 185

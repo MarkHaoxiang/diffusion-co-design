@@ -12,9 +12,6 @@ import torch
 from guided_diffusion import dist_util, logger
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
-    model_and_diffusion_defaults,
-    create_model_and_diffusion,
-    args_to_dict,
     add_dict_to_argparser,
 )
 from guided_diffusion.train_util import TrainLoop
@@ -22,7 +19,7 @@ from guided_diffusion.train_util import TrainLoop
 from diffusion_co_design.utils import OUTPUT_DIR
 from diffusion_co_design.pretrain.rware.generate import generate
 from diffusion_co_design.pretrain.rware.generator import (
-    get_model_and_diffusion_defaults,
+    create_model_and_diffusion_rware,
 )
 
 
@@ -32,34 +29,31 @@ def main():
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
-    data_dir = os.path.join(OUTPUT_DIR, "diffusion_datasets", args.experiment_name)
+    data_dir = os.path.join(
+        OUTPUT_DIR, "diffusion_datasets", "flat", args.experiment_name
+    )
     data_config = OmegaConf.load(os.path.join(data_dir, "config.yaml"))
     args.image_channels = data_config.n_colors
 
-    log_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", args.experiment_name)
+    log_dir = os.path.join(
+        OUTPUT_DIR, "diffusion_pretrain", "flat", args.experiment_name
+    )
 
     dist_util.setup_dist()
     logger.configure(dir=log_dir)
 
     logger.log("creating model and diffusion...")
-    model, diffusion = create_model_and_diffusion(
-        **args_to_dict(args, model_and_diffusion_defaults().keys())
+    model, diffusion = create_model_and_diffusion_rware(
+        size=data_config.size,
+        n_colors=data_config.n_colors,
+        n_shelves=data_config.n_shelves,
+        representation="flat",
     )
     model.to(dist_util.dev())
+
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("creating data loader...")
-
-    # For storage channel training
-    # data = np.load(data_dir + "/environments.npy")
-    # data = torch.from_numpy(data).to(torch.float32)
-    # data = TensorDataset(data)
-    # data = DataLoader(data, batch_size=args.batch_size, shuffle=True)
-
-    # def data_iterator(data):
-    #     while True:
-    #         for batch in data:
-    #             yield batch[0], {}
 
     # Training on the true underlying distribution
     # By generation samples on the fly
@@ -75,10 +69,12 @@ def main():
                         agent_idxs=data_config.agent_idxs,
                         n_colors=data_config.n_colors,
                         n=args.batch_size,
+                        representation="flat",
                         training_dataset=True,
                     )
                 )
             )
+            batch = batch.unsqueeze(-1)
             yield batch, {}
 
     # data = data_iterator(data)
@@ -96,8 +92,6 @@ def main():
         log_interval=args.log_interval,
         save_interval=args.save_interval,
         resume_checkpoint=args.resume_checkpoint,
-        use_fp16=args.use_fp16,
-        fp16_scale_growth=args.fp16_scale_growth,
         schedule_sampler=schedule_sampler,
         weight_decay=args.weight_decay,
         lr_anneal_steps=args.lr_anneal_steps,
@@ -106,7 +100,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="rware_16_50_5_5_random",
+        experiment_name="rware_16_50_5_4_corners",
         schedule_sampler="uniform",
         lr=1e-4,
         weight_decay=0.0,
@@ -117,13 +111,8 @@ def create_argparser():
         log_interval=10,
         save_interval=10000,
         resume_checkpoint="",
-        use_fp16=False,
-        fp16_scale_growth=1e-3,
-        random_flip=False,
         gpu_idx="0",
     )
-    defaults.update(model_and_diffusion_defaults())
-    defaults.update(get_model_and_diffusion_defaults(size=16, image_channels=1))
 
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)

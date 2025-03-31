@@ -71,6 +71,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                         force=True
                     ),
                     agent_idxs=self._env._scenario_cfg.agent_idxs,
+                    agent_colors=self._env._scenario_cfg.agent_colors,
                     goal_idxs=self._env._scenario_cfg.goal_idxs,
                     goal_colors=self._env._scenario_cfg.goal_colors,
                 )
@@ -91,6 +92,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                         ("environment_design", "layout_image")
                     ).numpy(force=True),
                     agent_idxs=self._env._scenario_cfg.agent_idxs,
+                    agent_colors=self._env._scenario_cfg.agent_colors,
                     goal_idxs=self._env._scenario_cfg.goal_idxs,
                     goal_colors=self._env._scenario_cfg.goal_colors,
                 )

@@ -2,11 +2,15 @@ import torch
 from torch import nn
 from guided_diffusion import dist_util
 from guided_diffusion.script_util import (
+    diffusion_defaults,
     model_and_diffusion_defaults,
     create_model_and_diffusion,
+    create_gaussian_diffusion,
 )
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
+from guided_diffusion.unet import SimpleFlowModel
+from diffusion_co_design.pretrain.rware.generate import Representation
 
 
 # Using Universal Guided Diffusion
@@ -42,25 +46,49 @@ class OptimizerDetails:
 device = dist_util.dev()
 
 
-def get_model_and_diffusion_defaults(size, image_channels):
-    model_diffusion_args = model_and_diffusion_defaults()
-    model_diffusion_args["image_size"] = size
-    model_diffusion_args["image_channels"] = image_channels
-    model_diffusion_args["num_channels"] = 128
-    model_diffusion_args["num_res_blocks"] = 3
-    model_diffusion_args["diffusion_steps"] = 1000
-    model_diffusion_args["noise_schedule"] = "linear"
-    model_diffusion_args["timestep_respacing"] = "ddim50"
+def create_model_and_diffusion_rware(
+    size: int,
+    n_colors: int,
+    n_shelves: int,
+    representation: Representation,
+    diffusion_steps: int = 1000,
+):
+    if representation == "image":
+        model_diffusion_args = model_and_diffusion_defaults()
+        model_diffusion_args["image_size"] = size
+        model_diffusion_args["image_channels"] = n_colors
+        model_diffusion_args["num_channels"] = 128
+        model_diffusion_args["num_res_blocks"] = 3
+        model_diffusion_args["diffusion_steps"] = diffusion_steps
+        model_diffusion_args["timestep_respacing"] = "ddim50"
 
-    return model_diffusion_args
+        model, diffusion = create_model_and_diffusion(**model_diffusion_args)
+    elif representation == "flat":
+        diffusion_args = diffusion_defaults()
+        del diffusion_args["diffusion_steps"]
+        del diffusion_args["use_ldm"]
+        del diffusion_args["ldm_config_path"]
+        diffusion_args["steps"] = diffusion_steps
+        diffusion_args["timestep_respacing"] = "ddim50"
+
+        diffusion = create_gaussian_diffusion(**diffusion_args)
+        model = SimpleFlowModel(
+            # data_shape=((2 + n_colors) * n_shelves, 1),
+            data_shape=(2 * n_shelves, 1),
+            hidden_dim=2048,
+        )
+
+    return model, diffusion
 
 
 class Generator:
     def __init__(
         self,
         generator_model_path: str,
-        num_channels: int,
         size: int,
+        n_colors: int,
+        n_shelves: int,
+        representation: Representation,
         batch_size: int = 32,
         rng: torch.Generator | None = None,
         guidance_wt: float = 50.0,
@@ -69,7 +97,9 @@ class Generator:
 
         self.size = size
         self.batch_size = batch_size
-        self.image_channels = num_channels
+        self.n_colors = n_colors
+        self.n_shelves = n_shelves
+        self.representation = representation
         self.clip_denoised = True
 
         self.guidance_weight = guidance_wt
@@ -79,12 +109,14 @@ class Generator:
         else:
             self.rng = rng
 
-        # Create diffusion model
-        model_diffusion_args = get_model_and_diffusion_defaults(
-            self.size, self.image_channels
-        )
+        # Create diffusion mode
 
-        self.model, self.diffusion = create_model_and_diffusion(**model_diffusion_args)
+        self.model, self.diffusion = create_model_and_diffusion_rware(
+            size=size,
+            n_colors=n_colors,
+            n_shelves=n_shelves,
+            representation=representation,
+        )
 
         self.model.load_state_dict(
             dist_util.load_state_dict(generator_model_path, map_location="cpu")
@@ -156,16 +188,28 @@ class Generator:
             )
 
         # Storage
-        sample = (
-            ((sample + 1) * 0.5)
-            .clamp(0, 1)
-            .round()
-            .to(torch.uint8)
-            # .permute(0, 2, 3, 1)
-            .contiguous()
-        )
+        if self.representation == "image":
+            sample = (
+                ((sample + 1) * 0.5).clamp(0, 1).round().to(torch.uint8).contiguous()
+            )
+        elif self.representation == "flat":
+            sample = ((sample + 1) * 0.5).clamp(0, 1)
+            # feature_dim_shelf = 2 + self.n_colors
+            feature_dim_shelf = 2
+            # Get idxs like 0, feature_dim_shelf, 2*feature_dim_shelf, ...
+            assert sample.shape[1] == feature_dim_shelf * self.n_shelves
+            x_idxs = torch.arange(0, sample.shape[1], feature_dim_shelf)
+            y_idxs = x_idxs + 1
+
+            sample[:, x_idxs] *= self.size
+            sample[:, y_idxs] *= self.size
+
         return sample.numpy(force=True)
 
     @property
     def shape(self):
-        return (self.batch_size, self.image_channels, self.size, self.size)
+        if self.representation == "image":
+            return (self.batch_size, self.n_colors, self.size, self.size)
+        elif self.representation == "flat":
+            return (self.batch_size, 2 * self.n_shelves, 1)
+            # return (self.batch_size, (2 + self.n_colors) * self.n_shelves, 1)
