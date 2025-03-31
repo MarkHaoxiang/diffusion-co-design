@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from diffusion_co_design.utils import omega_to_pydantic, OUTPUT_DIR
 
-Representation: TypeAlias = Literal["image", "flat"]
+Representation: TypeAlias = Literal["image", "flat", "graph"]
 
 
 class WarehouseRandomGeneratorConfig(BaseModel):
@@ -31,7 +31,11 @@ class WarehouseRandomGeneratorConfig(BaseModel):
     goal_colors: list[int] | None = None
     n_colors: int = 1
     max_steps: int = 500
-    representation: Representation = "flat"
+    representation: Representation = "graph"
+
+
+def get_position(idx: int, size: int):
+    return (idx // size, idx % size)
 
 
 def generate(
@@ -48,7 +52,8 @@ def generate(
     # Possible positions
     remaining_idxs = []
     for idx in range(size**2):
-        if idx not in agent_idxs and idx not in goal_idxs:
+        if idx not in goal_idxs:
+            # if idx not in agent_idxs and idx not in goal_idxs:
             remaining_idxs.append(idx)
 
     environments = []
@@ -61,18 +66,17 @@ def generate(
             env = np.zeros((n_colors, size, size), dtype=dtype)
             for i, idx in enumerate(shelf_idxs):
                 color = i % n_colors
-                env[color, idx // size, idx % size] = 1.0
+                env[color, *get_position(idx, size)] = 1.0
             if training_dataset:
                 env = env * 2 - 1  # type: ignore
-        elif representation == "flat":
+        elif representation == "flat" or representation == "graph":
             # Shelf placement
             # features_dim_shelf = 2 + n_colors
             features_dim_shelf = 2
             env = np.zeros((n_shelves * features_dim_shelf), dtype=np.float32)  # type: ignore
             for i, idx in enumerate(shelf_idxs):
                 # color = i % n_colors
-                x = float(idx // size)
-                y = float(idx % size)
+                x, y = get_position(idx, size)
                 if training_dataset:
                     x = x / (size - 1)
                     y = y / (size - 1)
@@ -83,6 +87,10 @@ def generate(
 
             if training_dataset:
                 env = env * 2 - 1
+
+            if representation == "graph":
+                # Reshape
+                env = env.reshape((n_shelves, features_dim_shelf))  # type: ignore
 
         environments.append(env)
 
@@ -162,7 +170,7 @@ def generate_run(cfg: WarehouseRandomGeneratorConfig):
 @hydra.main(
     version_base=None,
     config_path="../../bin/conf/scenario",
-    config_name="rware_16_50_5_5_random",
+    config_name="rware_16_50_5_4_corners",
 )
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")

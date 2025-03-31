@@ -1923,11 +1923,11 @@ wheels = [
 
 [[package]]
 name = "pyglet"
-version = "1.5.31"
+version = "2.1.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f7/c0/59130a7edbcc8f84e35870b00a712538ca05415ff02d17181277b8ef8f05/pyglet-1.5.31.zip", hash = "sha256:a5e422b4c27b0fc99e92103bf493109cca5c18143583b868b3b4631a98ae9417", size = 6900712 }
+sdist = { url = "https://files.pythonhosted.org/packages/08/90/7f8a8d939dbf8f6875b957540cc3091e936e41c4ac8f190a9517589678f8/pyglet-2.1.3.tar.gz", hash = "sha256:9a2c3c84228402ea7103443ac8a52060cc1c91419951ec1105845ce30fed2ce8", size = 6515859 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/43/46aa0ab49f2f5145d201780c7595cf0c305fb4fb5d00d6639792a3d0e770/pyglet-1.5.31-py3-none-any.whl", hash = "sha256:f68413564bbec380e4815898fef0fb7a4a494dc3f8718bfbf28ce2a802634c88", size = 1143660 },
+    { url = "https://files.pythonhosted.org/packages/83/d6/41208b6741e732a7faf160e89346a17e81b14899bd7ae90058da858083d6/pyglet-2.1.3-py3-none-any.whl", hash = "sha256:5a7eaf35869ecf7451fb49cc064c4c0e9a118eaa5e771667c607125b13f85e33", size = 962091 },
 ]
 
 [[package]]
@@ -2219,7 +2219,6 @@ dependencies = [
     { name = "networkx" },
     { name = "numpy" },
     { name = "pyglet" },
-    { name = "six" },
 ]
 
 [package.optional-dependencies]
@@ -2241,8 +2240,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3.4.2" },
     { name = "numpy", specifier = ">=2.2.2" },
     { name = "pettingzoo", marker = "extra == 'pettingzoo'", specifier = ">=1.24.3" },
-    { name = "pyglet", specifier = "<2" },
-    { name = "six", specifier = ">=1.17.0" },
+    { name = "pyglet", specifier = ">=2.1" },
 ]
 provides-extras = ["pettingzoo"]
 

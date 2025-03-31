@@ -19,8 +19,8 @@ dependencies = [
     "pydantic>=2.10.6",
     "diffusers[torch]>=0.32.2",
     "torch-geometric>=2.6.1",
-    # Manually install torch_scatter
-    # uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+    # Manually install torch_scatter and torch_cluster
+    # uv pip install torch-scatter torch-cluster --no-build-isolation
 ]
 
 [dependency-groups]

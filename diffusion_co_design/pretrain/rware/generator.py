@@ -10,7 +10,11 @@ from guided_diffusion.script_util import (
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
 from guided_diffusion.unet import SimpleFlowModel
-from diffusion_co_design.pretrain.rware.generate import Representation
+from diffusion_co_design.pretrain.rware.generate import (
+    Representation,
+    WarehouseRandomGeneratorConfig,
+)
+from diffusion_co_design.pretrain.rware.graph import WarehouseDiffusionModel
 
 
 # Using Universal Guided Diffusion
@@ -47,12 +51,13 @@ device = dist_util.dev()
 
 
 def create_model_and_diffusion_rware(
-    size: int,
-    n_colors: int,
-    n_shelves: int,
+    scenario: WarehouseRandomGeneratorConfig,
     representation: Representation,
     diffusion_steps: int = 1000,
 ):
+    size = scenario.size
+    n_colors = scenario.n_colors
+    n_shelves = scenario.n_shelves
     if representation == "image":
         model_diffusion_args = model_and_diffusion_defaults()
         model_diffusion_args["image_size"] = size
@@ -63,7 +68,7 @@ def create_model_and_diffusion_rware(
         model_diffusion_args["timestep_respacing"] = "ddim50"
 
         model, diffusion = create_model_and_diffusion(**model_diffusion_args)
-    elif representation == "flat":
+    elif representation in ["flat", "graph"]:
         diffusion_args = diffusion_defaults()
         del diffusion_args["diffusion_steps"]
         del diffusion_args["use_ldm"]
@@ -72,11 +77,22 @@ def create_model_and_diffusion_rware(
         diffusion_args["timestep_respacing"] = "ddim50"
 
         diffusion = create_gaussian_diffusion(**diffusion_args)
-        model = SimpleFlowModel(
-            # data_shape=((2 + n_colors) * n_shelves, 1),
-            data_shape=(2 * n_shelves, 1),
-            hidden_dim=2048,
-        )
+
+        if representation == "flat":
+            model = SimpleFlowModel(
+                # data_shape=((2 + n_colors) * n_shelves, 1),
+                data_shape=(2 * n_shelves, 1),
+                hidden_dim=2048,
+            )
+        else:
+            model = WarehouseDiffusionModel(
+                scenario=scenario,
+                node_embedding_dim=64,
+                edge_embedding_dim=32,
+                timestep_embedding_dim=32,
+                num_layers=5,
+                use_radius_graph=True,
+            )
 
     return model, diffusion
 
@@ -85,9 +101,7 @@ class Generator:
     def __init__(
         self,
         generator_model_path: str,
-        size: int,
-        n_colors: int,
-        n_shelves: int,
+        scenario: WarehouseRandomGeneratorConfig,
         representation: Representation,
         batch_size: int = 32,
         rng: torch.Generator | None = None,
@@ -95,10 +109,10 @@ class Generator:
     ):
         super().__init__()
 
-        self.size = size
+        self.size = scenario.size
         self.batch_size = batch_size
-        self.n_colors = n_colors
-        self.n_shelves = n_shelves
+        self.n_colors = scenario.n_colors
+        self.n_shelves = scenario.n_shelves
         self.representation = representation
         self.clip_denoised = True
 
@@ -112,9 +126,7 @@ class Generator:
         # Create diffusion mode
 
         self.model, self.diffusion = create_model_and_diffusion_rware(
-            size=size,
-            n_colors=n_colors,
-            n_shelves=n_shelves,
+            scenario=scenario,
             representation=representation,
         )
 

@@ -30,13 +30,13 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
     data_dir = os.path.join(
-        OUTPUT_DIR, "diffusion_datasets", "flat", args.experiment_name
+        OUTPUT_DIR, "diffusion_datasets", args.representation, args.experiment_name
     )
     data_config = OmegaConf.load(os.path.join(data_dir, "config.yaml"))
     args.image_channels = data_config.n_colors
 
     log_dir = os.path.join(
-        OUTPUT_DIR, "diffusion_pretrain", "flat", args.experiment_name
+        OUTPUT_DIR, "diffusion_pretrain", args.representation, args.experiment_name
     )
 
     dist_util.setup_dist()
@@ -44,10 +44,8 @@ def main():
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion_rware(
-        size=data_config.size,
-        n_colors=data_config.n_colors,
-        n_shelves=data_config.n_shelves,
-        representation="flat",
+        scenario=data_config,
+        representation=args.representation,
     )
     model.to(dist_util.dev())
 
@@ -69,12 +67,13 @@ def main():
                         agent_idxs=data_config.agent_idxs,
                         n_colors=data_config.n_colors,
                         n=args.batch_size,
-                        representation="flat",
+                        representation=args.representation,
                         training_dataset=True,
                     )
                 )
             )
-            batch = batch.unsqueeze(-1)
+            if args.representation == "flat":
+                batch = batch.unsqueeze(-1)
             yield batch, {}
 
     # data = data_iterator(data)
@@ -95,6 +94,8 @@ def main():
         schedule_sampler=schedule_sampler,
         weight_decay=args.weight_decay,
         lr_anneal_steps=args.lr_anneal_steps,
+        use_fp16=args.use_fp16,
+        fp16_scale_growth=args.fp16_scale_growth,
     ).run_loop()
 
 
@@ -109,9 +110,12 @@ def create_argparser():
         microbatch=-1,  # -1 disables microbatches
         ema_rate="0.9999",  # comma-separated list of EMA values
         log_interval=10,
+        use_fp16=False,
+        fp16_scale_growth=1e-3,
         save_interval=10000,
         resume_checkpoint="",
         gpu_idx="0",
+        representation="graph",
     )
 
     parser = argparse.ArgumentParser()
