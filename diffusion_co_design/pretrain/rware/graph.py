@@ -3,9 +3,12 @@ import shutil
 import pickle as pkl
 
 import torch
+import torch.nn as nn
 from tqdm import tqdm
+from torch_geometric.nn import MessagePassing
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
+from torch_scatter import scatter
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
@@ -18,6 +21,75 @@ from diffusion_co_design.pretrain.rware.generate import (
 )
 from diffusion_co_design.pretrain.rware.transform import storage_to_layout
 from diffusion_co_design.utils import omega_to_pydantic, OUTPUT_DIR
+
+
+class WarehouseDiffusionLayer(MessagePassing):
+    def __init__(
+        self,
+        embedding_dim: int = 32,
+        timestep_embedding_size: int = 32,
+        normalise_pos: bool = True,
+        pos_aggr: str = "add",
+    ):
+        super().__init__(aggr="add")
+
+        self.normalise_pos = normalise_pos
+
+        self.message_mlp = nn.Sequential(
+            nn.Linear(embedding_dim * 2 + timestep_embedding_size, embedding_dim),
+            nn.LeakyReLU(),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(),
+        )
+
+        self.pos_mlp = nn.Sequential(
+            nn.Linear(embedding_dim * 2, embedding_dim),
+            nn.LeakyReLU(),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(),
+        )
+
+        self.node_mlp = nn.Sequential(
+            nn.Linear(embedding_dim * 2, embedding_dim),
+            nn.LeakyReLU(),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(),
+        )
+        self.pos_aggr = pos_aggr
+
+    def forward(self, x, edge_index, pos, timestep_embedding):
+        out = self.propagate(
+            edge_index, x=x, pos=pos, timestep_embedding=timestep_embedding
+        )
+
+        return out
+
+    def message(self, x_i, x_j, pos_i, pos_j, timestep_embedding):
+        # Position encodings
+        pos_diff = pos_i - pos_j
+        radial = torch.sum(pos_diff**2, dim=-1, keepdim=True)
+        if self.normalise_pos:
+            norm = torch.sqrt(radial).detach() + 1e-6
+            pos_diff /= norm
+
+        # Node encodings
+        msg = torch.cat([x_i, x_j, radial, timestep_embedding], dim=-1)
+        msg = self.message_mlp(msg)
+        return (msg, pos_diff)
+
+    def aggregate(self, inputs, index, ptr=None, aim_size=None):
+        msg, pos_diff = inputs
+        pos_vec = pos_diff * self.pos_mlp(msg)
+        aggr_h = scatter(msg, index, dim=0, dim_size=aim_size, reduce=self.aggr)
+        aggr_pos = scatter(
+            pos_vec, index, dim=0, dim_size=aim_size, reduce=self.pos_aggr
+        )
+        return aggr_h, aggr_pos
+
+    def update(self, inputs, x, pos):
+        aggr_h, aggr_pos = inputs
+        upd_out = self.node_mlp(torch.cat([x, aggr_h], dim=-1))
+        return upd_out + x, aggr_pos + pos
 
 
 def generate_layout_graph(layout: Layout) -> Data:
