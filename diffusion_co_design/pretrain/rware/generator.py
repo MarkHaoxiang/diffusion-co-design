@@ -87,9 +87,9 @@ def create_model_and_diffusion_rware(
         else:
             model = WarehouseDiffusionModel(
                 scenario=scenario,
-                node_embedding_dim=64,
-                edge_embedding_dim=32,
-                timestep_embedding_dim=32,
+                node_embedding_dim=128,
+                edge_embedding_dim=64,
+                timestep_embedding_dim=64,
                 num_layers=5,
                 use_radius_graph=True,
             )
@@ -210,11 +210,16 @@ class Generator:
             feature_dim_shelf = 2
             # Get idxs like 0, feature_dim_shelf, 2*feature_dim_shelf, ...
             assert sample.shape[1] == feature_dim_shelf * self.n_shelves
-            x_idxs = torch.arange(0, sample.shape[1], feature_dim_shelf)
-            y_idxs = x_idxs + 1
+            # x_idxs = torch.arange(0, sample.shape[1], feature_dim_shelf)
+            # y_idxs = x_idxs + 1
 
-            sample[:, x_idxs] *= self.size
-            sample[:, y_idxs] *= self.size
+            # sample[:, x_idxs] *= self.size
+            # sample[:, y_idxs] *= self.size
+            sample *= self.size
+        elif self.representation == "graph":
+            sample = ((sample + 1) * 0.5).clamp(0, 1)
+            assert sample.shape[1] == self.n_shelves
+            sample *= self.size
 
         return sample.numpy(force=True)
 
@@ -225,3 +230,5 @@ class Generator:
         elif self.representation == "flat":
             return (self.batch_size, 2 * self.n_shelves, 1)
             # return (self.batch_size, (2 + self.n_colors) * self.n_shelves, 1)
+        elif self.representation == "graph":
+            return (self.batch_size, self.n_shelves, 2)

@@ -31,12 +31,12 @@ def shelf_radius_graph_goals_connected(
     return torch.cat([shelf_edge_index, goal_edge_index], dim=1)
 
 
-class WarehouseDiffusionLayer(MessagePassing):
+class E3GNNLayer(MessagePassing):
     def __init__(
         self,
         node_embedding_dim: int = 32,
         edge_embedding_dim: int = 16,  # Messages
-        timestep_embedding_dim: int = 32,
+        graph_embedding_dim: int = 32,
         normalise_pos: bool = True,
         pos_aggr: str = "mean",
         update_node_features: bool = True,
@@ -48,7 +48,7 @@ class WarehouseDiffusionLayer(MessagePassing):
 
         self.message_mlp = nn.Sequential(
             nn.Linear(
-                node_embedding_dim * 2 + timestep_embedding_dim + 1,
+                node_embedding_dim * 2 + graph_embedding_dim + 1,
                 edge_embedding_dim,
             ),
             nn.SiLU(),
@@ -78,17 +78,15 @@ class WarehouseDiffusionLayer(MessagePassing):
         else:
             self.att_mlp = None
 
-    def forward(self, x, edge_index, pos, timestep_embedding, batch):
+    def forward(self, x, edge_index, pos, graph_embedding, batch):
         edge_batch = batch[edge_index[0]]
-        timestep_embedding = timestep_embedding[edge_batch]
 
-        out = self.propagate(
-            edge_index, x=x, pos=pos, timestep_embedding=timestep_embedding
-        )
-
+        if graph_embedding is not None:
+            graph_embedding = graph_embedding[edge_batch]
+        out = self.propagate(edge_index, x=x, pos=pos, graph_embedding=graph_embedding)
         return out
 
-    def message(self, x_i, x_j, pos_i, pos_j, timestep_embedding):
+    def message(self, x_i, x_j, pos_i, pos_j, graph_embedding=None):
         # Position encodings
         pos_diff = pos_i - pos_j
         radial = torch.sum(pos_diff**2, dim=-1, keepdim=True)
@@ -97,7 +95,10 @@ class WarehouseDiffusionLayer(MessagePassing):
             pos_diff = pos_diff / norm
 
         # Messages
-        msg = torch.cat([x_i, x_j, radial, timestep_embedding], dim=-1)
+        if graph_embedding is not None:
+            msg = torch.cat([x_i, x_j, radial, graph_embedding], dim=-1)
+        else:
+            msg = torch.cat([x_i, x_j, radial], dim=-1)
         msg = self.message_mlp(msg)
         if self.att_mlp:
             msg = msg * self.att_mlp(msg)
@@ -117,48 +118,24 @@ class WarehouseDiffusionLayer(MessagePassing):
         return upd_out + x, aggr_pos + pos
 
 
-class WarehouseDiffusionModel(nn.Module):
+class WarehouseGNNBase(nn.Module):
     def __init__(
         self,
         scenario: WarehouseRandomGeneratorConfig,
-        node_embedding_dim: int = 32,
-        edge_embedding_dim: int = 32,
-        timestep_embedding_dim: int = 32,
-        num_layers: int = 5,
         use_radius_graph: bool = True,
         radius: float = 0.5,
+        include_color_features: bool = False,
     ):
         super().__init__()
-        self.feature_dim = 2
+        self.include_color_features = include_color_features
+        self.feature_dim = 2 if not include_color_features else 2 + scenario.n_colors
         self.scenario = scenario
         self.num_nodes = scenario.n_goals + scenario.n_shelves
-        self.num_layers = num_layers
-
-        self.embedding_dim = node_embedding_dim
-        self.timestep_embedding_dim = timestep_embedding_dim
-
-        self.convs = nn.ModuleList()
-        for i in range(num_layers):
-            layer = WarehouseDiffusionLayer(
-                node_embedding_dim=node_embedding_dim,
-                edge_embedding_dim=edge_embedding_dim,
-                timestep_embedding_dim=timestep_embedding_dim,
-                update_node_features=i < num_layers - 1,
-            )
-            self.convs.append(layer)
-
-        self.timestep_layers = nn.ModuleList()
-        for _ in range(num_layers - 1):
-            t_layer = nn.Linear(timestep_embedding_dim, timestep_embedding_dim)
-            self.timestep_layers.append(t_layer)
-
-        self.h_in = nn.Linear(2, node_embedding_dim)
-        self.activation = nn.SiLU()
 
         self.use_radius_graph = use_radius_graph
         self.r = radius
 
-    def _generate_scenario_graph(self) -> Data:
+    def generate_scenario_graph(self) -> Data:
         scenario = self.scenario
         pos = torch.zeros((self.num_nodes, 2), dtype=torch.float32)
         h = torch.zeros(
@@ -169,8 +146,11 @@ class WarehouseDiffusionModel(nn.Module):
         for i, idx in enumerate(scenario.goal_idxs):
             h[i, 0] = 1
             x, y = get_position(idx, scenario.size)
-            pos[i, 0] = x
-            pos[i, 1] = y
+            pos[i, 0] = (x / scenario.size) * 2 - 1
+            pos[i, 1] = (y / scenario.size) * 2 - 1
+            if self.include_color_features:
+                assert scenario.goal_colors is not None
+                h[i, 2 + scenario.goal_colors[i]] = 1
         for i in range(scenario.n_shelves):
             h[i + scenario.n_goals, 1] = 1
 
@@ -180,20 +160,14 @@ class WarehouseDiffusionModel(nn.Module):
         data = Data(h=h, edge_index=edge_index, pos=pos, is_goal_edge=is_goal_edge)
         return data
 
-    def forward(self, pos: torch.Tensor, timesteps=None):
-        shape = pos.shape
+    def make_graph_from_data(
+        self, pos: torch.Tensor, color: torch.Tensor | None = None
+    ):
         assert pos.ndim in [2, 3]
         if pos.ndim == 2:
             pos = pos.unsqueeze(0)
-            is_single = True
-        else:
-            is_single = False
-            assert pos.ndim == 3
 
         batch_size = pos.shape[0]
-        if timesteps is None:
-            timesteps = torch.zeros(batch_size, dtype=torch.long, device=pos.device)
-        timesteps_emb = timestep_embedding(timesteps, self.timestep_embedding_dim)
         assert pos.shape[1] == self.scenario.n_shelves
         assert pos.shape[2] == 2
         pos = pos.view(-1, 2)
@@ -211,6 +185,83 @@ class WarehouseDiffusionModel(nn.Module):
 
         graph.pos[is_shelf_mask] = pos
 
+        if self.include_color_features:
+            assert color is not None
+            color = color.view(-1, self.scenario.n_colors)
+            graph.h[is_shelf_mask][:, 2:] = color
+
+        return graph, is_shelf_mask
+
+    @cache
+    def _get_batch_graph(self, batch_size: int) -> Batch:
+        graphs = [self.generate_scenario_graph() for _ in range(batch_size)]
+        batch_graph = Batch.from_data_list(graphs)
+
+        is_shelf_mask = batch_graph.h[:, 1] == 1
+        return batch_graph, is_shelf_mask
+
+    def get_batch_graph(self, batch_size: int, device="cpu") -> Batch:
+        graph, is_shelf_mask = self._get_batch_graph(batch_size)
+
+        return graph.clone().to(device), is_shelf_mask.to(device)
+
+
+class WarehouseDiffusionModel(WarehouseGNNBase):
+    def __init__(
+        self,
+        scenario: WarehouseRandomGeneratorConfig,
+        node_embedding_dim: int = 32,
+        edge_embedding_dim: int = 32,
+        timestep_embedding_dim: int = 32,
+        num_layers: int = 5,
+        use_radius_graph: bool = True,
+        radius: float = 0.5,
+    ):
+        super().__init__(
+            scenario=scenario,
+            use_radius_graph=use_radius_graph,
+            radius=radius,
+            include_color_features=False,
+        )
+        self.feature_dim = 2
+        self.scenario = scenario
+        self.num_nodes = scenario.n_goals + scenario.n_shelves
+        self.num_layers = num_layers
+
+        self.embedding_dim = node_embedding_dim
+        self.timestep_embedding_dim = timestep_embedding_dim
+
+        self.convs = nn.ModuleList()
+        for i in range(num_layers):
+            layer = E3GNNLayer(
+                node_embedding_dim=node_embedding_dim,
+                edge_embedding_dim=edge_embedding_dim,
+                graph_embedding_dim=timestep_embedding_dim,
+                update_node_features=i < num_layers - 1,
+            )
+            self.convs.append(layer)
+
+        self.timestep_layers = nn.ModuleList()
+        for _ in range(num_layers - 1):
+            t_layer = nn.Linear(timestep_embedding_dim, timestep_embedding_dim)
+            self.timestep_layers.append(t_layer)
+
+        self.h_in = nn.Linear(2, node_embedding_dim)
+        self.activation = nn.SiLU()
+
+        self.use_radius_graph = use_radius_graph
+        self.r = radius
+
+    def forward(self, pos: torch.Tensor, timesteps=None):
+        shape = pos.shape
+
+        batch_size = shape[0]
+        graph, is_shelf_mask = self.make_graph_from_data(pos)
+
+        if timesteps is None:
+            timesteps = torch.zeros(batch_size, dtype=torch.long, device=pos.device)
+        timesteps_emb = timestep_embedding(timesteps, self.timestep_embedding_dim)
+
         h = self.h_in(graph.h)
         pos = graph.pos
 
@@ -223,19 +274,4 @@ class WarehouseDiffusionModel(nn.Module):
                 timesteps_emb = self.activation(timesteps_emb)
 
         out = pos[is_shelf_mask]
-        if is_single:
-            out = out.squeeze(0)
-        return out.reshape(shape)
-
-    @cache
-    def _get_batch_graph(self, batch_size: int) -> Batch:
-        graphs = [self._generate_scenario_graph() for _ in range(batch_size)]
-        batch_graph = Batch.from_data_list(graphs)
-
-        is_shelf_mask = batch_graph.h[:, 1] == 1
-        return batch_graph, is_shelf_mask
-
-    def get_batch_graph(self, batch_size: int, device="cpu") -> Batch:
-        graph, is_shelf_mask = self._get_batch_graph(batch_size)
-
-        return graph.clone().to(device), is_shelf_mask.to(device)
+        return out.view(shape)

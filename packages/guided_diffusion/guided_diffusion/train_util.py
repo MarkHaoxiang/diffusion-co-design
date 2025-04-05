@@ -7,6 +7,7 @@ import torch as th
 import torch.distributed as dist
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
@@ -38,6 +39,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
+        anneal_lr_enable: bool = True,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -75,6 +77,14 @@ class TrainLoop:
         self.opt = AdamW(
             self.mp_trainer.master_params, lr=self.lr, weight_decay=self.weight_decay
         )
+
+        # Mark: Added CosineAnnealingWarmRestarts scheduler
+        self.anneal_lr_enable = anneal_lr_enable
+        if anneal_lr_enable:
+            self.scheduler = CosineAnnealingLR(
+                self.opt, T_max=1_000_000, eta_min=0.00001
+            )
+
         if self.resume_step:
             self._load_optimizer_state()
             # Model was resumed, either due to a restart or a checkpoint
@@ -218,12 +228,17 @@ class TrainLoop:
             update_ema(params, self.mp_trainer.master_params, rate=rate)
 
     def _anneal_lr(self):
-        if not self.lr_anneal_steps:
+        if not self.anneal_lr_enable:
             return
-        frac_done = (self.step + self.resume_step) / self.lr_anneal_steps
-        lr = self.lr * (1 - frac_done)
-        for param_group in self.opt.param_groups:
-            param_group["lr"] = lr
+
+        self.scheduler.step()
+
+        # if not self.lr_anneal_steps:
+        #     return
+        # frac_done = (self.step + self.resume_step) / self.lr_anneal_steps
+        # lr = self.lr * (1 - frac_done)
+        # for param_group in self.opt.param_groups:
+        #     param_group["lr"] = lr
 
     def log_step(self):
         logger.logkv("step", self.step + self.resume_step)

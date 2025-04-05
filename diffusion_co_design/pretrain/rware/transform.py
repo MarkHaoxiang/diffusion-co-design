@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 
 from rware.layout import Layout, ImageLayer
 from diffusion_co_design.pretrain.rware.generate import (
@@ -85,13 +86,24 @@ def storage_to_layout_flat(
     )
 
 
-def storage_to_layout(features: np.ndarray, config: WarehouseRandomGeneratorConfig):
+def storage_to_layout(
+    features: np.ndarray,
+    config: WarehouseRandomGeneratorConfig,
+    representation_override: str | None = None,
+):
     assert config.agent_idxs is not None
-    assert config.agent_colors is not None
+    if config.agent_colors is None:
+        warnings.warn("agent_colors is None, using -1 as colors")
+        config.agent_colors = [-1] * len(config.agent_idxs)
+
     assert config.goal_idxs is not None
     assert config.goal_colors is not None
 
-    if config.representation == "image":
+    representation = representation_override
+    if representation is None:
+        representation = config.representation
+
+    if representation == "image":
         return storage_to_layout_image(
             shelf_im=features,
             agent_idxs=config.agent_idxs,
@@ -99,7 +111,19 @@ def storage_to_layout(features: np.ndarray, config: WarehouseRandomGeneratorConf
             goal_idxs=config.goal_idxs,
             goal_colors=config.goal_colors,
         )
-    elif config.representation == "flat":
+    elif representation == "flat":
+        return storage_to_layout_flat(
+            features=features,
+            size=config.size,
+            n_colors=config.n_colors,
+            n_shelves=config.n_shelves,
+            agent_idxs=config.agent_idxs,
+            agent_colors=config.agent_colors,
+            goal_idxs=config.goal_idxs,
+            goal_colors=config.goal_colors,
+        )
+    elif representation == "graph":
+        features = features.flatten()
         return storage_to_layout_flat(
             features=features,
             size=config.size,

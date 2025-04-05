@@ -36,7 +36,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.workspace]
-members = [".", "packages/*"]
+members = [".", "packages/*", "experiments/*"]
 
 [tool.uv.sources]
 rware = { workspace = true }

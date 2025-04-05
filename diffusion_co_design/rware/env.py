@@ -66,14 +66,10 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
                 layout = storage_to_layout(
-                    # layout = rgb_to_layout(
-                    tensordict.get(("environment_design", "layout_image")).numpy(
-                        force=True
-                    ),
-                    agent_idxs=self._env._scenario_cfg.agent_idxs,
-                    agent_colors=self._env._scenario_cfg.agent_colors,
-                    goal_idxs=self._env._scenario_cfg.goal_idxs,
-                    goal_colors=self._env._scenario_cfg.goal_colors,
+                    features=tensordict.get(
+                        ("environment_design", "layout_image")
+                    ).numpy(force=True),
+                    config=self._env._scenario_cfg,
                 )
 
             else:
@@ -88,13 +84,10 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 reset_policy_output = self._env._reset_policy(td)
                 layout = storage_to_layout(
                     # layout = rgb_to_layout(
-                    reset_policy_output.get(
+                    features=reset_policy_output.get(
                         ("environment_design", "layout_image")
                     ).numpy(force=True),
-                    agent_idxs=self._env._scenario_cfg.agent_idxs,
-                    agent_colors=self._env._scenario_cfg.agent_colors,
-                    goal_idxs=self._env._scenario_cfg.goal_idxs,
-                    goal_colors=self._env._scenario_cfg.goal_colors,
+                    config=self._env._scenario_cfg,
                 )
             options = {"layout": layout}
         else:

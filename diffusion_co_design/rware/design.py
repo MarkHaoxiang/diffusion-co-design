@@ -52,11 +52,8 @@ class Designer(nn.Module, ABC):
 
     def generate_environment(self, objective):
         return storage_to_layout(
-            self.generate_environment_image(objective),
-            self.scenario.agent_idxs,
-            self.scenario.agent_colors,
-            self.scenario.goal_idxs,
-            self.scenario.goal_colors,
+            features=self.generate_environment_image(objective),
+            config=self.scenario,
         )
 
     def to_td_module(self):

@@ -93,9 +93,10 @@ def main():
         resume_checkpoint=args.resume_checkpoint,
         schedule_sampler=schedule_sampler,
         weight_decay=args.weight_decay,
-        lr_anneal_steps=args.lr_anneal_steps,
+        lr_anneal_steps=0,  # Disabled
         use_fp16=args.use_fp16,
         fp16_scale_growth=args.fp16_scale_growth,
+        anneal_lr_enable=True,  # New addition
     ).run_loop()
 
 
@@ -103,7 +104,7 @@ def create_argparser():
     defaults = dict(
         experiment_name="rware_16_50_5_4_corners",
         schedule_sampler="uniform",
-        lr=1e-4,
+        lr=3e-4,
         weight_decay=0.0,
         lr_anneal_steps=0,
         batch_size=256,
