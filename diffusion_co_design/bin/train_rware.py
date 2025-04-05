@@ -70,6 +70,7 @@ class TrainingConfig(BaseModel):
 
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+    cfg.scenario.representation = "image"
     device = memory_management(cfg.memory_management)
     n_train_envs = cfg.frames_per_batch // cfg.scenario.max_steps
     master_designer, env_designer = DesignerRegistry.get(

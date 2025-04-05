@@ -45,6 +45,7 @@ class OptimizerDetails:
         self.sampling_type = "ddim"
         self.loss_save = None
         self.operated_image = None
+        self.projection_constraint = None  # Projection constraint after on z_(t-1)
 
 
 device = dist_util.dev()

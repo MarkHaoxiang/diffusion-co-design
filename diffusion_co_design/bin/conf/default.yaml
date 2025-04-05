@@ -1,10 +1,10 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: random
+  - designer: diffusion
   - scenario: rware_16_50_5_4_corners
 
-experiment_name: corners_agent_random_update_check
+experiment_name: corners_agent_diffusion
 n_iters: 5_000
 n_epochs: 10
 memory_management: gpu

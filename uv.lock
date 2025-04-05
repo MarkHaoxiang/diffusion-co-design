@@ -11,6 +11,7 @@ resolution-markers = [
 [manifest]
 members = [
     "diffusion-co-design",
+    "diffusion-playground",
     "guided-diffusion",
     "rware",
 ]
@@ -509,6 +510,17 @@ dev = [
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "ruff", specifier = ">=0.9.3" },
 ]
+
+[[package]]
+name = "diffusion-playground"
+version = "0.1.0"
+source = { virtual = "experiments/diffusion_playground" }
+dependencies = [
+    { name = "diffusion-co-design" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "diffusion-co-design", editable = "." }]
 
 [[package]]
 name = "docker-pycreds"

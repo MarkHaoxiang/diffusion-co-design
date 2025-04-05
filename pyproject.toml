@@ -39,5 +39,6 @@ build-backend = "hatchling.build"
 members = [".", "packages/*", "experiments/*"]
 
 [tool.uv.sources]
+diffusion_co_design = { workspace = true }
 rware = { workspace = true }
 guided_diffusion = { workspace = true }

@@ -260,13 +260,15 @@ class DiffusionDesigner(ValueDesigner):
         )
         self.generator = None
 
-        pretrain_dir = os.path.join(OUTPUT_DIR, "diffusion_pretrain", scenario.name)
+        pretrain_dir = os.path.join(
+            OUTPUT_DIR, "diffusion_pretrain", "image", scenario.name
+        )
         latest_checkpoint = get_latest_model(pretrain_dir, "model")
 
         self.generator = Generator(
             generator_model_path=latest_checkpoint,
-            num_channels=scenario.n_colors,
-            size=scenario.size,
+            scenario=scenario,
+            representation="image",
             batch_size=generator_batch_size,
             guidance_wt=guidance_weight,
         )

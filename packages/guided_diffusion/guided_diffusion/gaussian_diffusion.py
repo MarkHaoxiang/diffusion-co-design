@@ -832,10 +832,12 @@ class GaussianDiffusion:
             alpha_bar_prev = _extract_into_tensor(self.alphas_cumprod_prev, t, x.shape)
 
             if operation.sampling_type == "ddim":
-                mean_pred = (
-                    out["pred_xstart"] * th.sqrt(alpha_bar_prev)
-                    + th.sqrt(1 - alpha_bar_prev) * eps
-                )
+                if operation.projection_constraint:
+                    out["pred_xstart"] = operation.projection_constraint(
+                        out["pred_xstart"]
+                    )
+                mean_pred_before = out["pred_xstart"] * th.sqrt(alpha_bar_prev)
+                mean_pred = mean_pred_before + th.sqrt(1 - alpha_bar_prev) * eps
                 sample = mean_pred
             elif operation.sampling_type == "ddpm":
                 """
