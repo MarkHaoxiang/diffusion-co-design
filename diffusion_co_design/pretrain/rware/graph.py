@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing, radius_graph
 from torch_geometric.data import Data, Batch
-from torch_geometric.transforms import RemoveDuplicatedEdges
+from guided_diffusion.unet import SimpleFlowModel
 from torch_scatter import scatter
 
 from guided_diffusion.unet import timestep_embedding
@@ -275,3 +275,19 @@ class WarehouseDiffusionModel(WarehouseGNNBase):
 
         out = pos[is_shelf_mask]
         return out.view(shape)
+
+
+class WarehouseDiffusionMLP(nn.Module):
+    def __init__(self, scenario: WarehouseRandomGeneratorConfig):
+        super().__init__()
+        self.scenario = scenario
+        self.model = SimpleFlowModel(
+            data_shape=(2 * scenario.n_shelves, 1),
+            hidden_dim=1024,
+        )
+
+    def forward(self, pos: torch.Tensor, timesteps):
+        B = pos.shape[0]
+        pos = pos.reshape(B, -1)
+        out = self.model(pos, timesteps)
+        return out.reshape(B, self.scenario.n_shelves, 2)

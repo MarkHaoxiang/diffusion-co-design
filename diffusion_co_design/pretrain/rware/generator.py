@@ -14,7 +14,10 @@ from diffusion_co_design.pretrain.rware.generate import (
     Representation,
     WarehouseRandomGeneratorConfig,
 )
-from diffusion_co_design.pretrain.rware.graph import WarehouseDiffusionModel
+from diffusion_co_design.pretrain.rware.graph import (
+    WarehouseDiffusionModel,
+    WarehouseDiffusionMLP,
+)
 
 
 # Using Universal Guided Diffusion
@@ -86,14 +89,16 @@ def create_model_and_diffusion_rware(
                 hidden_dim=2048,
             )
         else:
-            model = WarehouseDiffusionModel(
-                scenario=scenario,
-                node_embedding_dim=128,
-                edge_embedding_dim=64,
-                timestep_embedding_dim=64,
-                num_layers=5,
-                use_radius_graph=True,
-            )
+            # model = WarehouseDiffusionModel(
+            #     scenario=scenario,
+            #     node_embedding_dim=128,
+            #     edge_embedding_dim=64,
+            #     timestep_embedding_dim=64,
+            #     num_layers=5,
+            #     use_radius_graph=True,
+            # )
+
+            model = WarehouseDiffusionMLP(scenario=scenario)
 
     return model, diffusion
 
