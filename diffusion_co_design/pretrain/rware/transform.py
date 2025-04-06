@@ -65,13 +65,28 @@ def storage_to_layout_flat(
         feature_dim_shelf = 2
     else:
         feature_dim_shelf = 2 + n_colors
+
+    if auto_add_colors:
+        colors = []
+        shelves_per_color = n_shelves // n_colors
+        remainder = n_shelves % n_colors
+        for i in range(n_colors):
+            if remainder > 0:
+                n = shelves_per_color + 1
+                remainder -= 1
+            else:
+                n = shelves_per_color
+
+            colors += [i] * n
+
     for i in range(n_shelves):
         start = i * feature_dim_shelf
         x = np.clip(round(features[start]), 0, size - 1)
         y = np.clip(0, round(features[start + 1]), size - 1)
 
         if auto_add_colors:
-            color = i % n_colors
+            color = colors[i]
+            # color = i % n_colors
         else:
             color = int(np.argmax(features[start + 2 : start + 2 + n_colors]))
 

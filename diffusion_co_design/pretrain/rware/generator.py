@@ -216,7 +216,7 @@ class Generator:
 
             # sample[:, x_idxs] *= self.size
             # sample[:, y_idxs] *= self.size
-            sample *= self.size
+            sample *= self.size - 1
         elif self.representation == "graph":
             sample = ((sample + 1) * 0.5).clamp(0, 1)
             assert sample.shape[1] == self.n_shelves

@@ -134,7 +134,7 @@ def load_dataset(
     return train_dataset, eval_dataset
 
 
-def convert_to_pos_colors(data: torch.Tensor, n_shelves: int):
+def image_to_pos_colors(data: torch.Tensor, n_shelves: int):
     # image of shape (batch_size, color, x, y)
     batch_size, n_colors, x, y = data.shape
 
@@ -162,8 +162,8 @@ class CollateFn:
         images = torch.stack([x[0] for x in batch])
         labels = torch.stack([x[1] for x in batch])
 
-        pos, colors = convert_to_pos_colors(images, self.n_shelves)
-        pos = (pos / self.size) * 2 - 1
+        pos, colors = image_to_pos_colors(images, self.n_shelves)
+        pos = (pos / (self.size - 1)) * 2 - 1
 
         return (
             (

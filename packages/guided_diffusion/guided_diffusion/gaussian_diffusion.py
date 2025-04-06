@@ -831,7 +831,6 @@ class GaussianDiffusion:
 
             if operation.projection_constraint:
                 out["pred_xstart"] = operation.projection_constraint(out["pred_xstart"])
-
             eps = self._predict_eps_from_xstart(x, t, out["pred_xstart"])
 
             if operation.sampling_type == "ddim":
