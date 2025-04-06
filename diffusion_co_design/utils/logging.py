@@ -6,13 +6,17 @@
 # Adapted from
 # https://github.com/pytorch/rl/blob/main/sota-implementations/multiagent/utils/logging.py#L32
 #
+
+import os
+from datetime import datetime
 from typing import Literal, Any
 
 from pydantic import BaseModel
 from tensordict import TensorDictBase
+import wandb
 import torch
 import numpy as np
-from torchrl.record.loggers import Logger, WandbLogger, CSVLogger
+from torchrl.record.loggers import WandbLogger, CSVLogger
 
 
 LoggerTypes = Literal["wandb", "csv"] | None
@@ -180,3 +184,58 @@ def log_evaluation(
     #         .expand(sampling_td.get("agents").shape)
     #         .unsqueeze(-1),
     #     )
+
+
+class ExperimentLogger:
+    def __init__(
+        self,
+        base_dir: str,
+        experiment_name: str,
+        config: dict | None = None,
+        mode: Literal["online", "offline", "disabled"] = "online",
+    ):
+        super().__init__()
+        now = datetime.now()
+        dir = os.path.join(
+            base_dir,
+            experiment_name,
+            now.strftime("%Y-%m-%d %H-%M-%S"),
+        )
+
+        self.experiment_name = experiment_name
+        self.dir = dir
+        self.checkpoint_dir = os.path.join(dir, "checkpoints")
+        self.config = config
+        self.mode = mode
+
+        os.makedirs(dir, exist_ok=False)
+        os.makedirs(self.checkpoint_dir, exist_ok=False)
+
+    def log(self, data: dict[str, Any]):
+        wandb.log(data, commit=False)
+
+    def commit(self):
+        wandb.log({}, commit=True)
+
+    def begin(self):
+        wandb.init(
+            project="diffusion-co-design-experiments",
+            name=self.experiment_name,
+            dir=self.dir,
+            config=self.config,
+            mode=self.mode,
+        )
+
+    @property
+    def summary(self):
+        return wandb.run.summary
+
+    def close(self):
+        wandb.finish()
+
+    def __enter__(self):
+        self.begin()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()

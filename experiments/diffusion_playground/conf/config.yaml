@@ -1,0 +1,10 @@
+defaults:
+  - _self_
+  - model: mlp
+
+training_dir: "/home/markhaoxiang/.diffusion_co_design/training/2025-04-05/04-00-12"
+batch_size: 128
+train_epochs: 100
+lr: 3e-5
+weight_decay: 0.0
+logging_mode: online

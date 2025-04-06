@@ -1,19 +1,23 @@
 import os
 
 from tqdm import tqdm
+from omegaconf import OmegaConf
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data._utils.collate import default_collate
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from tensordict import TensorDict
 
+from diffusion_co_design.utils import get_latest_model, omega_to_pydantic
 from diffusion_co_design.utils.constants import EXPERIMENT_DIR
+from diffusion_co_design.rware.model import rware_models
 from diffusion_co_design.rware.design import ScenarioConfig
 from diffusion_co_design.bin.train_rware import (
+    TrainingConfig,
     DesignerRegistry,
     DesignerConfig,
 )
-from diffusion_co_design.rware.env import create_batched_env
+from diffusion_co_design.rware.env import create_env, create_batched_env
 
 working_dir = os.path.join(EXPERIMENT_DIR, "diffusion_playground")
 if not os.path.exists(working_dir):
@@ -37,11 +41,19 @@ class EnvReturnsDataset(Dataset):
 
 def rware_policy_return_dataset(
     scenario: ScenarioConfig,
-    policy,
+    training_dir: str,
     dataset_size: int,
     num_parallel_collection: int,
     device: str,
 ):
+    # Create policy
+    checkpoint_dir = os.path.join(training_dir, "checkpoints")
+    latest_policy = get_latest_model(checkpoint_dir, "policy_")
+    hydra_dir = os.path.join(training_dir, ".hydra")
+    training_cfg = omega_to_pydantic(
+        OmegaConf.load(os.path.join(hydra_dir, "config.yaml")), TrainingConfig
+    )
+
     _, env_designer = DesignerRegistry.get(
         DesignerConfig(type="random"),
         scenario,
@@ -50,6 +62,12 @@ def rware_policy_return_dataset(
         device=device,
     )
 
+    ref_env = create_env(scenario, env_designer, render=True, device=device)
+    policy, _ = rware_models(ref_env, training_cfg.policy, device=device)
+    policy.load_state_dict(torch.load(latest_policy))
+    ref_env.close()
+
+    # Collection
     collection_env = create_batched_env(
         num_environments=num_parallel_collection,
         scenario=scenario,
@@ -81,7 +99,7 @@ def rware_policy_return_dataset(
 
 def load_dataset(
     scenario: ScenarioConfig,
-    policy,
+    training_dir: str,
     dataset_size: int,
     num_workers: int,
     test_proportion: float,
@@ -100,7 +118,7 @@ def load_dataset(
     else:
         env_returns = rware_policy_return_dataset(
             scenario=scenario,
-            policy=policy,
+            training_dir=training_dir,
             dataset_size=dataset_size,
             num_parallel_collection=num_workers,
             device=device,
@@ -154,3 +172,37 @@ class CollateFn:
             ),
             labels.to(dtype=torch.float32, device=self.device),
         )
+
+
+class ImageCollateFn:
+    def __init__(self, cfg, device):
+        self.n_shelves = cfg.n_shelves
+        self.size = cfg.size
+        self.device = device
+
+    def __call__(self, batch):
+        X, y = default_collate(batch)
+
+        X = X.to(dtype=torch.float32, device=self.device)
+        y = y.to(dtype=torch.float32, device=self.device)
+
+        X = X * 2 - 1
+
+        return X, y
+
+
+def make_dataloader(
+    dataset, scenario: ScenarioConfig, batch_size: int, representation: str, device: str
+):
+    if representation == "image":
+        cf = ImageCollateFn(cfg=scenario, device=device)
+    else:
+        cf = CollateFn(cfg=scenario, device=device)  # type: ignore
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        collate_fn=cf,
+        persistent_workers=True,
+    )

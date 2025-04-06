@@ -1,0 +1,4 @@
+name: mlp
+representation: graph
+hidden_dim: 512
+num_layers: 4

@@ -826,16 +826,15 @@ class GaussianDiffusion:
 
             ##################
 
-            eps = self._predict_eps_from_xstart(x, t, out["pred_xstart"])
-
             alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
             alpha_bar_prev = _extract_into_tensor(self.alphas_cumprod_prev, t, x.shape)
 
+            if operation.projection_constraint:
+                out["pred_xstart"] = operation.projection_constraint(out["pred_xstart"])
+
+            eps = self._predict_eps_from_xstart(x, t, out["pred_xstart"])
+
             if operation.sampling_type == "ddim":
-                if operation.projection_constraint:
-                    out["pred_xstart"] = operation.projection_constraint(
-                        out["pred_xstart"]
-                    )
                 mean_pred_before = out["pred_xstart"] * th.sqrt(alpha_bar_prev)
                 mean_pred = mean_pred_before + th.sqrt(1 - alpha_bar_prev) * eps
                 sample = mean_pred
