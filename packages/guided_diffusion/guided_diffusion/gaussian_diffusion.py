@@ -648,6 +648,10 @@ class GaussianDiffusion:
                 pred_xstart = self._predict_xstart_from_eps(
                     x_t=x, t=t, eps=model_output
                 )
+
+                if operation.projection_constraint:
+                    pred_xstart = operation.projection_constraint(pred_xstart)
+
                 pred_xstart.clamp(-1, 1)
                 out = {}
                 out["pred_xstart"] = pred_xstart

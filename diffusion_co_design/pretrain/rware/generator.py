@@ -40,7 +40,7 @@ class OptimizerDetails:
         self.print_every = None  # Ignore
         self.folder = None  # Ignore
         self.tv_loss = None  # Ignore
-        self.use_forward = True  # Set true to use forward. Not sure if this should be enabled when using backward.
+        self.use_forward = True  # Set true to use forward.
         self.forward_guidance_wt = 5.0
         self.other_guidance_func = None
         self.other_criterion = None
@@ -89,16 +89,16 @@ def create_model_and_diffusion_rware(
                 hidden_dim=2048,
             )
         else:
-            # model = WarehouseDiffusionModel(
-            #     scenario=scenario,
-            #     node_embedding_dim=128,
-            #     edge_embedding_dim=64,
-            #     timestep_embedding_dim=64,
-            #     num_layers=5,
-            #     use_radius_graph=True,
-            # )
+            model = WarehouseDiffusionModel(
+                scenario=scenario,
+                node_embedding_dim=128,
+                edge_embedding_dim=64,
+                timestep_embedding_dim=64,
+                num_layers=5,
+                use_radius_graph=True,
+            )
 
-            model = WarehouseDiffusionMLP(scenario=scenario)
+            # model = WarehouseDiffusionMLP(scenario=scenario)
 
     return model, diffusion
 
