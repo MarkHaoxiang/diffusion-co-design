@@ -2,40 +2,23 @@ import os
 
 import hydra
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch_geometric.nn import global_add_pool
 from tqdm import tqdm
 from omegaconf import OmegaConf
-import matplotlib.pyplot as plt
-from diffusion_co_design.pretrain.rware.transform import storage_to_layout
 from diffusion_co_design.bin.train_rware import (
     TrainingConfig,
-    DesignerRegistry,
-    DesignerConfig,
-    ScenarioConfig,
 )
 from diffusion_co_design.utils import (
     ExperimentLogger,
     omega_to_pydantic,
     cuda as device,
 )
-from diffusion_co_design.rware.env import create_env
-from diffusion_co_design.rware.model import rware_models
-from diffusion_co_design.pretrain.rware.graph import WarehouseGNNBase, E3GNNLayer
-from guided_diffusion.script_util import create_classifier, classifier_defaults
-from diffusion_co_design.pretrain.rware.generator import (
-    Generator,
-    OptimizerDetails,
-)
-from rware.warehouse import Warehouse
 
 from dataset import (
     load_dataset,
     make_dataloader,
     working_dir,
 )
-from classifier import make_model
+from diffusion_co_design.rware.classifier import make_model
 
 from conf.schema import Config
 
@@ -47,6 +30,7 @@ def main(cfg):
     training_cfg = omega_to_pydantic(
         OmegaConf.load(os.path.join(hydra_dir, "config.yaml")), TrainingConfig
     )
+    training_cfg.scenario.representation = cfg.model.representation
 
     # Load dataset
     train_dataset, eval_dataset = load_dataset(

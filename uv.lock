@@ -462,6 +462,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "diffusers", extra = ["torch"] },
+    { name = "graphviz" },
     { name = "guided-diffusion" },
     { name = "hydra-core" },
     { name = "ipykernel" },
@@ -473,6 +474,7 @@ dependencies = [
     { name = "torch" },
     { name = "torch-geometric" },
     { name = "torchrl" },
+    { name = "torchview" },
     { name = "torchvision" },
     { name = "wandb", extra = ["media"] },
 ]
@@ -488,6 +490,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "diffusers", extras = ["torch"], specifier = ">=0.32.2" },
+    { name = "graphviz", specifier = ">=0.20.3" },
     { name = "guided-diffusion", editable = "packages/guided_diffusion" },
     { name = "hydra-core", specifier = ">=1.3.2" },
     { name = "ipykernel", specifier = ">=6.29.5" },
@@ -499,6 +502,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.6.0" },
     { name = "torch-geometric", specifier = ">=2.6.1" },
     { name = "torchrl", specifier = ">=0.7.1" },
+    { name = "torchview", specifier = ">=0.2.6" },
     { name = "torchvision", specifier = ">=0.21.0" },
     { name = "wandb", extras = ["media"], specifier = ">=0.19.5" },
 ]
@@ -688,6 +692,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c0/89/37df0b71473153574a5cdef8f242de422a0f5d26d7a9e231e6f169b4ad14/gitpython-3.1.44.tar.gz", hash = "sha256:c87e30b26253bf5418b01b0660f818967f3c503193838337fe5e573331249269", size = 214196 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1d/9a/4114a9057db2f1462d5c8f8390ab7383925fe1ac012eaa42402ad65c2963/GitPython-3.1.44-py3-none-any.whl", hash = "sha256:9e0e10cda9bed1ee64bc9a6de50e7e38a9c9943241cd7f585f6df3ed28011110", size = 207599 },
+]
+
+[[package]]
+name = "graphviz"
+version = "0.20.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/83/5a40d19b8347f017e417710907f824915fba411a9befd092e52746b63e9f/graphviz-0.20.3.zip", hash = "sha256:09d6bc81e6a9fa392e7ba52135a9d49f1ed62526f96499325930e87ca1b5925d", size = 256455 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/be/d59db2d1d52697c6adc9eacaf50e8965b6345cc143f671e1ed068818d5cf/graphviz-0.20.3-py3-none-any.whl", hash = "sha256:81f848f2904515d8cd359cc611faba817598d2feaac4027b266aa3eda7b3dde5", size = 47126 },
 ]
 
 [[package]]
@@ -2520,6 +2533,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/ca/4b520dd98868ccdcb415482676b0b74776c6cbd5b5651582e6920e86e7e0/torchrl-0.7.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:b5d4cf89553849bb4fec616cacd03963756525e01468ba57234455c4dd7b4ef6", size = 1426952 },
     { url = "https://files.pythonhosted.org/packages/81/c6/a5357938ddca705ba9db95860a97351a8dc4ea701572227e25740d69564a/torchrl-0.7.1-cp313-cp313-manylinux1_x86_64.whl", hash = "sha256:6e6e798beefd39cfa425418248044a63f7f77c9c184ee4485f219bc7adaff069", size = 1105285 },
     { url = "https://files.pythonhosted.org/packages/ac/0b/a09e393dc69b6a8c3bfd6df75feb6197703eb75c7d673ae3f4bff24a4b09/torchrl-0.7.1-cp313-cp313-win_amd64.whl", hash = "sha256:66dc764b014a17d8d9a77a5dd204c32cb3af420558b2f15044398fdb8ad7e0ff", size = 1089805 },
+]
+
+[[package]]
+name = "torchview"
+version = "0.2.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/f8/e8d6946312b966bbb3bf4aedc98918b6a308a3e52ffea3f5db0e71d1ac50/torchview-0.2.6.tar.gz", hash = "sha256:9db17f345321a991b756b985a6142f4d86af9f27e4235e2b1c909ce27553bfc9", size = 30097 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/84/a8/09cccd76a6ac4d021354bafbb9b330fd1763b5cace99aa6af47b8d27dc87/torchview-0.2.6-py3-none-any.whl", hash = "sha256:e1a1fa9821b8f9dd88d59c029d6c9762c56ae1ac13b201bfbe377e138a669bfb", size = 25307 },
 ]
 
 [[package]]

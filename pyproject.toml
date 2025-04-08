@@ -21,6 +21,8 @@ dependencies = [
     "torch-geometric>=2.6.1",
     # Manually install torch_scatter and torch_cluster
     # uv pip install torch-scatter torch-cluster --no-build-isolation
+    "torchview>=0.2.6",
+    "graphviz>=0.20.3",
 ]
 
 [dependency-groups]

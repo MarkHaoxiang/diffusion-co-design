@@ -1,11 +1,7 @@
-from typing import Any, Literal
+from typing import Literal
 from pydantic import BaseModel
 
-
-class Model(BaseModel):
-    name: str
-    representation: Literal["graph", "image"]
-    model_kwargs: dict[str, Any] = {}
+from diffusion_co_design.rware.classifier import Model
 
 
 class Config(BaseModel):

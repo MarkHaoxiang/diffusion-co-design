@@ -10,6 +10,7 @@ from tensordict import TensorDict
 
 from diffusion_co_design.utils import get_latest_model, omega_to_pydantic
 from diffusion_co_design.utils.constants import EXPERIMENT_DIR
+from diffusion_co_design.rware.classifier import image_to_pos_colors
 from diffusion_co_design.rware.model import rware_models
 from diffusion_co_design.rware.design import ScenarioConfig
 from diffusion_co_design.bin.train_rware import (
@@ -132,24 +133,6 @@ def load_dataset(
     )
 
     return train_dataset, eval_dataset
-
-
-def image_to_pos_colors(data: torch.Tensor, n_shelves: int):
-    # image of shape (batch_size, color, x, y)
-    batch_size, n_colors, x, y = data.shape
-
-    pos = torch.zeros(batch_size, n_shelves, 2)
-    colors = torch.zeros(batch_size, n_shelves, n_colors)
-
-    for i in range(batch_size):
-        image = data[i]
-        shelf_exists = torch.nonzero(image)
-        for j in range(shelf_exists.shape[0]):
-            color, x, y = shelf_exists[j]
-            pos[i, j] = torch.tensor([x, y])
-            colors[i, j] = torch.eye(n_colors)[color]
-
-    return pos.to(data.device), colors.to(data.device)
 
 
 class CollateFn:

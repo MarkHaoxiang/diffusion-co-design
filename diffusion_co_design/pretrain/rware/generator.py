@@ -15,7 +15,7 @@ from diffusion_co_design.pretrain.rware.generate import (
     WarehouseRandomGeneratorConfig,
 )
 from diffusion_co_design.pretrain.rware.graph import (
-    WarehouseDiffusionModel,
+    # WarehouseDiffusionModel,
     WarehouseDiffusionMLP,
 )
 
@@ -28,7 +28,7 @@ class OptimizerDetails:
         self.num_recurrences = 4  # Self-recurrence to increase inference time compute
         self.operation_func = None  # Set as none, probably some sort of mask
         self.optimizer = "Adam"  # Optim for backprop on expected image
-        self.lr = 0.0002
+        self.lr = 0.01
         self.loss_func = None  # Important: this is the guidance model. Also 'criterion', takes in pred_xstart and any extra info in operated_image
         self.backward_steps = 0
         self.loss_cutoff = None  # disabled, ignore
@@ -89,16 +89,15 @@ def create_model_and_diffusion_rware(
                 hidden_dim=2048,
             )
         else:
-            model = WarehouseDiffusionModel(
-                scenario=scenario,
-                node_embedding_dim=128,
-                edge_embedding_dim=64,
-                timestep_embedding_dim=64,
-                num_layers=5,
-                use_radius_graph=True,
-            )
-
-            # model = WarehouseDiffusionMLP(scenario=scenario)
+            # model = WarehouseDiffusionModel(
+            #     scenario=scenario,
+            #     node_embedding_dim=128,
+            #     edge_embedding_dim=64,
+            #     timestep_embedding_dim=64,
+            #     num_layers=5,
+            #     use_radius_graph=True,
+            # )
+            model = WarehouseDiffusionMLP(scenario=scenario)
 
     return model, diffusion
 

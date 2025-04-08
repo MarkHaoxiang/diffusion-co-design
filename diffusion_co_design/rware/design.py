@@ -9,10 +9,16 @@ from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacem
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from pydantic import BaseModel
-from guided_diffusion.script_util import create_classifier, classifier_defaults
 
 from diffusion_co_design.utils import OUTPUT_DIR, get_latest_model
+from diffusion_co_design.rware.classifier import (
+    Model as ClassifierSchema,
+    make_model,
+    image_to_pos_colors,
+)
 from diffusion_co_design.pretrain.rware.transform import (
+    graph_projection_constraint,
+    image_projection_constraint,
     storage_to_layout,
 )
 from diffusion_co_design.pretrain.rware.generate import (
@@ -29,15 +35,22 @@ class ScenarioConfig(WarehouseRandomGeneratorConfig):
     pass
 
 
+class DiffusionOperation(BaseModel):
+    num_recurrences: int = 4
+    backward_lr: float = 0.01
+    backward_steps: int = 0
+    forward_guidance_wt: float = 5.0
+
+
 class DesignerConfig(BaseModel):
     type: str
+    value_model: ClassifierSchema | None = None
     value_n_update_iterations: int = 5
     value_train_batch_size: int = 64
     value_buffer_size: int = 4096
     value_weight_decay: float = 0.05
     value_lr: float = 3e-5
-    diffusion_guidance_wt: float = 100
-    diffusion_num_recurrences: int = 4
+    diffusion: DiffusionOperation = DiffusionOperation()
 
 
 class Designer(nn.Module, ABC):
@@ -111,23 +124,23 @@ class ValueDesigner(CentralisedDesigner):
     def __init__(
         self,
         scenario: ScenarioConfig,
+        classifier: ClassifierSchema,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
         lr: float = 3e-5,
-        weight_decay: float = 0.05,
+        weight_decay: float = 0.0,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario)
+        self.model = make_model(
+            model=classifier.name,
+            scenario=scenario,
+            model_kwargs=classifier.model_kwargs,
+            device=device,
+        )
+        self.representation = classifier.representation
 
-        model_dict = classifier_defaults()
-        model_dict["image_size"] = scenario.size
-        model_dict["image_channels"] = scenario.n_colors
-        model_dict["classifier_width"] = 128
-        model_dict["classifier_depth"] = 2
-        model_dict["classifier_attention_resolutions"] = "16, 8, 4"
-        model_dict["output_dim"] = 1
-        self.model = create_classifier(**model_dict).to(device)
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=lr, weight_decay=weight_decay
         )
@@ -163,14 +176,30 @@ class ValueDesigner(CentralisedDesigner):
                 self.optim.zero_grad()
                 sample = self.env_buffer.sample(batch_size=self.batch_size)
                 X_batch = sample.get("env").to(dtype=torch.float32, device=self.device)
-                X_batch = X_batch * 2 - 1
+                # Data Preprocessing
+                match self.representation:
+                    case "graph":
+                        pos, colors = image_to_pos_colors(
+                            X_batch, self.scenario.n_shelves
+                        )
+                        pos = (pos / (self.scenario.size - 1)) * 2 - 1
+                        X_batch = (
+                            pos.to(dtype=torch.float32, device=self.device),
+                            colors.to(dtype=torch.float32, device=self.device),
+                        )
+                    case "image":
+                        X_batch = X_batch * 2 - 1
+
                 y_batch = sample.get("episode_reward").to(
                     dtype=torch.float32, device=self.device
                 )
+
+                # Timesteps
                 # t, _ = self.generator.schedule_sampler.sample(len(X_batch), self.device)
                 # X_batch = self.generator.diffusion.q_sample(X_batch, t)
                 # y_pred = self.model(X_batch, t).squeeze()
-                y_pred = self.model(X_batch).squeeze()
+
+                y_pred = self.model.predict(X_batch)
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 self.running_loss += loss.item()
@@ -188,6 +217,7 @@ class SamplingDesigner(ValueDesigner):
     def __init__(
         self,
         scenario: ScenarioConfig,
+        classifier: ClassifierSchema,
         generator_batch_size: int,
         n_sample: int = 5,
         n_update_iterations: int = 5,
@@ -199,6 +229,7 @@ class SamplingDesigner(ValueDesigner):
     ):
         super().__init__(
             scenario,
+            classifier,
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
             buffer_size=buffer_size,
@@ -239,18 +270,19 @@ class DiffusionDesigner(ValueDesigner):
     def __init__(
         self,
         scenario: ScenarioConfig,
+        classifier: ClassifierSchema,
         generator_batch_size: int,
+        diffusion: DiffusionOperation,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
         lr: float = 3e-5,
-        weight_decay: float = 0.05,
-        guidance_weight: float = 100,
-        num_recurrences: int = 4,
+        weight_decay: float = 0.0,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
             scenario,
+            classifier,
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
             buffer_size=buffer_size,
@@ -261,26 +293,38 @@ class DiffusionDesigner(ValueDesigner):
         self.generator = None
 
         pretrain_dir = os.path.join(
-            OUTPUT_DIR, "diffusion_pretrain", "image", scenario.name
+            OUTPUT_DIR, "diffusion_pretrain", self.representation, scenario.name
         )
         latest_checkpoint = get_latest_model(pretrain_dir, "model")
 
         self.generator = Generator(
             generator_model_path=latest_checkpoint,
             scenario=scenario,
-            representation="image",
+            representation=self.representation,
             batch_size=generator_batch_size,
-            guidance_wt=guidance_weight,
+            guidance_wt=diffusion.forward_guidance_wt,
         )
 
-        self.num_recurrences = num_recurrences
+        self.diffusion = diffusion
 
     def reset_env_buffer(self):
         batch = []
+        forward_enable = self.diffusion.forward_guidance_wt > 0
         operation = OptimizerDetails()
-        operation.num_recurrences = self.num_recurrences
-        operation.backward_steps = 0
-        # operation.operated_image = goal_map * 2 - 1
+        operation.num_recurrences = self.diffusion.num_recurrences
+        operation.lr = self.diffusion.backward_lr
+        operation.backward_steps = self.diffusion.backward_steps
+        operation.use_forward = forward_enable
+
+        match self.representation:
+            case "graph":
+                operation.projection_constraint = graph_projection_constraint(
+                    self.scenario
+                )
+            case "image":
+                operation.projection_constraint = image_projection_constraint(
+                    self.scenario
+                )
 
         self.model.eval()
 
@@ -402,20 +446,22 @@ class DesignerRegistry:
                 raise NotImplementedError()
             case DesignerRegistry.DIFFUSION:
                 lock = torch.multiprocessing.Lock()
+                assert designer.diffusion is not None
+                assert designer.value_model is not None
                 master = DiskDesigner(
                     scenario,
                     lock,
                     artifact_dir,
                     DiffusionDesigner(
                         scenario,
+                        classifier=designer.value_model,
+                        diffusion=designer.diffusion,
                         generator_batch_size=environment_batch_size,
                         n_update_iterations=designer.value_n_update_iterations,
                         train_batch_size=designer.value_train_batch_size,
                         buffer_size=designer.value_buffer_size,
                         lr=designer.value_lr,
                         weight_decay=designer.value_weight_decay,
-                        guidance_weight=designer.diffusion_guidance_wt,
-                        num_recurrences=designer.diffusion_num_recurrences,
                         device=device,
                     ),
                 )
@@ -428,6 +474,7 @@ class DesignerRegistry:
             case DesignerRegistry.DIFFUSION_SHARED:
                 raise NotImplementedError()
             case DesignerRegistry.SAMPLING:
+                assert designer.value_model is not None
                 lock = torch.multiprocessing.Lock()
                 master = DiskDesigner(
                     scenario,
@@ -435,6 +482,7 @@ class DesignerRegistry:
                     artifact_dir,
                     SamplingDesigner(
                         scenario,
+                        classifier=designer.value_model,
                         generator_batch_size=environment_batch_size,
                         n_update_iterations=designer.value_n_update_iterations,
                         train_batch_size=designer.value_train_batch_size,

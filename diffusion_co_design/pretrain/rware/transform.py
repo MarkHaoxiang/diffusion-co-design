@@ -1,10 +1,93 @@
+import torch
 import numpy as np
 import warnings
+from scipy.optimize import linear_sum_assignment
 
 from rware.layout import Layout, ImageLayer
 from diffusion_co_design.pretrain.rware.generate import (
     WarehouseRandomGeneratorConfig,
+    get_position,
 )
+
+
+def graph_projection_constraint(cfg: WarehouseRandomGeneratorConfig):
+    def _graph_projection_constraint(pos):
+        B, N, _ = pos.shape
+        G = cfg.size
+        device = pos.device
+
+        # Move points to the discrete grid
+        lin = torch.linspace(-1, 1, steps=G, device=device)
+        yy, xx = torch.meshgrid(lin, lin, indexing="ij")
+
+        grid = torch.stack([xx, yy], dim=-1).reshape(-1, 2)  # [G^2, 2]
+        # Remove goal positions from grid
+        exclude_list = []
+        assert cfg.goal_idxs is not None
+        for idx in cfg.goal_idxs:
+            x, y = get_position(idx, cfg.size)
+            exclude_list.append([x, y])
+        exclude = (
+            2 * (torch.tensor(exclude_list, device=device) / (cfg.size - 1)) - 1
+        )  # [M, 2]
+        mask = torch.any(torch.cdist(grid, exclude, p=1) < 1e-5, dim=-1)
+        grid = grid[~mask]
+
+        assert N <= grid.shape[0], "More points than available grid cells"
+        assert grid.shape[0] == cfg.size**2 - cfg.n_goals
+
+        distance_limit = 1 / (G - 1) - 1e-5
+
+        target = []
+        for b in range(B):
+            x_b = pos[b]
+
+            cost = (
+                torch.cdist(
+                    x_b.unsqueeze(0), grid.unsqueeze(0), p=1
+                )  # Taxicab distance
+                .squeeze(0)
+                .cpu()
+                .numpy()
+            )
+
+            _, col_ind = linear_sum_assignment(cost[:, :])
+
+            matched = grid[col_ind]
+            target.append(matched)
+
+        # Minimise movement
+        target = torch.stack(target, dim=0).to(device)
+        delta = target - pos
+        original_sign = torch.sign(delta)
+        delta = delta - distance_limit * original_sign
+        new_sign = torch.sign(delta)
+        delta = delta * (original_sign == new_sign).float()
+        target = pos + delta
+
+        return target
+
+    return _graph_projection_constraint
+
+
+def image_projection_constraint(cfg: WarehouseRandomGeneratorConfig):
+    def _image_projection_constraint(x):
+        target = [cfg.n_shelves // cfg.n_colors for _ in range(cfg.n_colors)]
+        remainder = cfg.n_shelves % cfg.n_colors
+        for i in range(remainder):
+            target[i] += 1
+
+        B, C, H, W = x.shape
+        x_flat = x.view(B, C, -1)
+        mask = torch.full_like(x_flat, -1)
+
+        for c, k in enumerate(target):
+            _, indices = torch.topk(x_flat[:, c, :], k=k, dim=1)
+            mask[:, c, :].scatter_(1, indices, 1)
+
+        return mask.view(B, C, H, W)
+
+    return _image_projection_constraint
 
 
 def storage_to_layout_image(
@@ -28,11 +111,11 @@ def storage_to_layout_image(
     goal_im = np.zeros((1, size, size))
 
     for idx, color in zip(agent_idxs, agent_colors):
-        agent_im[0, idx // size, idx % size] = 1
-        agent_colors_im[0, idx // size, idx % size] = color + 1
+        agent_im[0, *get_position(idx, size)] = 1
+        agent_colors_im[0, *get_position(idx, size)] = color + 1
     for idx, color in zip(goal_idxs, goal_colors):
-        goal_im[0, idx // size, idx % size] = color + 1
-        shelf_im[:, idx // size, idx % size] = 0
+        goal_im[0, *get_position(idx, size)] = color + 1
+        shelf_im[:, *get_position(idx, size)] = 0
 
     im = np.concat((shelf_im, agent_im, agent_colors_im, goal_im), axis=0)
     layout = Layout.from_image(

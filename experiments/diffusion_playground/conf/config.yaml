@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model: gnn_cnn
+  - model: unet_cnn
 
 training_dir: "/home/markhaoxiang/.diffusion_co_design/training/2025-04-05/04-00-12"
 batch_size: 128

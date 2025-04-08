@@ -1,15 +1,43 @@
 from abc import abstractmethod
+from typing import Any, Literal
 from functools import cache
 import torch
 import torch.nn as nn
-from diffusion_co_design.bin.train_rware import ScenarioConfig
+from pydantic import BaseModel
+from diffusion_co_design.pretrain.rware.generate import (
+    WarehouseRandomGeneratorConfig as ScenarioConfig,
+)
 from guided_diffusion.script_util import create_classifier, classifier_defaults
+
+
+class Model(BaseModel):
+    name: str
+    representation: Literal["graph", "image"]
+    model_kwargs: dict[str, Any] = {}
 
 
 class Classifier(nn.Module):
     @abstractmethod
     def predict(self, x):
         raise NotImplementedError
+
+
+def image_to_pos_colors(data: torch.Tensor, n_shelves: int):
+    # image of shape (batch_size, color, x, y)
+    batch_size, n_colors, x, y = data.shape
+
+    pos = torch.zeros(batch_size, n_shelves, 2)
+    colors = torch.zeros(batch_size, n_shelves, n_colors)
+
+    for i in range(batch_size):
+        image = data[i]
+        shelf_exists = torch.nonzero(image)
+        for j in range(shelf_exists.shape[0]):
+            color, x, y = shelf_exists[j]
+            pos[i, j] = torch.tensor([x, y])
+            colors[i, j] = torch.eye(n_colors)[color]
+
+    return pos.to(data.device), colors.to(data.device)
 
 
 @cache
@@ -67,9 +95,21 @@ class MLPClassifier(nn.Module):
         return self.predict((pos, colors))
 
 
-class UnetCNNClassifier(Classifier):
-    def __init__(self, cfg: ScenarioConfig, width: int = 128, depth: int = 2):
+class ImageClassifier(Classifier):
+    def __init__(self, cfg: ScenarioConfig):
         super().__init__()
+        self.cfg = cfg
+        assert cfg.representation == "image", (
+            "ImageClassifier only supports image representation"
+        )
+
+    def predict(self, x):
+        return self.forward(x)
+
+
+class UnetCNNClassifier(ImageClassifier):
+    def __init__(self, cfg: ScenarioConfig, width: int = 128, depth: int = 2):
+        super().__init__(cfg)
         model_dict = classifier_defaults()
         model_dict["image_size"] = cfg.size
         model_dict["image_channels"] = cfg.n_colors
@@ -81,11 +121,34 @@ class UnetCNNClassifier(Classifier):
 
         self.model = create_classifier(**model_dict)
 
-    def predict(self, x):
-        return self.forward(x)
-
     def forward(self, image):
         return self.model(image).squeeze(-1)
+
+
+class CustomCNNClassifier(ImageClassifier):
+    def __init__(self, cfg: ScenarioConfig):
+        super().__init__(cfg)
+        self.model = nn.Sequential(
+            nn.Conv2d(self.cfg.n_colors, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.SiLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.SiLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.SiLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.SiLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(128, 1),
+        )
+
+    def forward(self, x):
+        return self.model(x).squeeze(-1)
 
 
 class GNNCNN(Classifier):
@@ -175,6 +238,8 @@ def make_model(model, scenario, model_kwargs, device) -> Classifier:
             model = MLPClassifier(cfg=scenario, **model_kwargs)
         case "unet-cnn":
             model = UnetCNNClassifier(cfg=scenario, **model_kwargs)
+        case "cnn":
+            model = CustomCNNClassifier(cfg=scenario, **model_kwargs)
         case "gnn-cnn":
             model = GNNCNN(cfg=scenario, **model_kwargs)
         case _:
