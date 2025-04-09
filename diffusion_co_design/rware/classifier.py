@@ -57,9 +57,31 @@ def colors_setup(batch_size: int, n_shelves: int, n_colors: int):
     return colors.detach()
 
 
-class MLPClassifier(nn.Module):
-    def __init__(self, cfg: ScenarioConfig, hidden_dim: int = 512, num_layers: int = 4):
+class GraphClassifier(Classifier):
+    def __init__(self, cfg: ScenarioConfig):
         super().__init__()
+        self.cfg = cfg
+        assert cfg.representation == "graph", (
+            "GraphClassifier only supports graph representation"
+        )
+
+    def forward(self, pos):
+        colors = (
+            colors_setup(
+                batch_size=pos.shape[0],
+                n_shelves=self.cfg.n_shelves,
+                n_colors=self.cfg.n_colors,
+            )
+            .detach()
+            .to(device=pos.device)
+        )
+
+        return self.predict((pos, colors))
+
+
+class MLPClassifier(GraphClassifier):
+    def __init__(self, cfg: ScenarioConfig, hidden_dim: int = 512, num_layers: int = 4):
+        super().__init__(cfg)
         in_dim = (2 + cfg.n_colors) * cfg.n_shelves
 
         layers: list[nn.Module] = []
@@ -80,19 +102,6 @@ class MLPClassifier(nn.Module):
         x = x.view(x.shape[0], -1)
         x = self.net(x)
         return x.squeeze(-1)
-
-    def forward(self, pos):
-        colors = (
-            colors_setup(
-                batch_size=pos.shape[0],
-                n_shelves=self.cfg.n_shelves,
-                n_colors=self.cfg.n_colors,
-            )
-            .clone()
-            .to(device=pos.device)
-        )
-
-        return self.predict((pos, colors))
 
 
 class ImageClassifier(Classifier):
@@ -151,13 +160,11 @@ class CustomCNNClassifier(ImageClassifier):
         return self.model(x).squeeze(-1)
 
 
-class GNNCNN(Classifier):
+class GNNCNN(GraphClassifier):
     def __init__(
         self, cfg: ScenarioConfig, width: int = 128, depth: int = 2, top_k: int = 5
     ):
-        super().__init__()
-        self.cfg = cfg
-
+        super().__init__(cfg)
         model_dict = classifier_defaults()
         model_dict["image_size"] = cfg.size
         model_dict["image_channels"] = cfg.n_colors
@@ -218,18 +225,39 @@ class GNNCNN(Classifier):
 
         return self.model(image).squeeze(-1)
 
-    def forward(self, pos):
-        colors = (
-            colors_setup(
-                batch_size=pos.shape[0],
-                n_shelves=self.cfg.n_shelves,
-                n_colors=self.cfg.n_colors,
-            )
-            .detach()
-            .to(device=pos.device)
+
+class MLPCNNClassifier(GraphClassifier):
+    def __init__(self, cfg: ScenarioConfig, width: int = 128, depth: int = 2):
+        super().__init__(cfg)
+        self.cfg = cfg
+
+        model_dict = classifier_defaults()
+        model_dict["image_size"] = cfg.size
+        model_dict["image_channels"] = cfg.n_colors
+
+        model_dict["classifier_width"] = width
+        model_dict["classifier_depth"] = depth
+        model_dict["classifier_attention_resolutions"] = "16, 8, 4"
+        model_dict["output_dim"] = 1
+
+        self.model = create_classifier(**model_dict)
+        self.mlp = nn.Sequential(
+            nn.Linear(self.cfg.n_shelves * (2 + self.cfg.n_colors), 1024),
+            nn.SiLU(),
+            nn.Linear(1024, 1024),
+            nn.SiLU(),
+            nn.Linear(1024, cfg.size * cfg.size * cfg.n_colors),
         )
 
-        return self.predict((pos, colors))
+    def predict(self, x):
+        pos, colors = x
+        x = torch.cat([pos, colors], dim=-1)
+        B = x.shape[0]
+        image_flat = self.mlp(x.view(B, -1))
+        image = (
+            image_flat.view(B, self.cfg.size, self.cfg.size, self.cfg.n_colors)
+        ).movedim(source=(-3, -2, -1), destination=(-2, -1, -3))
+        return self.model(image).squeeze(-1)
 
 
 def make_model(model, scenario, model_kwargs, device) -> Classifier:
@@ -242,6 +270,8 @@ def make_model(model, scenario, model_kwargs, device) -> Classifier:
             model = CustomCNNClassifier(cfg=scenario, **model_kwargs)
         case "gnn-cnn":
             model = GNNCNN(cfg=scenario, **model_kwargs)
+        case "mlp-cnn":
+            model = MLPCNNClassifier(cfg=scenario, **model_kwargs)
         case _:
             raise NotImplementedError(f"Model {model.name} not implemented")
     return model.to(device=device)

@@ -122,7 +122,9 @@ def main(cfg):
             logger.commit()
             pbar.update()
 
-        torch.save(model, os.path.join(logger.checkpoint_dir, "classifier.pt"))
+        torch.save(
+            model.state_dict(), os.path.join(logger.checkpoint_dir, "classifier.pt")
+        )
 
 
 if __name__ == "__main__":

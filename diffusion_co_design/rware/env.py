@@ -11,9 +11,7 @@ from torchrl.envs import (
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
-from diffusion_co_design.pretrain.rware.transform import (
-    storage_to_layout,
-)
+from diffusion_co_design.pretrain.rware.transform import storage_to_layout
 from diffusion_co_design.rware.design import ScenarioConfig, Designer
 
 
@@ -67,7 +65,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 )
                 layout = storage_to_layout(
                     features=tensordict.get(
-                        ("environment_design", "layout_image")
+                        ("environment_design", "layout_weights")
                     ).numpy(force=True),
                     config=self._env._scenario_cfg,
                 )
@@ -85,7 +83,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 layout = storage_to_layout(
                     # layout = rgb_to_layout(
                     features=reset_policy_output.get(
-                        ("environment_design", "layout_image")
+                        ("environment_design", "layout_weights")
                     ).numpy(force=True),
                     config=self._env._scenario_cfg,
                 )

@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: fixed
+  - designer: diffusion
   - scenario: rware_16_50_5_4_corners
 
 designer: diffusion
@@ -11,6 +11,7 @@ n_epochs: 5
 memory_management: gpu
 minibatch_size: 500
 n_mini_batches: 2
+start_from_checkpoint: /home/markhaoxiang/.diffusion_co_design/training/2025-03-21/01-09-38
 
 logging:
   type: wandb

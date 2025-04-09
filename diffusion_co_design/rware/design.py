@@ -40,10 +40,14 @@ class DiffusionOperation(BaseModel):
     backward_lr: float = 0.01
     backward_steps: int = 0
     forward_guidance_wt: float = 5.0
+    early_start: bool = (
+        True  # Fill environment buffer with randomly generated environments
+    )
 
 
 class DesignerConfig(BaseModel):
     type: str
+    environment_repeats: int = 1
     value_model: ClassifierSchema | None = None
     value_n_update_iterations: int = 5
     value_train_batch_size: int = 64
@@ -54,18 +58,32 @@ class DesignerConfig(BaseModel):
 
 
 class Designer(nn.Module, ABC):
-    def __init__(self, scenario: ScenarioConfig):
+    def __init__(self, scenario: ScenarioConfig, environment_repeats: int = 1):
         super().__init__()
         self.scenario = scenario
         self.update_counter = 0
+        self.environment_repeats = environment_repeats
+        self.environment_repeat_counter = 0
+        self.previous_environment = None
 
     @abstractmethod
-    def generate_environment_image(self, objective):
+    def _generate_environment_weights(self, objective):
         raise NotImplementedError()
+
+    def generate_environment_weights(self, objective):
+        self.environment_repeat_counter += 1
+        if self.environment_repeat_counter >= self.environment_repeats:
+            self.environment_repeat_counter = 0
+            self.previous_environment = None
+        if self.previous_environment is not None:
+            return self.previous_environment
+        else:
+            self.previous_environment = self._generate_environment_weights(objective)
+            return self.previous_environment
 
     def generate_environment(self, objective):
         return storage_to_layout(
-            features=self.generate_environment_image(objective),
+            features=self.generate_environment_weights(objective),
             config=self.scenario,
         )
 
@@ -73,14 +91,15 @@ class Designer(nn.Module, ABC):
         return TensorDictModule(
             self,
             in_keys=[("environment_design", "objective")],
-            out_keys=[("environment_design", "layout_image")],
+            out_keys=[("environment_design", "layout_weights")],
         )
 
     def update(self, sampling_td: TensorDict):
         self.update_counter += 1
 
     def reset(self):
-        pass
+        self.environment_repeat_counter = 0
+        self.previous_environment = None
 
     def get_logs(self):
         return {}
@@ -90,8 +109,8 @@ class Designer(nn.Module, ABC):
 
 
 class RandomDesigner(Designer):
-    def __init__(self, scenario: ScenarioConfig):
-        super().__init__(scenario)
+    def __init__(self, scenario: ScenarioConfig, environment_repeats: int = 1):
+        super().__init__(scenario, environment_repeats)
         self._generate_args = (
             scenario.size,
             scenario.n_shelves,
@@ -104,7 +123,7 @@ class RandomDesigner(Designer):
         env = torch.tensor(generate(*self._generate_args)[0])
         return env
 
-    def generate_environment_image(self, objective):
+    def _generate_environment_weights(self, objective):
         return self.forward(objective)
 
 
@@ -116,7 +135,7 @@ class CentralisedDesigner(Designer):
     def forward(self, objective):
         raise NotImplementedError("Use with disk designer")
 
-    def generate_environment_image(self, objective):
+    def _generate_environment_weights(self, objective):
         raise NotImplementedError("Use with disk designer")
 
 
@@ -130,9 +149,10 @@ class ValueDesigner(CentralisedDesigner):
         buffer_size: int = 2048,
         lr: float = 3e-5,
         weight_decay: float = 0.0,
+        environment_repeats: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
-        super().__init__(scenario)
+        super().__init__(scenario, environment_repeats=environment_repeats)
         self.model = make_model(
             model=classifier.name,
             scenario=scenario,
@@ -147,6 +167,7 @@ class ValueDesigner(CentralisedDesigner):
         self.criterion = torch.nn.MSELoss()
 
         self.batch_size = train_batch_size
+        self.buffer_size = buffer_size
         self.env_buffer = ReplayBuffer(
             storage=LazyTensorStorage(max_size=buffer_size),
             sampler=SamplerWithoutReplacement(),
@@ -225,6 +246,7 @@ class SamplingDesigner(ValueDesigner):
         buffer_size: int = 2048,
         lr: float = 3e-5,
         weight_decay: float = 0.05,
+        environment_repeats: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -235,6 +257,7 @@ class SamplingDesigner(ValueDesigner):
             buffer_size=buffer_size,
             lr=lr,
             weight_decay=weight_decay,
+            environment_repeats=environment_repeats,
             device=device,
         )
         self._generate_args = (
@@ -278,6 +301,7 @@ class DiffusionDesigner(ValueDesigner):
         buffer_size: int = 2048,
         lr: float = 3e-5,
         weight_decay: float = 0.0,
+        environment_repeats: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -288,6 +312,7 @@ class DiffusionDesigner(ValueDesigner):
             buffer_size=buffer_size,
             lr=lr,
             weight_decay=weight_decay,
+            environment_repeats=environment_repeats,
             device=device,
         )
         self.generator = None
@@ -306,34 +331,50 @@ class DiffusionDesigner(ValueDesigner):
         )
 
         self.diffusion = diffusion
+        self.early_start = diffusion.early_start
 
     def reset_env_buffer(self):
         batch = []
-        forward_enable = self.diffusion.forward_guidance_wt > 0
-        operation = OptimizerDetails()
-        operation.num_recurrences = self.diffusion.num_recurrences
-        operation.lr = self.diffusion.backward_lr
-        operation.backward_steps = self.diffusion.backward_steps
-        operation.use_forward = forward_enable
-
-        match self.representation:
-            case "graph":
-                operation.projection_constraint = graph_projection_constraint(
-                    self.scenario
+        if len(self.env_buffer) < self.buffer_size and self.early_start:
+            for _ in range(self.generator.batch_size):
+                batch.append(
+                    np.array(
+                        generate(
+                            size=self.scenario.size,
+                            n_shelves=self.scenario.n_shelves,
+                            agent_idxs=self.scenario.agent_idxs,
+                            goal_idxs=self.scenario.goal_idxs,
+                            n_colors=self.scenario.n_colors,
+                            representation=self.scenario.representation,
+                        )[0]
+                    )
                 )
-            case "image":
-                operation.projection_constraint = image_projection_constraint(
-                    self.scenario
-                )
+        else:
+            forward_enable = self.diffusion.forward_guidance_wt > 0
+            operation = OptimizerDetails()
+            operation.num_recurrences = self.diffusion.num_recurrences
+            operation.lr = self.diffusion.backward_lr
+            operation.backward_steps = self.diffusion.backward_steps
+            operation.use_forward = forward_enable
 
-        self.model.eval()
+            match self.representation:
+                case "graph":
+                    operation.projection_constraint = graph_projection_constraint(
+                        self.scenario
+                    )
+                case "image":
+                    operation.projection_constraint = image_projection_constraint(
+                        self.scenario
+                    )
 
-        for env in self.generator.generate_batch(
-            value=self.model, use_operation=True, operation_override=operation
-        ):
-            # for env in self.generator.generate_batch():
-            # for env in self.generator.generate_batch(value=self.model):
-            batch.append(env)
+            self.model.eval()
+
+            for env in self.generator.generate_batch(
+                value=self.model, use_operation=True, operation_override=operation
+            ):
+                # for env in self.generator.generate_batch():
+                # for env in self.generator.generate_batch(value=self.model):
+                batch.append(env)
         return batch
 
 
@@ -349,16 +390,14 @@ class DiskDesigner(Designer):
         scenario,
         lock,
         artifact_dir,
+        environment_repeats: int = 1,
         master_designer: CentralisedDesigner | None = None,
     ):
-        super().__init__(scenario)
+        super().__init__(scenario, environment_repeats=environment_repeats)
         self.is_master = master_designer is not None
         self.master_designer = master_designer
         self.lock = lock
         self.buffer_path = os.path.join(artifact_dir, "designer_buffer.pkl")
-        with self.lock:
-            if self.is_master:
-                self.force_regenerate()
 
     def force_regenerate(self):
         assert self.is_master
@@ -367,13 +406,17 @@ class DiskDesigner(Designer):
             pkl.dump(batch, f)
 
     def forward(self, objective):
-        return self.generate_environment_image(objective)
+        return self.generate_environment_weights(objective)
 
     def update(self, sampling_td):
         super().update(sampling_td)
         if self.is_master:
+            self.environment_repeat_counter = (
+                self.environment_repeat_counter + 1
+            ) % self.environment_repeats
             self.master_designer.update(sampling_td)
-            self.force_regenerate()
+            if self.environment_repeat_counter == 0:
+                self.force_regenerate()
 
     def reset(self):
         super().reset()
@@ -381,7 +424,7 @@ class DiskDesigner(Designer):
             self.master_designer.reset()
             self.force_regenerate()
 
-    def generate_environment_image(self, objective):
+    def _generate_environment_weights(self, objective):
         with self.lock:
             with open(self.buffer_path, "rb") as f:
                 batch = pkl.load(f)
@@ -389,8 +432,6 @@ class DiskDesigner(Designer):
                 batch = self.master_designer.reset_env_buffer(write=False)
             elif len(batch) <= 0 and not self.is_master:
                 assert False, "Hack failed"
-            # elif not self.is_master:
-            # print(len(batch))
             res = batch.pop()
             with open(self.buffer_path, "wb") as f:
                 pkl.dump(batch, f)
@@ -410,12 +451,12 @@ class DiskDesigner(Designer):
 class FixedDesigner(Designer):
     def __init__(self, scenario):
         super().__init__(scenario)
-        self.layout_image = RandomDesigner(scenario).generate_environment_image(None)
+        self.layout_image = RandomDesigner(scenario)._generate_environment_weights(None)
 
     def forward(self, objective):
         return self.layout_image
 
-    def generate_environment_image(self, objective):
+    def _generate_environment_weights(self, objective):
         return self.layout_image
 
 
@@ -440,7 +481,9 @@ class DesignerRegistry:
                 fixed = FixedDesigner(scenario)
                 return fixed, fixed
             case DesignerRegistry.RANDOM:
-                rand = RandomDesigner(scenario)
+                rand = RandomDesigner(
+                    scenario, environment_repeats=designer.environment_repeats
+                )
                 return rand, rand
             case DesignerRegistry.RL:
                 raise NotImplementedError()
@@ -452,7 +495,8 @@ class DesignerRegistry:
                     scenario,
                     lock,
                     artifact_dir,
-                    DiffusionDesigner(
+                    environment_repeats=designer.environment_repeats,
+                    master_designer=DiffusionDesigner(
                         scenario,
                         classifier=designer.value_model,
                         diffusion=designer.diffusion,
@@ -469,6 +513,7 @@ class DesignerRegistry:
                     scenario,
                     lock,
                     artifact_dir,
+                    environment_repeats=designer.environment_repeats,
                 )
                 return master, env
             case DesignerRegistry.DIFFUSION_SHARED:
@@ -480,7 +525,8 @@ class DesignerRegistry:
                     scenario,
                     lock,
                     artifact_dir,
-                    SamplingDesigner(
+                    environment_repeats=designer.environment_repeats,
+                    master_designer=SamplingDesigner(
                         scenario,
                         classifier=designer.value_model,
                         generator_batch_size=environment_batch_size,
@@ -496,6 +542,7 @@ class DesignerRegistry:
                     scenario,
                     lock,
                     artifact_dir,
+                    environment_repeats=designer.environment_repeats,
                 )
                 return master, env
             case _:

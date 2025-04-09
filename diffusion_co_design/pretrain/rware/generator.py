@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import torch
 from torch import nn
 from guided_diffusion import dist_util
@@ -23,6 +24,7 @@ from diffusion_co_design.pretrain.rware.graph import (
 # Using Universal Guided Diffusion
 
 
+@dataclass
 class OptimizerDetails:
     def __init__(self):
         self.num_recurrences = 4  # Self-recurrence to increase inference time compute
@@ -160,6 +162,9 @@ class Generator:
         operation_override: OptimizerDetails | None = None,
     ):
         initial_noise = torch.randn(self.shape, generator=self.rng, device=device)
+
+        # print(operation_override.__dict__)
+        # assert False
 
         if value is not None:
 

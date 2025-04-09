@@ -1,6 +1,7 @@
 import os
 from os.path import join
 import time
+import copy
 
 # Torch, TorchRL, TensorDict
 import hydra.core
@@ -70,9 +71,14 @@ class TrainingConfig(BaseModel):
 
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-    cfg.scenario.representation = "image"
+    if cfg.designer.type == "diffusion":
+        cfg.scenario.representation = cfg.designer.value_model.representation  # type: ignore
+    else:
+        cfg.scenario.representation = "image"
+
     device = memory_management(cfg.memory_management)
     n_train_envs = cfg.frames_per_batch // cfg.scenario.max_steps
+
     master_designer, env_designer = DesignerRegistry.get(
         cfg.designer,
         cfg.scenario,
@@ -82,8 +88,9 @@ def train(cfg: TrainingConfig):
         ),
         device=device.train_device,
     )
-    # designer.share_memory()
 
+    # designer.share_memory()
+    master_designer.reset()
     placeholder_env = create_env(
         cfg.scenario, env_designer, is_eval=False, device=device.env_device
     )
@@ -95,6 +102,8 @@ def train(cfg: TrainingConfig):
         is_eval=False,
         device=device.env_device,
     )
+    env_designer = copy.copy(env_designer)
+    env_designer.environment_repeats = 0
     eval_env = create_batched_env(
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
@@ -102,7 +111,7 @@ def train(cfg: TrainingConfig):
         is_eval=True,
         device=device.env_device,
     )
-    master_designer.reset()
+
     policy, critic = rware_models(
         placeholder_env, cfg.policy, device=device.train_device
     )
