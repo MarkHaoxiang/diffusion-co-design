@@ -4,10 +4,13 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing, radius_graph
 from torch_geometric.data import Data, Batch
+from torch_geometric.utils import to_networkx, to_undirected, coalesce
+import networkx as nx
 from guided_diffusion.unet import SimpleFlowModel
 from torch_scatter import scatter
 
 from guided_diffusion.unet import timestep_embedding
+from rware.rendering import _SHELF_COLORS
 from diffusion_co_design.pretrain.rware.generate import (
     WarehouseRandomGeneratorConfig,
 )
@@ -29,6 +32,55 @@ def shelf_radius_graph_goals_connected(
     shelf_edge_index = shelf_indices[shelf_edge_index]
 
     return torch.cat([shelf_edge_index, goal_edge_index], dim=1)
+
+
+def visualize_warehouse_graph(
+    data: Data,
+    ax,
+    include_color_features: bool = True,
+):
+    graph = to_networkx(data, to_undirected=True)
+    pos = data.pos.numpy(force=True)  # Positions
+    h = data.h.numpy(force=True)  # Node features
+
+    goal_shape, shelf_shape = "o", "s"
+    node_colors = []
+    node_shapes = []
+    for i, feat in enumerate(h):
+        if include_color_features:
+            color = feat[2:].argmax().item()
+            node_colors.append([x / 255 for x in _SHELF_COLORS[color]])
+        else:
+            if feat[0] == 1:
+                node_colors.append("green")
+            else:
+                node_colors.append("saddlebrown")
+
+        if feat[0] == 1:
+            node_shapes.append(goal_shape)
+        elif feat[1] == 1:
+            node_shapes.append(shelf_shape)
+        else:
+            raise ValueError("Unknown object")
+
+    # Initialize plot
+    ax.set_title("Warehouse Graph Representation")
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    for shape in [goal_shape, shelf_shape]:
+        nodes = [i for i, s in enumerate(node_shapes) if s == shape]
+        nx.draw_networkx_nodes(
+            G=graph,
+            pos=pos,
+            nodelist=nodes,
+            node_size=100,
+            node_color=[node_colors[i] for i in nodes],
+            node_shape=shape,
+            ax=ax,
+        )
+
+    nx.draw_networkx_edges(G=graph, pos=pos, ax=ax, alpha=0.5)
 
 
 class E3GNNLayer(MessagePassing):
@@ -135,19 +187,25 @@ class WarehouseGNNBase(nn.Module):
         self.use_radius_graph = use_radius_graph
         self.r = radius
 
-    def generate_scenario_graph(self) -> Data:
+    def generate_scenario_graph(
+        self, shelf_pos: torch.Tensor, shelf_colors: torch.Tensor | None
+    ) -> Data:
         scenario = self.scenario
-        pos = torch.zeros((self.num_nodes, 2), dtype=torch.float32)
+        pos = torch.zeros(
+            (self.num_nodes, 2), dtype=torch.float32, device=shelf_pos.device
+        )
         h = torch.zeros(
-            (self.num_nodes, self.feature_dim), dtype=torch.float32
+            (self.num_nodes, self.feature_dim),
+            dtype=torch.float32,
+            device=shelf_pos.device,
         )  # One-hot for type
 
         assert scenario.goal_idxs is not None
         for i, idx in enumerate(scenario.goal_idxs):
             h[i, 0] = 1
             x, y = get_position(idx, scenario.size)
-            pos[i, 0] = (x / scenario.size) * 2 - 1
-            pos[i, 1] = (y / scenario.size) * 2 - 1
+            pos[i, 0] = (x / (scenario.size - 1)) * 2 - 1
+            pos[i, 1] = (y / (scenario.size - 1)) * 2 - 1
             if self.include_color_features:
                 assert scenario.goal_colors is not None
                 h[i, 2 + scenario.goal_colors[i]] = 1
@@ -156,11 +214,26 @@ class WarehouseGNNBase(nn.Module):
 
         edge_index = fully_connected(self.num_nodes)
         is_goal_edge = edge_index[0] < scenario.n_goals
+        edge_index = edge_index[:, is_goal_edge].to(device=shelf_pos.device)
 
-        data = Data(h=h, edge_index=edge_index, pos=pos, is_goal_edge=is_goal_edge)
+        shelf_edge_index = radius_graph(shelf_pos, r=self.r, batch=None)
+        is_shelf_mask = (h[:, 1] == 1).to(device=shelf_pos.device)
+        shelf_indices = torch.where(is_shelf_mask)[0]
+        shelf_edge_index = shelf_indices[shelf_edge_index]
+
+        edge_index = torch.cat([edge_index, shelf_edge_index], dim=1)
+        edge_index = to_undirected(edge_index)
+        edge_index, _ = coalesce(edge_index, None, self.num_nodes, self.num_nodes)
+        pos[is_shelf_mask] = shelf_pos
+
+        if self.include_color_features:
+            assert shelf_colors is not None
+            h[is_shelf_mask, 2:] = shelf_colors
+
+        data = Data(h=h, edge_index=edge_index, pos=pos)
         return data
 
-    def make_graph_from_data(
+    def make_graph_batch_from_data(
         self, pos: torch.Tensor, color: torch.Tensor | None = None
     ):
         assert pos.ndim in [2, 3]
@@ -170,40 +243,17 @@ class WarehouseGNNBase(nn.Module):
         batch_size = pos.shape[0]
         assert pos.shape[1] == self.scenario.n_shelves
         assert pos.shape[2] == 2
-        pos = pos.view(-1, 2)
 
-        graph, is_shelf_mask = self.get_batch_graph(batch_size, device=pos.device)
-
-        if self.use_radius_graph:
-            graph.edge_index = shelf_radius_graph_goals_connected(
-                shelf_pos=pos,
-                is_shelf_mask=is_shelf_mask,
-                radius=self.r,
-                batch=graph.batch,
-                goal_edge_index=graph.edge_index[:, graph.is_goal_edge],
+        graph_list = []
+        for i in range(batch_size):
+            graph = self.generate_scenario_graph(
+                pos[i], color[i] if color is not None else None
             )
-
-        graph.pos[is_shelf_mask] = pos
-
-        if self.include_color_features:
-            assert color is not None
-            color = color.view(-1, self.scenario.n_colors)
-            graph.h[is_shelf_mask][:, 2:] = color
+            graph_list.append(graph)
+        graph = Batch.from_data_list(graph_list)
+        is_shelf_mask = graph.h[:, 1] == 1
 
         return graph, is_shelf_mask
-
-    @cache
-    def _get_batch_graph(self, batch_size: int) -> Batch:
-        graphs = [self.generate_scenario_graph() for _ in range(batch_size)]
-        batch_graph = Batch.from_data_list(graphs)
-
-        is_shelf_mask = batch_graph.h[:, 1] == 1
-        return batch_graph, is_shelf_mask
-
-    def get_batch_graph(self, batch_size: int, device="cpu") -> Batch:
-        graph, is_shelf_mask = self._get_batch_graph(batch_size)
-
-        return graph.clone().to(device), is_shelf_mask.to(device)
 
 
 class WarehouseDiffusionModel(WarehouseGNNBase):
@@ -256,7 +306,7 @@ class WarehouseDiffusionModel(WarehouseGNNBase):
         shape = pos.shape
 
         batch_size = shape[0]
-        graph, is_shelf_mask = self.make_graph_from_data(pos)
+        graph, is_shelf_mask = self.make_graph_batch_from_data(pos)
 
         if timesteps is None:
             timesteps = torch.zeros(batch_size, dtype=torch.long, device=pos.device)

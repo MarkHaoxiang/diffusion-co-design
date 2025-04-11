@@ -6,6 +6,7 @@ import torch.nn as nn
 from pydantic import BaseModel
 from diffusion_co_design.pretrain.rware.generate import (
     WarehouseRandomGeneratorConfig as ScenarioConfig,
+    get_position,
 )
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 
@@ -162,12 +163,18 @@ class CustomCNNClassifier(ImageClassifier):
 
 class GNNCNN(GraphClassifier):
     def __init__(
-        self, cfg: ScenarioConfig, width: int = 128, depth: int = 2, top_k: int = 5
+        self,
+        cfg: ScenarioConfig,
+        width: int = 128,
+        depth: int = 2,
+        top_k: int = 5,
+        add_goal_positions: bool = False,
     ):
         super().__init__(cfg)
         model_dict = classifier_defaults()
         model_dict["image_size"] = cfg.size
-        model_dict["image_channels"] = cfg.n_colors
+        self.num_channels = cfg.n_colors + 1 * add_goal_positions
+        model_dict["image_channels"] = self.num_channels
 
         model_dict["classifier_width"] = width
         model_dict["classifier_depth"] = depth
@@ -185,6 +192,12 @@ class GNNCNN(GraphClassifier):
 
         self.k = top_k
         self.alpha = nn.Parameter(torch.tensor(20.0))
+        self.add_goal_positions = add_goal_positions
+        if add_goal_positions:
+            self.goal_pos = torch.zeros(self.num_channels, cfg.size, cfg.size)
+            for goal_idx, c in zip(cfg.goal_idxs, cfg.goal_colors):
+                self.goal_pos[-1, *get_position(goal_idx, cfg.size)] = 1
+                self.goal_pos[c, *get_position(goal_idx, cfg.size)] = 1
 
     def predict(self, x, add_position_noise: bool = True):
         pos = x[0]  # [B, N, 2]
@@ -221,7 +234,17 @@ class GNNCNN(GraphClassifier):
 
         image = (
             grid_features.reshape(B, self.cfg.size, self.cfg.size, C) * 2 - 1
-        ).movedim(source=(-3, -2, -1), destination=(-2, -1, -3))
+        ).movedim(source=(-3, -2, -1), destination=(-2, -1, -3))  # [B, C, H, W]
+
+        if self.add_goal_positions:
+            goal_pos = (
+                self.goal_pos.unsqueeze(0).expand(B, -1, -1, -1).to(device)
+            )  # [B, C+1, H, W]
+            image = image + goal_pos[:, :-1, :, :]  # [B, C, H, W]
+            image = torch.cat([image, goal_pos[:, -1:, :, :]], dim=1)  # [B, C+1, H, W]
+        assert image.shape[1] == self.num_channels, (
+            f"Image shape {image.shape[1]} does not match expected {self.num_channels}"
+        )
 
         return self.model(image).squeeze(-1)
 
