@@ -1,5 +1,3 @@
-from functools import cache
-
 import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing, radius_graph
@@ -120,7 +118,7 @@ class E3GNNLayer(MessagePassing):
                 nn.Linear(edge_embedding_dim + node_embedding_dim, node_embedding_dim),
                 nn.SiLU(),
                 nn.Linear(node_embedding_dim, node_embedding_dim),
-                nn.LeakyReLU(),
+                nn.SiLU(),
             )
         else:
             self.node_mlp = None
@@ -168,6 +166,82 @@ class E3GNNLayer(MessagePassing):
         aggr_h, aggr_pos = inputs
         upd_out = self.node_mlp(torch.cat([x, aggr_h], dim=-1)) if self.node_mlp else 0
         return upd_out + x, aggr_pos + pos
+
+
+class WarehouseGNNLayer(MessagePassing):
+    def __init__(
+        self,
+        node_embedding_dim: int = 32,
+        edge_embedding_dim: int = 16,  # Messages
+        graph_embedding_dim: int = 32,
+        pos_aggr: str = "mean",
+    ):
+        super().__init__(aggr="add")
+
+        self.msg_mlp = nn.Sequential(
+            nn.Linear(
+                node_embedding_dim * 2 + graph_embedding_dim + 2,
+                edge_embedding_dim,
+            ),
+            nn.SiLU(),
+            nn.Linear(edge_embedding_dim, edge_embedding_dim),
+            nn.SiLU(),
+        )
+
+        self.pos_mlp = nn.Sequential(
+            nn.Linear(edge_embedding_dim, edge_embedding_dim),
+            nn.SiLU(),
+            nn.Linear(edge_embedding_dim, 1),
+            nn.SiLU(),
+        )
+        self.pos_aggr = pos_aggr
+
+        self.node_mlp = nn.Sequential(
+            nn.Linear(edge_embedding_dim + node_embedding_dim, node_embedding_dim),
+            nn.SiLU(),
+            nn.Linear(node_embedding_dim, node_embedding_dim),
+            nn.SiLU(),
+        )
+
+    def forward(self, x, edge_index, pos, graph_embedding, batch):
+        edge_batch = batch[edge_index[0]]
+
+        if graph_embedding is not None:
+            graph_embedding = graph_embedding[edge_batch]
+        out = self.propagate(edge_index, x=x, pos=pos, graph_embedding=graph_embedding)
+        return out
+
+    def message(self, x_i, x_j, pos_i, pos_j, graph_embedding=None):
+        # Position encodings
+        pos_diff = pos_i - pos_j
+        d_x = pos_diff[:, 0]
+        d_y = pos_diff[:, 1]
+
+        abs_d_x = torch.abs(d_x).unsqueeze(-1)
+        abs_d_y = torch.abs(d_y).unsqueeze(-1)
+
+        # Messages
+        msg_in = [x_i, x_j, abs_d_x, abs_d_y]
+        if graph_embedding is not None:
+            msg_in.append(graph_embedding)
+
+        msg = self.msg_mlp(torch.cat(msg_in, dim=-1))
+
+        return (msg, pos_diff)
+
+    def aggregate(self, inputs, index):
+        msg, pos_diff = inputs
+        # pos_vec = pos_diff * self.pos_mlp(msg)
+        aggr_h = scatter(msg, index, dim=0, reduce=self.aggr)
+        # aggr_pos = scatter(pos_vec, index, dim=0, reduce=self.pos_aggr)
+        # return aggr_h, aggr_pos
+        return aggr_h
+
+    def update(self, inputs, x, pos):
+        aggr_h = inputs
+        # aggr_h, aggr_pos = inputs
+        upd_out = self.node_mlp(torch.cat([x, aggr_h], dim=-1)) if self.node_mlp else 0
+        return upd_out + x
 
 
 class WarehouseGNNBase(nn.Module):
@@ -223,7 +297,7 @@ class WarehouseGNNBase(nn.Module):
 
         edge_index = torch.cat([edge_index, shelf_edge_index], dim=1)
         edge_index = to_undirected(edge_index)
-        edge_index, _ = coalesce(edge_index, None, self.num_nodes, self.num_nodes)
+        # edge_index, _ = coalesce(edge_index, None, self.num_nodes, sort_by_row=False)
         pos[is_shelf_mask] = shelf_pos
 
         if self.include_color_features:

@@ -4,16 +4,23 @@ from functools import cache
 import torch
 import torch.nn as nn
 from pydantic import BaseModel
+from diffusion_co_design.pretrain.rware.graph import (
+    E3GNNLayer,
+    WarehouseGNNLayer,
+    WarehouseGNNBase,
+)
 from diffusion_co_design.pretrain.rware.generate import (
     WarehouseRandomGeneratorConfig as ScenarioConfig,
     get_position,
 )
+from torch_geometric.data import Data
+from torch_geometric.nn import AttentionalAggregation
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 
 
 class Model(BaseModel):
     name: str
-    representation: Literal["graph", "image"]
+    representation: Literal["graph", "image", "graph_warehouse"]
     model_kwargs: dict[str, Any] = {}
 
 
@@ -283,6 +290,110 @@ class MLPCNNClassifier(GraphClassifier):
         return self.model(image).squeeze(-1)
 
 
+class GNN(WarehouseGNNBase):
+    def __init__(
+        self,
+        cfg: ScenarioConfig,
+        node_embedding_dim: int = 128,
+        edge_embedding_dim: int = 32,
+        num_layers: int = 5,
+        radius: float = 0.5,
+    ):
+        WarehouseGNNBase.__init__(
+            self,
+            scenario=cfg,
+            use_radius_graph=True,
+            radius=radius,
+            include_color_features=True,
+        )
+
+        self.embedding_dim = node_embedding_dim
+        self.num_nodes = cfg.n_goals + cfg.n_shelves
+        self.num_layers = num_layers
+
+        self.h_in = nn.Linear(self.feature_dim, node_embedding_dim)
+
+        self.convs = nn.ModuleList()
+        for i in range(num_layers):
+            self.convs.append(
+                # E3GNNLayer(
+                #     node_embedding_dim=node_embedding_dim,
+                #     edge_embedding_dim=edge_embedding_dim,
+                #     graph_embedding_dim=0,  # no timestep embeddings
+                #     update_node_features=True,
+                #     use_attention=True,
+                #     normalise_pos=False,
+                # )
+                WarehouseGNNLayer(
+                    node_embedding_dim=node_embedding_dim,
+                    edge_embedding_dim=edge_embedding_dim,
+                    graph_embedding_dim=0,  # no timestep embeddings
+                )
+            )
+
+        self.out_mlp = nn.Sequential(
+            nn.Linear(node_embedding_dim, node_embedding_dim),
+            nn.SiLU(),
+            nn.Linear(node_embedding_dim, node_embedding_dim),
+            nn.SiLU(),
+            nn.Linear(node_embedding_dim, 1),
+        )
+
+        self.att_pool = AttentionalAggregation(
+            gate_nn=nn.Sequential(
+                nn.Linear(node_embedding_dim, node_embedding_dim),
+                nn.SiLU(),
+                nn.Linear(node_embedding_dim, 1),
+            )
+        )
+
+    def forward(
+        self,
+        pos: torch.Tensor | None = None,
+        color: torch.Tensor | None = None,
+        graph=None,
+    ) -> torch.Tensor:
+        if pos is not None and color is not None:
+            graph, _ = self.make_graph_batch_from_data(pos, color=color)
+        else:
+            assert graph is not None
+        h = self.h_in(graph.h)  # [N, d]
+        pos = graph.pos  # [N, 2]
+        batch = graph.batch  # [N]
+
+        for gnn in self.convs:
+            h = gnn(h, graph.edge_index, pos, None, batch)
+
+        graph_repr = self.att_pool(h, batch)
+        return self.out_mlp(graph_repr).squeeze(-1)
+
+
+class GNNClassifier(GraphClassifier):
+    def __init__(
+        self,
+        cfg,
+        node_embedding_dim: int = 128,
+        edge_embedding_dim: int = 32,
+        num_layers: int = 5,
+        radius: float = 0.5,
+    ):
+        super().__init__(cfg)
+        self.gnn = GNN(
+            cfg=cfg,
+            node_embedding_dim=node_embedding_dim,
+            edge_embedding_dim=edge_embedding_dim,
+            num_layers=num_layers,
+            radius=radius,
+        )
+
+    def predict(self, x):
+        if isinstance(x, Data):
+            return self.gnn(graph=x)
+        else:
+            pos, color = x
+            return self.gnn(pos, color)
+
+
 def make_model(model, scenario, model_kwargs, device) -> Classifier:
     match model:
         case "mlp":
@@ -295,6 +406,8 @@ def make_model(model, scenario, model_kwargs, device) -> Classifier:
             model = GNNCNN(cfg=scenario, **model_kwargs)
         case "mlp-cnn":
             model = MLPCNNClassifier(cfg=scenario, **model_kwargs)
+        case "gnn":
+            model = GNNClassifier(cfg=scenario, **model_kwargs)
         case _:
             raise NotImplementedError(f"Model {model.name} not implemented")
     return model.to(device=device)

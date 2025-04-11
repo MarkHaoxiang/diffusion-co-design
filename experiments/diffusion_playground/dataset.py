@@ -18,6 +18,7 @@ from diffusion_co_design.bin.train_rware import (
     DesignerRegistry,
     DesignerConfig,
 )
+from diffusion_co_design.pretrain.rware.graph import WarehouseGNNBase
 from diffusion_co_design.rware.env import create_env, create_batched_env
 
 working_dir = os.path.join(EXPERIMENT_DIR, "diffusion_playground")
@@ -157,6 +158,18 @@ class CollateFn:
         )
 
 
+class CollateFnWarehouseGraph:
+    def __init__(self, cfg, device):
+        super().__init__()
+        self._collate_fn = CollateFn(cfg, device)
+        self._gnn = WarehouseGNNBase(scenario=cfg, include_color_features=True)
+
+    def __call__(self, batch):
+        data, labels = self._collate_fn(batch)
+        graph = self._gnn.make_graph_batch_from_data(pos=data[0], color=data[1])[0]
+        return graph, labels
+
+
 class ImageCollateFn:
     def __init__(self, cfg, device):
         self.n_shelves = cfg.n_shelves
@@ -175,12 +188,20 @@ class ImageCollateFn:
 
 
 def make_dataloader(
-    dataset, scenario: ScenarioConfig, batch_size: int, representation: str, device: str
+    dataset,
+    scenario: ScenarioConfig,
+    batch_size: int,
+    representation: str,
+    device: str,
+    **kwargs,
 ):
     if representation == "image":
-        cf = ImageCollateFn(cfg=scenario, device=device)
-    else:
-        cf = CollateFn(cfg=scenario, device=device)  # type: ignore
+        cf = ImageCollateFn(cfg=scenario, device=device, **kwargs)
+    elif representation == "graph":
+        cf = CollateFn(cfg=scenario, device=device, **kwargs)  # type: ignore
+    elif representation == "graph_warehouse":
+        cf = CollateFnWarehouseGraph(cfg=scenario, device=device, **kwargs)  # type: ignore
+
     return DataLoader(
         dataset,
         batch_size=batch_size,

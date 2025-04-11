@@ -30,7 +30,7 @@ def main(cfg):
     training_cfg = omega_to_pydantic(
         OmegaConf.load(os.path.join(hydra_dir, "config.yaml")), TrainingConfig
     )
-    training_cfg.scenario.representation = cfg.model.representation
+    training_cfg.scenario.representation = cfg.model.representation.split("_")[0]
 
     # Load dataset
     train_dataset, eval_dataset = load_dataset(
