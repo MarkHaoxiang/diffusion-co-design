@@ -11,7 +11,7 @@ from torchrl.envs import (
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
-from diffusion_co_design.pretrain.rware.transform import storage_to_layout
+from diffusion_co_design.rware.diffusion.transform import storage_to_layout
 from diffusion_co_design.rware.design import ScenarioConfig, Designer
 
 
@@ -21,6 +21,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         env=None,
         reset_policy: TensorDictModule | None = None,
         scenario_cfg=None,
+        representation=None,
         environment_objective=None,
         return_state=False,
         group_map=None,
@@ -44,6 +45,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         # Also, it's difficult to rewrite sync
         self._env._reset_policy = reset_policy
         self._env._environment_objective = environment_objective
+        self._env.representation = representation
         assert scenario_cfg is not None
         self._env._scenario_cfg = scenario_cfg
 
@@ -68,6 +70,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                         ("environment_design", "layout_weights")
                     ).numpy(force=True),
                     config=self._env._scenario_cfg,
+                    representation=self._env.representation,
                 )
 
             else:
@@ -86,6 +89,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                         ("environment_design", "layout_weights")
                     ).numpy(force=True),
                     config=self._env._scenario_cfg,
+                    representation=self._env.representation,
                 )
             options = {"layout": layout}
         else:
@@ -141,11 +145,13 @@ def create_env(
             return_info=[],
         )
     )
+
     env.reset()
     env = RwareCoDesignWrapper(
         env,
         reset_policy=design_policy,
         environment_objective=scenario_objective,
+        representation=designer.representation,
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
         scenario_cfg=scenario,
         return_state=True,

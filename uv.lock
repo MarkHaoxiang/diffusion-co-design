@@ -11,9 +11,11 @@ resolution-markers = [
 [manifest]
 members = [
     "diffusion-co-design",
-    "diffusion-playground",
     "guided-diffusion",
     "rware",
+    "train-rware",
+    "train-rware-classifier",
+    "train-rware-diffusion",
     "wfcrl",
     "wfcrl-playground",
 ]
@@ -541,17 +543,6 @@ dev = [
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "ruff", specifier = ">=0.9.3" },
 ]
-
-[[package]]
-name = "diffusion-playground"
-version = "0.1.0"
-source = { virtual = "experiments/diffusion_playground" }
-dependencies = [
-    { name = "diffusion-co-design" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "diffusion-co-design", editable = "." }]
 
 [[package]]
 name = "docker-pycreds"
@@ -2891,6 +2882,27 @@ wheels = [
 ]
 
 [[package]]
+name = "train-rware"
+version = "0.1.0"
+source = { virtual = "experiments/train_rware" }
+
+[[package]]
+name = "train-rware-classifier"
+version = "0.1.0"
+source = { virtual = "experiments/train_rware_classifier" }
+dependencies = [
+    { name = "diffusion-co-design" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "diffusion-co-design", editable = "." }]
+
+[[package]]
+name = "train-rware-diffusion"
+version = "0.1.0"
+source = { virtual = "experiments/train_rware_diffusion" }
+
+[[package]]
 name = "traitlets"
 version = "5.14.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3020,7 +3032,7 @@ requires-dist = [
 [[package]]
 name = "wfcrl-playground"
 version = "0.1.0"
-source = { virtual = "experiments/wfcrl_playground" }
+source = { virtual = "experiments/train_wfcrl" }
 
 [[package]]
 name = "xarray"
