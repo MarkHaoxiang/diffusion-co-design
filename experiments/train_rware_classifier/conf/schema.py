@@ -1,12 +1,12 @@
 from typing import Literal
-from pydantic import BaseModel
 
-from diffusion_co_design.rware.model.classifier import Model
+from diffusion_co_design.common.pydra import Config as _Config
+from diffusion_co_design.rware.schema import ClassifierConfig
 
 
-class Config(BaseModel):
+class Config(_Config):
     training_dir: str
-    model: Model
+    model: ClassifierConfig
     batch_size: int
     train_epochs: int
     lr: float

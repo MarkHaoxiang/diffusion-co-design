@@ -9,7 +9,6 @@ from experiments.train_rware.main import (
 )
 from diffusion_co_design.common import (
     ExperimentLogger,
-    omega_to_pydantic,
     cuda as device,
 )
 
@@ -25,12 +24,10 @@ from conf.schema import Config
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg):
-    cfg = omega_to_pydantic(cfg, Config)
-    hydra_dir = os.path.join(cfg.training_dir, ".hydra")
-    training_cfg = omega_to_pydantic(
-        OmegaConf.load(os.path.join(hydra_dir, "config.yaml")), TrainingConfig
+    cfg = Config.from_raw(cfg)
+    training_cfg = TrainingConfig.from_file(
+        os.path.join(cfg.training_dir, ".hydra", "config.yaml")
     )
-    training_cfg.scenario.representation = cfg.model.representation.split("_")[0]
 
     # Load dataset
     train_dataset, eval_dataset = load_dataset(

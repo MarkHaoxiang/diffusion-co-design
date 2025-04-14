@@ -471,7 +471,7 @@ class DesignerRegistry:
                 lock = torch.multiprocessing.Lock()
                 assert designer.diffusion is not None
                 assert designer.value_model is not None
-                master_designer = DiffusionDesigner(
+                master_designer: CentralisedDesigner = DiffusionDesigner(
                     scenario,
                     classifier=designer.value_model,
                     diffusion=designer.diffusion,

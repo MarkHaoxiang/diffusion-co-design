@@ -20,23 +20,22 @@ from omegaconf import DictConfig
 # Rware
 from tqdm import tqdm
 
-from diffusion_co_design.common import (
-    LogTraining,
-    init_logging,
-    log_evaluation,
-    memory_management,
-)
+from diffusion_co_design.common import RLExperimentLogger, memory_management
 from diffusion_co_design.rware.env import create_batched_env, create_env
 from diffusion_co_design.rware.model.rl import rware_models
 from diffusion_co_design.rware.design import DesignerRegistry
 from diffusion_co_design.rware.schema import TrainingConfig
 from diffusion_co_design.common import start_from_checkpoint
 
+group_name = "agents"
+
 
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     device = memory_management(cfg.memory_management)
-    n_train_envs = cfg.frames_per_batch // cfg.scenario.max_steps
+
+    n_train_envs = min(20, cfg.ppo.frames_per_batch // cfg.scenario.max_steps)
+    assert (cfg.ppo.frames_per_batch / n_train_envs) % cfg.scenario.max_steps == 0
 
     master_designer, env_designer = DesignerRegistry.get(
         cfg.designer,
@@ -53,7 +52,6 @@ def train(cfg: TrainingConfig):
     placeholder_env = create_env(
         cfg.scenario, env_designer, is_eval=False, device=device.env_device
     )
-    assert n_train_envs * cfg.scenario.max_steps == cfg.frames_per_batch
     train_env = create_batched_env(
         num_environments=n_train_envs,
         designer=env_designer,
@@ -82,22 +80,25 @@ def train(cfg: TrainingConfig):
         policy,
         device=device.train_device,
         storing_device=device.storage_device,
-        frames_per_batch=cfg.frames_per_batch,
-        total_frames=cfg.total_frames,
+        frames_per_batch=cfg.ppo.frames_per_batch,
+        total_frames=cfg.ppo.total_frames,
     )
 
     replay_buffer = ReplayBuffer(
-        storage=LazyTensorStorage(cfg.frames_per_batch, device=device.storage_device),
+        storage=LazyTensorStorage(
+            cfg.ppo.frames_per_batch, device=device.storage_device
+        ),
         sampler=SamplerWithoutReplacement(),
-        batch_size=cfg.minibatch_size,
+        batch_size=cfg.ppo.minibatch_size,
     )
 
     loss_module = ClipPPOLoss(
         actor_network=policy,
         critic_network=critic,
-        clip_epsilon=cfg.clip_epsilon,
-        entropy_coef=cfg.entropy_eps,
-        normalize_advantage=False,
+        clip_epsilon=cfg.ppo.clip_epsilon,
+        entropy_coef=cfg.ppo.entropy_eps,
+        normalize_advantage=cfg.ppo.normalise_advantage,
+        normalize_advantage_exclude_dims=(-2,),
     )
 
     loss_module.set_keys(
@@ -110,19 +111,20 @@ def train(cfg: TrainingConfig):
     )
 
     loss_module.make_value_estimator(
-        ValueEstimators.GAE, gamma=cfg.gamma, lmbda=cfg.lmbda
+        ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
-    optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo_lr)
+    optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo.lr)
 
     # Logging
-    pbar = tqdm(total=cfg.n_iters)
-    logger = init_logging(
+    pbar = tqdm(total=cfg.ppo.n_iters)
+    logger = RLExperimentLogger(
+        dir=output_dir,
         experiment_name=cfg.experiment_name,
-        log_dir=output_dir,
-        cfg=cfg.logging,
-        full_config=cfg,
+        project_name="diffusion-co-design-wfcrl",
+        group_name=group_name,
+        config=dict(cfg),
+        mode=cfg.logging.mode,
     )
-    log_training = LogTraining()
 
     start_from_checkpoint(
         training_dir=cfg.start_from_checkpoint,
@@ -136,6 +138,7 @@ def train(cfg: TrainingConfig):
     master_designer.reset()
 
     try:
+        logger.begin()
         total_time, total_frames = 0.0, 0
         sampling_start = time.time()
         for iteration, sampling_td in enumerate(collector):
@@ -157,15 +160,14 @@ def train(cfg: TrainingConfig):
             total_frames += current_frames
             replay_buffer.extend(sampling_td.reshape(-1))
 
-            if logger:
-                log_training.collect_sampling_td(sampling_td, sampling_time)
+            logger.collect_sampling_td(sampling_td, sampling_time)
 
             # del sampling_td  # Clear now to reduce memory
             # torch.cuda.empty_cache()
 
             # PPO Update
-            for _ in range(cfg.n_epochs):
-                for _ in range(cfg.n_mini_batches):
+            for _ in range(cfg.ppo.n_epochs):
+                for _ in range(cfg.ppo.n_mini_batches):
                     minibatch: TensorDict = replay_buffer.sample()
                     loss_vals = loss_module(minibatch.to(device=device.train_device))
                     loss_value = (
@@ -175,7 +177,7 @@ def train(cfg: TrainingConfig):
                     )
                     loss_value.backward()
                     grad_norm = torch.nn.utils.clip_grad_norm_(
-                        loss_module.parameters(), cfg.max_grad_norm
+                        loss_module.parameters(), cfg.ppo.max_grad_norm
                     )
                     optim.step()
                     optim.zero_grad()
@@ -193,45 +195,38 @@ def train(cfg: TrainingConfig):
             total_time += sampling_time + training_time
 
             # Logging
-            if logger:
-                log_training.collect_training_td(
-                    training_log_td, training_time, total_time
-                )
-                log_training.log(master_designer.get_logs())
-                log_training.commit(logger, iteration, total_frames, current_frames)
+            logger.collect_training_td(training_log_td, training_time, total_time)
+            logger.log(master_designer.get_logs())
 
-                if (
-                    cfg.logging.evaluation_episodes > 0
-                    and iteration % cfg.logging.evaluation_interval == 0
+            if (
+                cfg.logging.evaluation_episodes > 0
+                and iteration % cfg.logging.evaluation_interval == 0
+            ):
+                evaluation_start = time.time()
+                with (
+                    torch.no_grad(),
                 ):
-                    evaluation_start = time.time()
-                    with (
-                        torch.no_grad(),
-                    ):
-                        frames = []
+                    frames = []
 
-                        def callback(env, td):
-                            return frames.append(env.render()[0])
+                    def callback(env, td):
+                        return frames.append(env.render()[0])
 
-                        rollouts = eval_env.rollout(
-                            max_steps=cfg.scenario.max_steps,
-                            policy=policy,
-                            callback=callback,
-                            auto_cast_to_device=True,
-                        )
+                    rollouts = eval_env.rollout(
+                        max_steps=cfg.scenario.max_steps,
+                        policy=policy,
+                        callback=callback,
+                        auto_cast_to_device=True,
+                    )
 
-                        evaluation_time = time.time() - evaluation_start
+                    evaluation_time = time.time() - evaluation_start
 
-                        log_evaluation(
-                            logger,
-                            frames,
-                            rollouts,
-                            evaluation_time,
-                            step=iteration,
-                        )
+                    logger.collect_evaluation_td(
+                        rollouts,
+                        evaluation_time,
+                        frames,
+                    )
 
-            if cfg.logging.type == "wandb":
-                logger.experiment.log({}, commit=True)
+            logger.commit(total_frames, current_frames)
 
             if iteration % cfg.logging.checkpoint_interval == 0:
                 checkpoint_dir = join(output_dir, "checkpoints")
@@ -256,6 +251,7 @@ def train(cfg: TrainingConfig):
             sampling_start = time.time()
     finally:
         # Cleaup
+        logger.close()
         collector.shutdown()
         for env in (train_env, eval_env):
             if not env.is_closed:

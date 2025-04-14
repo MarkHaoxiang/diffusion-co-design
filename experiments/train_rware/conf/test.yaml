@@ -5,11 +5,19 @@ defaults:
 
 experiment_name: rware_test
 scenario_name: rware_16_50_5_4_corners
-n_iters: 100
-n_epochs: 5
 memory_management: gpu
-minibatch_size: 500
-n_mini_batches: 2
+ppo:
+  n_iters: 100
+  n_epochs: 5
+  minibatch_size: 500
+  n_mini_batches: 2
+  clip_epsilon: 0.2
+  gamma: 0.99
+  lmbda: 0.9
+  lr: 5e-4
+  max_grad_norm: 1.0
+  entropy_eps: 1e-4
+  normalise_advantage: false
 start_from_checkpoint: /home/markhaoxiang/.diffusion_co_design/training/2025-03-21/01-09-38
 
 logging:

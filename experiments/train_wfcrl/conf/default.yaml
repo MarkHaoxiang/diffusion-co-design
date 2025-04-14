@@ -1,0 +1,34 @@
+defaults:
+  - _self_
+  - metadata/training@_here_
+
+experiment_name: wfcrl_test
+memory_management: gpu
+scenario:
+  max_steps: 150
+policy:
+  policy_hidden_size: 64
+  policy_depth: 2
+  critic_hidden_size: 128
+  critic_depth: 2
+  mappo: true
+ppo:
+  n_iters: 250
+  n_epochs: 10
+  minibatch_size: 400
+  n_mini_batches: 30
+  clip_epsilon: 0.2
+  gamma: 0.99
+  lmbda: 0.95
+  lr: 1e-4
+  max_grad_norm: 0.5
+  entropy_eps: 1e-3
+  normalise_advantage: true
+
+logging:
+  # mode: disabled
+  mode: online
+  # mode: offline
+  evaluation_interval: 5
+  evaluation_episodes: 5
+  checkpoint_interval: 20

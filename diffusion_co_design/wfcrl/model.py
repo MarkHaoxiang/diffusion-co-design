@@ -1,27 +1,42 @@
 import torch
+import torch.nn as nn
 
 from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 
-from diffusion_co_design.wfcrl.schema import PolicyConfig
+from diffusion_co_design.wfcrl.schema import RLConfig
 
 
-def wfcrl_models(env, cfg: PolicyConfig, device: str):
-    policy_net = torch.nn.Sequential(
-        MultiAgentMLP(
+class MLPPolicy(nn.Module):
+    def __init__(self, cfg: RLConfig, env):
+        super().__init__()
+        self.model = MultiAgentMLP(
             n_agent_inputs=env.observation_spec["turbine", "observation_vec"].shape[-1],
-            n_agent_outputs=2 * env.action_spec.shape[-1],
+            n_agent_outputs=env.action_spec.shape[-1],
             n_agents=env.num_agents,
             centralised=False,
             share_params=False,
-            device=device,
             depth=cfg.policy_depth,
             num_cells=cfg.policy_hidden_size,
             activation_class=torch.nn.Tanh,
-        ),
-        NormalParamExtractor(),
+        )
+
+        self.std = nn.Parameter(torch.zeros(env.action_spec.shape[-1]))
+
+    def forward(self, x):
+        mu = self.model(x)
+        std = (
+            torch.ones_like(mu) * self.std
+        )  # NormalParamExtractor manages transformation
+        return torch.cat((mu, std), dim=-1)
+
+
+def wfcrl_models(env, cfg: RLConfig, device: str):
+    policy_net = nn.Sequential(
+        MLPPolicy(cfg, env).to(device=device), NormalParamExtractor()
     )
+
     policy_module = TensorDictModule(
         policy_net,
         in_keys=[("turbine", "observation_vec")],

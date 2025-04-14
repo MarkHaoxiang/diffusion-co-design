@@ -8,208 +8,46 @@
 #
 
 import os
-from datetime import datetime
 from typing import Literal, Any
 
-from pydantic import BaseModel
 from tensordict import TensorDictBase
 import wandb
 import torch
 import numpy as np
-from torchrl.record.loggers import WandbLogger, CSVLogger
+
+from diffusion_co_design.common.pydra import Config
 
 
 LoggerTypes = Literal["wandb", "csv"] | None
 
 
-class LoggingConfig(BaseModel):
-    type: LoggerTypes = "wandb"
-    wandb_mode: str = "online"
+class LoggingConfig(Config):
+    mode: str = "online"
     evaluation_interval: int = 20
     evaluation_episodes: int = 5
     checkpoint_interval: int = 50
 
 
-def init_logging(
-    experiment_name: str,
-    log_dir: str,
-    cfg: LoggingConfig,
-    full_config: Any | None = None,
-):
-    full_config = dict(full_config) if full_config is not None else {}
-
-    match cfg.type:
-        case "csv":
-            logger = CSVLogger(
-                exp_name=experiment_name,
-                log_dir=log_dir,
-            )
-            logger.log_hparams(full_config)
-        case "wandb":
-            logger = WandbLogger(
-                exp_name=experiment_name,
-                project="diffusion-co-design",
-                mode=cfg.wandb_mode,
-                dir=log_dir,
-                config=full_config,
-            )
-        case _:
-            logger = None
-
-    return logger
-
-
-class LogTraining:
-    def __init__(self):
-        self.metrics_to_log = {}
-
-    def collect_sampling_td(self, sampling_td: TensorDictBase, sampling_time: float):
-        if "info" in sampling_td.get("agents").keys():
-            self.metrics_to_log.update(
-                {
-                    f"train/info/{key}": value.mean().item()
-                    for key, value in sampling_td.get(("agents", "info")).items()
-                }
-            )
-
-        reward = sampling_td.get(("next", "agents", "reward")).mean(
-            -2
-        )  # Mean over agents
-        done = sampling_td.get(("next", "done"))
-        if done.ndim > reward.ndim:
-            done = done[..., 0, :]  # Remove expanded agent dim
-        episode_reward = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[
-            done
-        ]
-
-        if episode_reward.numel() == 0:  # Prevent crash if no dones
-            episode_reward = torch.zeros(())
-
-        self.metrics_to_log.update(
-            {
-                "train/sampling_time": sampling_time,
-                "train/reward/reward_min": reward.min().item(),
-                "train/reward/reward_mean": reward.mean().item(),
-                "train/reward/reward_max": reward.max().item(),
-                "train/reward/episode_reward_min": episode_reward.min().item(),
-                "train/reward/episode_reward_mean": episode_reward.mean().item(),
-                "train/reward/episode_reward_max": episode_reward.max().item(),
-            }
-        )
-
-    def log(self, log: dict[str, Any]):
-        log = {f"train/{k}": v for k, v in log.items()}
-        self.metrics_to_log.update(log)
-
-    def collect_training_td(
-        self, training_td: TensorDictBase, training_time: float, total_time: float
-    ):
-        self.metrics_to_log.update(
-            {
-                f"train/learner/{key}": value.mean().item()
-                for key, value in training_td.items()
-            }
-        )
-        self.metrics_to_log.update(
-            {
-                "train/training_time": training_time,
-                "train/total_time": total_time,
-            }
-        )
-
-    def commit(self, logger, step, total_frames, current_frames):
-        metrics_to_log = self.metrics_to_log
-        metrics_to_log.update(
-            {
-                "train/current_frames": current_frames,
-                "train/total_frames": total_frames,
-            }
-        )
-        if isinstance(logger, WandbLogger):
-            logger.experiment.log(metrics_to_log, commit=False)
-        else:
-            for key, value in metrics_to_log.items():
-                logger.log_scalar(key.replace("/", "_"), value, step=step)
-        self.metrics_to_log.clear()
-
-
-def log_evaluation(
-    logger: WandbLogger,
-    frames,
-    rollouts: TensorDictBase,
-    evaluation_time: float,
-    step: int,
-):
-    rewards = rollouts.get(("next", "agents", "reward")).sum(dim=1).mean(dim=1)
-    metrics_to_log = {
-        "eval/episode_reward_min": min(rewards),
-        "eval/episode_reward_max": max(rewards),
-        "eval/episode_reward_mean": sum(rewards) / len(rollouts),
-        "eval/episode_len_mean": sum([td.batch_size[0] for td in rollouts])
-        / len(rollouts),
-        "eval/evaluation_time": evaluation_time,
-    }
-
-    vid = torch.tensor(
-        np.transpose(frames[: rollouts[0].batch_size[0]], (0, 3, 1, 2)),
-        dtype=torch.uint8,
-    ).unsqueeze(0)
-
-    if isinstance(logger, WandbLogger):
-        import wandb
-
-        logger.experiment.log(metrics_to_log, commit=False)
-        logger.experiment.log(
-            {
-                "eval/video": wandb.Video(vid, fps=10, format="mp4"),
-            },
-            commit=False,
-        )
-    else:
-        for key, value in metrics_to_log.items():
-            logger.log_scalar(key.replace("/", "_"), value, step=step)
-        logger.log_video("eval_video", vid, step=step)
-
-    # if ("next", "agents", "reward") not in sampling_td.keys(True, True):
-    #     sampling_td.set(
-    #         ("next", "agents", "reward"),
-    #         sampling_td.get(("next", "reward"))
-    #         .expand(sampling_td.get("agents").shape)
-    #         .unsqueeze(-1),
-    #     )
-    # if ("next", "agents", "episode_reward") not in sampling_td.keys(True, True):
-    #     sampling_td.set(
-    #         ("next", "agents", "episode_reward"),
-    #         sampling_td.get(("next", "episode_reward"))
-    #         .expand(sampling_td.get("agents").shape)
-    #         .unsqueeze(-1),
-    #     )
-
-
 class ExperimentLogger:
     def __init__(
         self,
-        base_dir: str,
+        dir: str,
         experiment_name: str,
         config: dict | None = None,
+        project_name: str = "diffusion-co-design",
         mode: Literal["online", "offline", "disabled"] = "online",
     ):
         super().__init__()
-        now = datetime.now()
-        dir = os.path.join(
-            base_dir,
-            experiment_name,
-            now.strftime("%Y-%m-%d %H-%M-%S"),
-        )
 
         self.experiment_name = experiment_name
         self.dir = dir
         self.checkpoint_dir = os.path.join(dir, "checkpoints")
         self.config = config
         self.mode = mode
+        self.project_name = project_name
 
-        os.makedirs(dir, exist_ok=False)
-        os.makedirs(self.checkpoint_dir, exist_ok=False)
+        os.makedirs(dir, exist_ok=True)
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def log(self, data: dict[str, Any]):
         wandb.log(data, commit=False)
@@ -219,7 +57,7 @@ class ExperimentLogger:
 
     def begin(self):
         wandb.init(
-            project="diffusion-co-design-experiments",
+            project=self.project_name,
             name=self.experiment_name,
             dir=self.dir,
             config=self.config,
@@ -239,3 +77,109 @@ class ExperimentLogger:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+
+
+class RLExperimentLogger(ExperimentLogger):
+    def __init__(
+        self,
+        dir: str,
+        experiment_name: str,
+        group_name: str,
+        config: dict | None = None,
+        project_name: str = "diffusion-co-design",
+        mode: Literal["online", "offline", "disabled"] = "disabled",
+    ):
+        super().__init__(
+            dir=dir,
+            experiment_name=experiment_name,
+            config=config,
+            project_name=project_name,
+            mode=mode,
+        )
+        self.group_name = group_name
+        self.metrics_to_log: dict[str, Any] = {}
+
+    def log(self, log: dict[str, Any], train: bool = True):
+        if train:
+            log = {f"train/{k}": v for k, v in log.items()}
+        self.metrics_to_log.update(log)
+
+    def collect_sampling_td(self, td: TensorDictBase, sampling_time: float):
+        if "info" in td.get(self.group_name).keys():
+            self.metrics_to_log.update(
+                {
+                    f"train/info/{key}": value.mean().item()
+                    for key, value in td.get((self.group_name, "info")).items()
+                }
+            )
+
+        reward = td.get(("next", self.group_name, "reward")).mean(
+            -2
+        )  # Mean over agents
+        done = td.get(("next", "done"))
+        if done.ndim > reward.ndim:
+            done = done[..., 0, :]  # Remove expanded agent dim
+        episode_reward = td.get(("next", self.group_name, "episode_reward")).mean(-2)[
+            done
+        ]
+
+        if episode_reward.numel() == 0:  # Prevent crash if no dones
+            episode_reward = torch.zeros(())
+
+        self.metrics_to_log.update(
+            {
+                "train/sampling_time": sampling_time,
+                "train/reward/reward_min": reward.min().item(),
+                "train/reward/reward_mean": reward.mean().item(),
+                "train/reward/reward_max": reward.max().item(),
+                "train/reward/episode_reward_min": episode_reward.min().item(),
+                "train/reward/episode_reward_mean": episode_reward.mean().item(),
+                "train/reward/episode_reward_max": episode_reward.max().item(),
+            }
+        )
+
+    def collect_training_td(
+        self, td: TensorDictBase, training_time: float, total_time: float
+    ):
+        self.metrics_to_log.update(
+            {f"train/learner/{key}": value.mean().item() for key, value in td.items()}
+        )
+        self.metrics_to_log.update(
+            {
+                "train/training_time": training_time,
+                "train/total_time": total_time,
+            }
+        )
+
+    def collect_evaluation_td(
+        self, td: TensorDictBase, evaluation_time: float, frames=None
+    ):
+        rewards = td.get(("next", self.group_name, "reward")).sum(dim=1).mean(dim=1)
+        metrics_to_log = {
+            "eval/episode_reward_min": min(rewards),
+            "eval/episode_reward_max": max(rewards),
+            "eval/episode_reward_mean": sum(rewards) / len(td),
+            "eval/episode_len_mean": sum([td.batch_size[0] for td in td]) / len(td),
+            "eval/evaluation_time": evaluation_time,
+        }
+
+        if frames is not None:
+            vid = torch.tensor(
+                np.transpose(frames[: td[0].batch_size[0]], (0, 3, 1, 2)),
+                dtype=torch.uint8,
+            ).unsqueeze(0)
+
+            self.metrics_to_log.update(metrics_to_log)
+            self.metrics_to_log["eval/video"] = wandb.Video(vid, fps=10, format="mp4")  # type: ignore
+
+    def commit(
+        self, total_frames: int | None = None, current_frames: int | None = None
+    ):
+        metrics_to_log = self.metrics_to_log
+        if total_frames is not None:
+            metrics_to_log["train/total_frames"] = total_frames
+        if current_frames is not None:
+            metrics_to_log["train/current_frames"] = current_frames
+
+        wandb.log(metrics_to_log, commit=True)
+        self.metrics_to_log.clear()

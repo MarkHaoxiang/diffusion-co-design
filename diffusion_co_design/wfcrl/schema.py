@@ -1,7 +1,16 @@
-from pydantic import BaseModel
+from diffusion_co_design.common import (
+    Config,
+    PPOConfig,
+    LoggingConfig,
+    MEMORY_MANAGEMENT,
+)
 
 
-class PolicyConfig(BaseModel):
+class ScenarioConfig(Config):
+    max_steps: int
+
+
+class RLConfig(Config):
     # MLP
     policy_hidden_size: int = 64
     policy_depth: int = 2
@@ -10,5 +19,10 @@ class PolicyConfig(BaseModel):
     mappo: bool = True
 
 
-class TrainingConfig(BaseModel):
+class TrainingConfig(Config):
     experiment_name: str
+    memory_management: MEMORY_MANAGEMENT
+    scenario: ScenarioConfig
+    policy: RLConfig
+    ppo: PPOConfig
+    logging: LoggingConfig
