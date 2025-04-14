@@ -12,6 +12,7 @@ from torchrl.envs import (
 )
 from pettingzoo.utils.conversions import aec_to_parallel
 from wfcrl import environments as envs
+from wfcrl.interface import FlorisInterface
 from wfcrl.multiagent_env import MAWindFarmEnv
 from wfcrl.mdp import WindFarmMDP
 
@@ -67,6 +68,13 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
                 horizon=self.start_iter + self.max_num_steps,
             )
         return super().reset(seed, options)
+
+
+def _create_designable_windfarm():
+    raise NotImplementedError
+    return DesignableMAWindFarmEnv(
+        interface=FlorisInterface,
+    )
 
 
 def create_env(
