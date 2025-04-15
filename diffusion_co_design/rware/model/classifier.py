@@ -538,18 +538,6 @@ class CustomCNNClassifier(ImageClassifier):
         self._feature_size += ch
 
         # Flatten out
-        # self.out = nn.Sequential(
-        #     normalization(ch),
-        #     nn.SiLU(),
-        #     nn.AdaptiveAvgPool2d((1, 1)),
-        #     zero_module(
-        #         conv_nd(
-        #             dims=2, in_channels=ch, out_channels=out_channels, kernel_size=1
-        #         )
-        #     ),
-        #     nn.Flatten(),
-        # )
-
         self.out = nn.Sequential(
             normalization(ch),
             nn.SiLU(),
