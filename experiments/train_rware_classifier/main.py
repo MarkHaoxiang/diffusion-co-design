@@ -3,10 +3,7 @@ import os
 import hydra
 import torch
 from tqdm import tqdm
-from omegaconf import OmegaConf
-from experiments.train_rware.main import (
-    TrainingConfig,
-)
+from experiments.train_rware.main import TrainingConfig
 from diffusion_co_design.common import (
     ExperimentLogger,
     cuda as device,
@@ -75,9 +72,10 @@ def main(cfg):
     experiment_name = f"{cfg.model.name}_{cfg.model.representation}"
     with (
         ExperimentLogger(
-            base_dir=working_dir,
+            directory=working_dir,
             experiment_name=experiment_name,
             config=cfg,
+            project_name="diffusion-co-design-rware-classifier",
             mode=cfg.logging_mode,
         ) as logger,
         tqdm(range(cfg.train_epochs)) as pbar,

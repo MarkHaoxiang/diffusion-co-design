@@ -98,7 +98,7 @@ def train(cfg: TrainingConfig):
     pbar = tqdm(total=cfg.ppo.n_iters)
 
     logger = RLExperimentLogger(
-        dir=output_dir,
+        directory=output_dir,
         experiment_name=cfg.experiment_name,
         project_name="diffusion-co-design-wfcrl",
         group_name=group_name,

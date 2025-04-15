@@ -1,6 +1,8 @@
 from typing import Literal
+import math
 import copy
 
+import numpy as np
 from torchrl.envs import (
     ParallelEnv,
     PettingZooWrapper,
@@ -12,6 +14,8 @@ from torchrl.envs import (
 )
 from pettingzoo.utils.conversions import aec_to_parallel
 from wfcrl import environments as envs
+from wfcrl.environments.registration import get_default_control, validate_case
+from wfcrl.environments.data_cases import FlorisCase
 from wfcrl.interface import FlorisInterface
 from wfcrl.multiagent_env import MAWindFarmEnv
 from wfcrl.mdp import WindFarmMDP
@@ -70,10 +74,25 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         return super().reset(seed, options)
 
 
-def _create_designable_windfarm():
-    raise NotImplementedError
+def _create_designable_windfarm(n_turbines: int, initial_xcoords, initial_ycoords):
+    if isinstance(initial_xcoords, np.ndarray):
+        initial_xcoords = initial_xcoords.tolist()
+    if isinstance(initial_ycoords, np.ndarray):
+        initial_ycoords = initial_ycoords.tolist()
+    case = FlorisCase(
+        num_turbines=n_turbines,
+        xcoords=initial_xcoords,
+        ycoords=initial_ycoords,
+        dt=60,
+        buffer_window=1,
+        t_init=0,
+    )
+    validate_case("", case)
     return DesignableMAWindFarmEnv(
         interface=FlorisInterface,
+        farm_case=case,
+        controls=get_default_control(["yaw"]),
+        start_iter=math.ceil(case.t_init / case.dt),
     )
 
 

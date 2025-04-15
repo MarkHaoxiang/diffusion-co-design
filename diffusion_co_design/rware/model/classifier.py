@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from typing import Literal
 from functools import cache
 import torch
 import torch.nn as nn
@@ -11,6 +12,8 @@ from diffusion_co_design.rware.diffusion.generate import get_position
 from torch_geometric.data import Data
 from torch_geometric.nn import AttentionalAggregation
 from guided_diffusion.script_util import create_classifier, classifier_defaults
+from guided_diffusion.nn import conv_nd, normalization, zero_module
+from guided_diffusion.unet import Downsample, Upsample, AttentionBlock, AttentionPool2d
 
 
 class Classifier(nn.Module):
@@ -123,32 +126,6 @@ class UnetCNNClassifier(ImageClassifier):
 
     def forward(self, image):
         return self.model(image).squeeze(-1)
-
-
-class CustomCNNClassifier(ImageClassifier):
-    def __init__(self, cfg: ScenarioConfig):
-        super().__init__(cfg)
-        self.model = nn.Sequential(
-            nn.Conv2d(self.cfg.n_colors, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.SiLU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.SiLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.SiLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.SiLU(),
-            nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Flatten(),
-            nn.Linear(128, 1),
-        )
-
-    def forward(self, x):
-        return self.model(x).squeeze(-1)
 
 
 class GNNCNN(GraphClassifier):
@@ -377,7 +354,238 @@ class GNNClassifier(GraphClassifier):
             return self.gnn(pos, color)
 
 
-def make_model(model, scenario, model_kwargs, device) -> Classifier:
+# =====
+# Custom CNN Module
+# =====
+# Adapted from guided_diffusion EncoderUNetModel
+# 1. Removes timestep embeddings
+# 2. Removes some checkpointing for backwards speed at the cost of memory
+# 3. Simplifications
+# 4. Some adaptions to make it more suitable as a multi-agent critic
+
+
+class ResBlock(nn.Module):
+    def __init__(
+        self,
+        channels: int,
+        dropout: float,
+        out_channels=None,
+        use_conv: bool = False,
+        updown: Literal["id", "up", "down"] = "id",
+    ):
+        super().__init__()
+        dims = 2
+        self.channels = channels
+        self.dropout = dropout
+        self.out_channels = out_channels or channels
+        self.use_conv = use_conv
+
+        self.in_layers = nn.Sequential(
+            normalization(channels),
+            nn.SiLU(),
+            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+        )
+
+        self.updown = updown
+        match updown:
+            case "up":
+                self.h_upd: nn.Module = Upsample(channels, False, dims)
+                self.x_upd: nn.Module = Upsample(channels, False, dims)
+            case "down":
+                self.h_upd = Downsample(channels, False, dims)
+                self.x_upd = Downsample(channels, False, dims)
+            case "id":
+                self.h_upd = self.x_upd = nn.Identity()
+            case _:
+                assert False
+
+        self.out_layers = nn.Sequential(
+            normalization(self.out_channels),
+            nn.SiLU(),
+            nn.Dropout(p=dropout),
+            zero_module(
+                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+            ),
+        )
+
+        if self.out_channels == channels:
+            self.skip_connection = nn.Identity()
+        elif use_conv:
+            self.skip_connection = conv_nd(
+                dims, channels, self.out_channels, 3, padding=1
+            )
+        else:
+            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
+
+    def forward(self, x):
+        """
+        Apply the block to a Tensor, conditioned on a timestep embedding.
+
+        :param x: an [N x C x ...] Tensor of features.
+        :param emb: an [N x emb_channels] Tensor of timestep embeddings.
+        :return: an [N x C x ...] Tensor of outputs.
+        """
+
+        if self.updown != "id":
+            in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
+            h = in_rest(x)
+            h = self.h_upd(h)
+            x = self.x_upd(x)
+            h = in_conv(h)
+        else:
+            h = self.in_layers(x)
+
+        h = self.out_layers(h)
+        return self.skip_connection(x) + h
+
+
+class CustomCNNClassifier(ImageClassifier):
+    def __init__(
+        self,
+        cfg: ScenarioConfig,
+        dropout: float = 0,
+        model_channels: int = 128,
+        out_channels: int = 1,
+        num_res_blocks: int = 2,
+        attention_resolutions: tuple[int, ...] = (16, 8, 4),
+        channel_mult: tuple[int, ...] = (1, 2, 2, 2),
+        num_attention_heads: int = 1,
+        num_attention_head_channels: int = 64,
+        use_new_attention_order: bool = True,
+        resblock_updown: bool = True,
+        downsample_conv_resample: bool = False,
+    ):
+        super().__init__(cfg)
+        image_size = cfg.size
+        in_channels = cfg.n_colors
+
+        ch = int(channel_mult[0] * model_channels)
+
+        attention_resolutions = tuple(image_size // x for x in attention_resolutions)
+
+        # Input block
+        self.input_blocks = nn.ModuleList(
+            [
+                conv_nd(
+                    dims=2,
+                    in_channels=in_channels,
+                    out_channels=ch,
+                    kernel_size=3,
+                    padding=1,
+                )
+            ]
+        )
+
+        self._feature_size = ch
+        input_block_channels = [ch]
+        ds = 1
+        for level, mult in enumerate(channel_mult):
+            for _ in range(num_res_blocks):
+                out_ch = int(mult * model_channels)
+                self.input_blocks.append(
+                    ResBlock(
+                        channels=ch,
+                        dropout=dropout,
+                        out_channels=out_ch,
+                    )
+                )
+                ch = out_ch
+                if ds in attention_resolutions:
+                    self.input_blocks.append(
+                        AttentionBlock(
+                            channels=ch,
+                            num_heads=num_attention_heads,
+                            num_head_channels=num_attention_head_channels,
+                            use_new_attention_order=use_new_attention_order,
+                        )
+                    )
+                self._feature_size += ch
+                input_block_channels.append(ch)
+
+            if level < len(channel_mult) - 1:  # Not last
+                if resblock_updown:
+                    self.input_blocks.append(
+                        ResBlock(
+                            channels=ch,
+                            dropout=dropout,
+                            out_channels=ch,
+                            updown="down",
+                        )
+                    )
+                else:
+                    self.input_blocks.append(
+                        Downsample(
+                            channels=ch,
+                            use_conv=downsample_conv_resample,
+                            out_channels=ch,
+                        )
+                    )
+                input_block_channels.append(ch)
+                ds *= 2
+                self._feature_size += ch
+
+        # Middle block
+        self.middle_block = nn.Sequential(
+            ResBlock(channels=ch, dropout=dropout),
+            AttentionBlock(
+                channels=ch,
+                num_heads=num_attention_heads,
+                num_head_channels=num_attention_head_channels,
+                use_new_attention_order=use_new_attention_order,
+            ),
+            ResBlock(channels=ch, dropout=dropout),
+        )
+        self._feature_size += ch
+
+        # Flatten out
+        # self.out = nn.Sequential(
+        #     normalization(ch),
+        #     nn.SiLU(),
+        #     nn.AdaptiveAvgPool2d((1, 1)),
+        #     zero_module(
+        #         conv_nd(
+        #             dims=2, in_channels=ch, out_channels=out_channels, kernel_size=1
+        #         )
+        #     ),
+        #     nn.Flatten(),
+        # )
+
+        self.out = nn.Sequential(
+            normalization(ch),
+            nn.SiLU(),
+            AttentionPool2d(
+                spacial_dim=(image_size // ds),
+                embed_dim=ch,
+                num_heads_channels=num_attention_head_channels,
+                output_dim=out_channels,
+            ),
+        )
+
+    def forward(self, x):
+        """
+        Apply the model to an input batch.
+
+        :param x: an [N x C x ...] Tensor of inputs.
+        :param timesteps: a 1-D batch of timesteps.
+        :return: an [N x K] Tensor of outputs.
+        """
+
+        h = x.type(torch.float32)
+        for module in self.input_blocks:
+            h = module(h)
+        h = self.middle_block(h)
+        h = h.type(torch.float32)
+        return self.out(h).squeeze(-1)
+
+
+def make_model(
+    model,
+    scenario,
+    model_kwargs=None,
+    device=None,
+) -> Classifier:
+    if model_kwargs is None:
+        model_kwargs = {}
     match model:
         case "mlp":
             model = MLPClassifier(cfg=scenario, **model_kwargs)

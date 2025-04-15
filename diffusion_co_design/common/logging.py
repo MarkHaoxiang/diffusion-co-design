@@ -31,7 +31,7 @@ class LoggingConfig(Config):
 class ExperimentLogger:
     def __init__(
         self,
-        dir: str,
+        directory: str,
         experiment_name: str,
         config: dict | None = None,
         project_name: str = "diffusion-co-design",
@@ -40,13 +40,13 @@ class ExperimentLogger:
         super().__init__()
 
         self.experiment_name = experiment_name
-        self.dir = dir
-        self.checkpoint_dir = os.path.join(dir, "checkpoints")
+        self.directory = directory
+        self.checkpoint_dir = os.path.join(directory, "checkpoints")
         self.config = config
         self.mode = mode
         self.project_name = project_name
 
-        os.makedirs(dir, exist_ok=True)
+        os.makedirs(directory, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def log(self, data: dict[str, Any]):
@@ -59,7 +59,7 @@ class ExperimentLogger:
         wandb.init(
             project=self.project_name,
             name=self.experiment_name,
-            dir=self.dir,
+            dir=self.directory,
             config=self.config,
             mode=self.mode,
         )
@@ -82,7 +82,7 @@ class ExperimentLogger:
 class RLExperimentLogger(ExperimentLogger):
     def __init__(
         self,
-        dir: str,
+        directory: str,
         experiment_name: str,
         group_name: str,
         config: dict | None = None,
@@ -90,7 +90,7 @@ class RLExperimentLogger(ExperimentLogger):
         mode: Literal["online", "offline", "disabled"] = "disabled",
     ):
         super().__init__(
-            dir=dir,
+            directory=directory,
             experiment_name=experiment_name,
             config=config,
             project_name=project_name,

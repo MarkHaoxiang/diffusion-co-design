@@ -1,27 +1,23 @@
 import os
 
 from tqdm import tqdm
-from omegaconf import OmegaConf
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data._utils.collate import default_collate
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from tensordict import TensorDict
 
-from diffusion_co_design.common import get_latest_model, omega_to_pydantic
+from diffusion_co_design.common import get_latest_model
 from diffusion_co_design.common.constants import EXPERIMENT_DIR
 from diffusion_co_design.rware.model.classifier import image_to_pos_colors
-from diffusion_co_design.rware.model import rware_models
+from diffusion_co_design.rware.model.rl import rware_models
+from diffusion_co_design.rware.model.graph import WarehouseGNNBase
 from diffusion_co_design.rware.design import ScenarioConfig
-from experiments.train_rware.main import (
-    TrainingConfig,
-    DesignerRegistry,
-    DesignerConfig,
-)
-from diffusion_co_design.rware.diffusion.graph import WarehouseGNNBase
 from diffusion_co_design.rware.env import create_env, create_batched_env
+from diffusion_co_design.rware.schema import TrainingConfig, DesignerConfig
+from diffusion_co_design.rware.design import DesignerRegistry
 
-working_dir = os.path.join(EXPERIMENT_DIR, "diffusion_playground")
+working_dir = os.path.join(EXPERIMENT_DIR, "train_rware_classifier")
 if not os.path.exists(working_dir):
     os.makedirs(working_dir)
 
@@ -51,9 +47,8 @@ def rware_policy_return_dataset(
     # Create policy
     checkpoint_dir = os.path.join(training_dir, "checkpoints")
     latest_policy = get_latest_model(checkpoint_dir, "policy_")
-    hydra_dir = os.path.join(training_dir, ".hydra")
-    training_cfg = omega_to_pydantic(
-        OmegaConf.load(os.path.join(hydra_dir, "config.yaml")), TrainingConfig
+    training_cfg = TrainingConfig.from_file(
+        os.path.join(training_dir, ".hydra", "config.yaml")
     )
 
     _, env_designer = DesignerRegistry.get(
