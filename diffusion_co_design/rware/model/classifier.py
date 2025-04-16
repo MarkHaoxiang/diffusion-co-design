@@ -1,5 +1,4 @@
 from abc import abstractmethod
-from typing import Literal
 from functools import cache
 import torch
 import torch.nn as nn
@@ -7,13 +6,14 @@ from diffusion_co_design.rware.model.graph import (
     WarehouseGNNLayer,
     WarehouseGNNBase,
 )
-from diffusion_co_design.rware.schema import ScenarioConfig
-from diffusion_co_design.rware.diffusion.generate import get_position
 from torch_geometric.data import Data
 from torch_geometric.nn import AttentionalAggregation
 from guided_diffusion.script_util import create_classifier, classifier_defaults
-from guided_diffusion.nn import conv_nd, normalization, zero_module
-from guided_diffusion.unet import Downsample, Upsample, AttentionBlock, AttentionPool2d
+from guided_diffusion.nn import conv_nd, normalization
+from guided_diffusion.unet import Downsample, AttentionBlock, AttentionPool2d
+from diffusion_co_design.rware.schema import ScenarioConfig
+from diffusion_co_design.rware.diffusion.generate import get_position
+from diffusion_co_design.rware.model.nn import ResBlock
 
 
 class Classifier(nn.Module):
@@ -364,81 +364,6 @@ class GNNClassifier(GraphClassifier):
 # 4. Some adaptions to make it more suitable as a multi-agent critic
 
 
-class ResBlock(nn.Module):
-    def __init__(
-        self,
-        channels: int,
-        dropout: float,
-        out_channels=None,
-        use_conv: bool = False,
-        updown: Literal["id", "up", "down"] = "id",
-    ):
-        super().__init__()
-        dims = 2
-        self.channels = channels
-        self.dropout = dropout
-        self.out_channels = out_channels or channels
-        self.use_conv = use_conv
-
-        self.in_layers = nn.Sequential(
-            normalization(channels),
-            nn.SiLU(),
-            conv_nd(dims, channels, self.out_channels, 3, padding=1),
-        )
-
-        self.updown = updown
-        match updown:
-            case "up":
-                self.h_upd: nn.Module = Upsample(channels, False, dims)
-                self.x_upd: nn.Module = Upsample(channels, False, dims)
-            case "down":
-                self.h_upd = Downsample(channels, False, dims)
-                self.x_upd = Downsample(channels, False, dims)
-            case "id":
-                self.h_upd = self.x_upd = nn.Identity()
-            case _:
-                assert False
-
-        self.out_layers = nn.Sequential(
-            normalization(self.out_channels),
-            nn.SiLU(),
-            nn.Dropout(p=dropout),
-            zero_module(
-                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
-            ),
-        )
-
-        if self.out_channels == channels:
-            self.skip_connection = nn.Identity()
-        elif use_conv:
-            self.skip_connection = conv_nd(
-                dims, channels, self.out_channels, 3, padding=1
-            )
-        else:
-            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
-
-    def forward(self, x):
-        """
-        Apply the block to a Tensor, conditioned on a timestep embedding.
-
-        :param x: an [N x C x ...] Tensor of features.
-        :param emb: an [N x emb_channels] Tensor of timestep embeddings.
-        :return: an [N x C x ...] Tensor of outputs.
-        """
-
-        if self.updown != "id":
-            in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
-            h = in_rest(x)
-            h = self.h_upd(h)
-            x = self.x_upd(x)
-            h = in_conv(h)
-        else:
-            h = self.in_layers(x)
-
-        h = self.out_layers(h)
-        return self.skip_connection(x) + h
-
-
 class CustomCNNClassifier(ImageClassifier):
     def __init__(
         self,
@@ -505,20 +430,11 @@ class CustomCNNClassifier(ImageClassifier):
             if level < len(channel_mult) - 1:  # Not last
                 if resblock_updown:
                     self.input_blocks.append(
-                        ResBlock(
-                            channels=ch,
-                            dropout=dropout,
-                            out_channels=ch,
-                            updown="down",
-                        )
+                        ResBlock(channels=ch, dropout=dropout, updown="down")
                     )
                 else:
                     self.input_blocks.append(
-                        Downsample(
-                            channels=ch,
-                            use_conv=downsample_conv_resample,
-                            out_channels=ch,
-                        )
+                        Downsample(channels=ch, use_conv=downsample_conv_resample)
                     )
                 input_block_channels.append(ch)
                 ds *= 2
@@ -559,10 +475,16 @@ class CustomCNNClassifier(ImageClassifier):
         """
 
         h = x.type(torch.float32)
+        print(h.shape)
         for module in self.input_blocks:
             h = module(h)
+            print(h.shape)
         h = self.middle_block(h)
+        print("middle")
+        print(h.shape)
+        print(h.type)
         h = h.type(torch.float32)
+        assert False
         return self.out(h).squeeze(-1)
 
 

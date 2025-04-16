@@ -1,9 +1,9 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: diffusion
+  - designer: fixed
 
-experiment_name: corners_agent_diffusion_gnncnn
+experiment_name: corners_agent_new_critic
 scenario_name: rware_16_50_5_4_corners
 memory_management: gpu
 ppo:
@@ -18,12 +18,12 @@ ppo:
   max_grad_norm: 1.0
   entropy_eps: 1e-4
   normalise_advantage: false
-start_from_checkpoint: /home/markhaoxiang/.diffusion_co_design/training/2025-03-21/01-09-38
+start_from_checkpoint: null
 
 logging:
   type: wandb
-  # wandb_mode: disabled
-  wandb_mode: online
-  # wandb_mode: offline
+  # mode: disabled
+  mode: online
+  # mode: offline
   evaluation_interval: 20
   evaluation_episodes: 5

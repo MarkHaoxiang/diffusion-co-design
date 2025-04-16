@@ -1,29 +1,34 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: random
+  - designer: fixed
 
-experiment_name: rware_test
+experiment_name: corners_agent_new_critic
 scenario_name: rware_16_50_5_4_corners
 memory_management: gpu
 ppo:
-  n_iters: 100
+  n_iters: 5000
   n_epochs: 5
   minibatch_size: 500
-  n_mini_batches: 2
+  n_mini_batches: 10
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.9
   lr: 5e-4
-  max_grad_norm: 1.0
+  max_grad_norm: 0.5
   entropy_eps: 1e-4
   normalise_advantage: false
+start_from_checkpoint: null
 policy:
   version: "v2"
-start_from_checkpoint: null
+  critic_kwargs:
+
+  
 
 logging:
-  mode: disabled
-  evaluation_interval: 1
-  evaluation_episodes: 1
-  checkpoint_interval: 999
+  type: wandb
+  # mode: disabled
+  mode: disableda
+  # mode: offline
+  evaluation_interval: 20
+  evaluation_episodes: 5

@@ -44,15 +44,16 @@ class ClassifierConfig(Config):
 
 
 class RLConfig(Config):
-    # CNN
+    version: Literal["v1", "v2"] = "v1"
+    # V1
     kernel_sizes: int | Sequence[int] = 3
     num_cells: int | Sequence[int] = [16, 32, 64]
     strides: Sequence[int] | int = 1
-    # MLP
     hidden_size: int = 128
     depth: int = 2
-    # Both
     share_params: bool = True
+    # V2
+    critic_kwargs: dict | None = None
 
 
 class DesignerConfig(Config):
