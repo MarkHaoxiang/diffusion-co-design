@@ -1,5 +1,4 @@
 import os
-from os.path import join
 import time
 import copy
 
@@ -8,6 +7,7 @@ import hydra.core
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
+from torch.optim import Adam
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
@@ -21,6 +21,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from diffusion_co_design.common import RLExperimentLogger, memory_management
+from diffusion_co_design.common.ppo import group_optimizers
 from diffusion_co_design.rware.env import create_batched_env, create_env
 from diffusion_co_design.rware.model.rl import rware_models
 from diffusion_co_design.rware.design import DesignerRegistry
@@ -113,14 +114,18 @@ def train(cfg: TrainingConfig):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
-    optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo.lr)
+
+    actor_optim = Adam(policy.parameters(), cfg.ppo.actor_lr)
+    critic_optim = Adam(critic.parameters(), cfg.ppo.critic_lr)
+    optim = group_optimizers(actor_optim, critic_optim)
+    del actor_optim, critic_optim
 
     # Logging
     pbar = tqdm(total=cfg.ppo.n_iters)
     logger = RLExperimentLogger(
         directory=output_dir,
         experiment_name=cfg.experiment_name,
-        project_name="diffusion-co-design-wfcrl",
+        project_name="diffusion-co-design-rware",
         group_name=group_name,
         config=dict(cfg),
         mode=cfg.logging.mode,
@@ -220,31 +225,20 @@ def train(cfg: TrainingConfig):
 
                     evaluation_time = time.time() - evaluation_start
 
-                    logger.collect_evaluation_td(
-                        rollouts,
-                        evaluation_time,
-                        frames,
-                    )
+                    logger.collect_evaluation_td(rollouts, evaluation_time, frames)
 
             logger.commit(total_frames, current_frames)
 
             if iteration % cfg.logging.checkpoint_interval == 0:
-                checkpoint_dir = join(output_dir, "checkpoints")
-                if not os.path.exists(checkpoint_dir):
-                    os.makedirs(checkpoint_dir)
-                torch.save(
-                    policy.state_dict(),
-                    join(checkpoint_dir, f"policy_{iteration}.pt"),
-                )
-                torch.save(
-                    critic.state_dict(),
-                    join(checkpoint_dir, f"critic_{iteration}.pt"),
-                )
+                logger.checkpoint_state_dict(policy, f"policy_{iteration}")
+                logger.checkpoint_state_dict(critic, f"critic_{iteration}")
                 model = master_designer.get_model()
+                buffer = master_designer.get_training_buffer()
                 if model is not None:
-                    torch.save(
-                        model.state_dict(),
-                        join(checkpoint_dir, f"designer_{iteration}.pt"),
+                    logger.checkpoint_state_dict(model, f"designer_{iteration}")
+                if buffer is not None:
+                    buffer.dumps(
+                        os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")
                     )
 
             pbar.update()

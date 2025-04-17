@@ -1,13 +1,11 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 import os
 import pickle as pkl
 
 import numpy as np
 import torch
-from torch import nn
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from tensordict import TensorDict
-from tensordict.nn import TensorDictModule
 
 from diffusion_co_design.common import OUTPUT_DIR, get_latest_model
 from diffusion_co_design.rware.model.classifier import make_model, image_to_pos_colors
@@ -18,6 +16,7 @@ from diffusion_co_design.rware.diffusion.transform import (
 )
 from diffusion_co_design.rware.diffusion.generate import generate
 from diffusion_co_design.rware.diffusion.generator import Generator, OptimizerDetails
+from diffusion_co_design.common.design import BaseDesigner
 from diffusion_co_design.rware.schema import (
     ScenarioConfig,
     DesignerConfig,
@@ -27,35 +26,16 @@ from diffusion_co_design.rware.schema import (
 )
 
 
-class Designer(nn.Module, ABC):
+class Designer(BaseDesigner):
     def __init__(
         self,
         scenario: ScenarioConfig,
         environment_repeats: int = 1,
         representation: Representation = "image",
     ):
-        super().__init__()
+        super().__init__(environment_repeats=environment_repeats)
         self.scenario = scenario
-        self.update_counter = 0
-        self.environment_repeats = environment_repeats
-        self.environment_repeat_counter = 0
-        self.previous_environment = None
         self.representation = representation
-
-    @abstractmethod
-    def _generate_environment_weights(self, objective):
-        raise NotImplementedError()
-
-    def generate_environment_weights(self, objective):
-        self.environment_repeat_counter += 1
-        if self.environment_repeat_counter >= self.environment_repeats:
-            self.environment_repeat_counter = 0
-            self.previous_environment = None
-        if self.previous_environment is not None:
-            return self.previous_environment
-        else:
-            self.previous_environment = self._generate_environment_weights(objective)
-            return self.previous_environment
 
     def generate_environment(self, objective):
         return storage_to_layout(
@@ -63,26 +43,6 @@ class Designer(nn.Module, ABC):
             config=self.scenario,
             representation=self.representation,
         )
-
-    def to_td_module(self):
-        return TensorDictModule(
-            self,
-            in_keys=[("environment_design", "objective")],
-            out_keys=[("environment_design", "layout_weights")],
-        )
-
-    def update(self, sampling_td: TensorDict):
-        self.update_counter += 1
-
-    def reset(self):
-        self.environment_repeat_counter = 0
-        self.previous_environment = None
-
-    def get_logs(self):
-        return {}
-
-    def get_model(self):
-        return None
 
 
 class RandomDesigner(Designer):
@@ -113,6 +73,14 @@ class CentralisedDesigner(Designer):
 
     def _generate_environment_weights(self, objective):
         raise NotImplementedError("Use with disk designer")
+
+
+def get_env_from_td(td, scenario: ScenarioConfig):
+    done = td.get(("next", "done"))
+    X = td.get("state")[done.squeeze()].to(dtype=torch.float32)
+    X = X[:, : scenario.n_colors]
+    y = td.get(("next", "agents", "episode_reward")).mean(-2)[done]
+    return X, y
 
 
 class ValueDesigner(CentralisedDesigner):
@@ -158,9 +126,7 @@ class ValueDesigner(CentralisedDesigner):
         super().update(sampling_td)
 
         # Update replay buffer
-        done = sampling_td.get(("next", "done"))
-        X = sampling_td.get("state")[done.squeeze()].to(dtype=torch.float32)
-        y = sampling_td.get(("next", "agents", "episode_reward")).mean(-2)[done]
+        X, y = get_env_from_td(sampling_td, self.scenario)
 
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
         self.env_buffer.extend(data)
@@ -208,6 +174,9 @@ class ValueDesigner(CentralisedDesigner):
 
     def get_model(self):
         return self.model
+
+    def get_training_buffer(self):
+        return self.env_buffer
 
 
 class SamplingDesigner(ValueDesigner):

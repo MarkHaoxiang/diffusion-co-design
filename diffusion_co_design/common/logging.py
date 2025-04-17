@@ -64,6 +64,12 @@ class ExperimentLogger:
             mode=self.mode,
         )
 
+    def checkpoint_state_dict(self, model, name: str):
+        torch.save(model.state_dict(), os.path.join(self.checkpoint_dir, name + ".pt"))
+
+    def checkpoint_torch(self, object, name: str):
+        torch.save(object, os.path.join(self.checkpoint_dir, name))
+
     @property
     def summary(self):
         return wandb.run.summary

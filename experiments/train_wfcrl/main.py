@@ -92,7 +92,7 @@ def train(cfg: TrainingConfig):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
-    optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo.lr)
+    optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo.actor_lr)
 
     # Logging
     pbar = tqdm(total=cfg.ppo.n_iters)

@@ -65,14 +65,6 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                 tensordict.update(
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
-                layout = storage_to_layout(
-                    features=tensordict.get(
-                        ("environment_design", "layout_weights")
-                    ).numpy(force=True),
-                    config=self._env._scenario_cfg,
-                    representation=self._env.representation,
-                )
-
             else:
                 td = TensorDict(
                     {
@@ -83,14 +75,13 @@ class RwareCoDesignWrapper(PettingZooWrapper):
                     }
                 )
                 reset_policy_output = self._env._reset_policy(td)
-                layout = storage_to_layout(
-                    # layout = rgb_to_layout(
-                    features=reset_policy_output.get(
-                        ("environment_design", "layout_weights")
-                    ).numpy(force=True),
-                    config=self._env._scenario_cfg,
-                    representation=self._env.representation,
-                )
+            layout = storage_to_layout(
+                features=reset_policy_output.get(
+                    ("environment_design", "layout_weights")
+                ).numpy(force=True),
+                config=self._env._scenario_cfg,
+                representation=self._env.representation,
+            )
             options = {"layout": layout}
         else:
             options = None
@@ -139,8 +130,14 @@ def create_env(
             max_steps=scenario.max_steps,
             reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.SHAPED,
+            # image_observation_layers=[
+            # ImageLayer.STORAGE,
+            # ],
             image_observation_layers=[
                 ImageLayer.STORAGE,
+                ImageLayer.GOALS_COLOR_ONE_HOT,
+                ImageLayer.ACCESSIBLE,
+                ImageLayer.REQUESTS,
             ],
             return_info=[],
         )

@@ -3,32 +3,28 @@ defaults:
   - metadata/training@_here_
   - designer: fixed
 
-experiment_name: corners_agent_new_critic
+experiment_name: corners_agent
 scenario_name: rware_16_50_5_4_corners
 memory_management: gpu
 ppo:
   n_iters: 5000
-  n_epochs: 5
-  minibatch_size: 500
+  n_epochs: 10
+  minibatch_size: 1000
   n_mini_batches: 10
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.9
-  lr: 5e-4
-  max_grad_norm: 0.5
+  actor_lr: 5e-4
+  critic_lr: 5e-4
+  max_grad_norm: 1.0
   entropy_eps: 1e-4
   normalise_advantage: false
 start_from_checkpoint: null
-policy:
-  version: "v2"
-  critic_kwargs:
-
-  
 
 logging:
   type: wandb
   # mode: disabled
-  mode: disableda
+  mode: online
   # mode: offline
   evaluation_interval: 20
   evaluation_episodes: 5

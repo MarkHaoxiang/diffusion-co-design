@@ -7,6 +7,7 @@ from diffusion_co_design.common import (
 
 
 class ScenarioConfig(Config):
+    n_turbines: int
     max_steps: int
 
 
