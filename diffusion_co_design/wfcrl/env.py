@@ -15,6 +15,7 @@ from torchrl.envs import (
     RemoveEmptySpecs,
 )
 from pettingzoo.utils.conversions import aec_to_parallel
+import gymnasium.spaces as spaces
 
 from wfcrl.environments.registration import get_default_control, validate_case
 from wfcrl.environments.data_cases import FlorisCase
@@ -54,6 +55,13 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         self.interface_cls = interface
         self.start_iter = start_iter
 
+        self.state_space["layout"] = spaces.Box(
+            low=0,
+            high=np.inf,
+            shape=(self.num_turbines, 2),
+            dtype=np.float64,
+        )
+
     def reset(self, seed=None, options=None):
         # Possibly override xcoords and ycoords
         if options is not None:
@@ -66,7 +74,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             if "ycoords" in options:
                 coords = options.get("ycoords")
                 assert len(coords) == old_farm_case.num_turbines
-                new_farm_case.xcoords = coords
+                new_farm_case.ycoords = coords
 
             # Override MDP
             self.mdp = WindFarmMDP(
@@ -162,6 +170,12 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
 
         return tensordict_out
 
+    def _step(self, tensordict):
+        tensordict_out = super()._step(tensordict)
+        if self.return_state:
+            tensordict_out["state"] = self._env.state()
+        return tensordict_out
+
 
 def _create_designable_windfarm(n_turbines: int, initial_xcoords, initial_ycoords):
     if isinstance(initial_xcoords, np.ndarray):
@@ -192,7 +206,6 @@ def create_env(
     device: str | None = None,
 ):
     theta = designer.generate_environment_weights().numpy(force=True)
-    print(theta.shape)
     env = _create_designable_windfarm(
         n_turbines=scenario.n_turbines,
         initial_xcoords=theta[:, 0],
