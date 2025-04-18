@@ -34,7 +34,10 @@ class EnvReturnsDataset(Dataset):
         sample = self.env_returns[idx]
         X = sample.get("env").to(dtype=torch.float32, device=self.device)
         y = sample.get("episode_reward").to(dtype=torch.float32, device=self.device)
-        return X, y
+        y_pred = sample.get("expected_reward").to(
+            dtype=torch.float32, device=self.device
+        )
+        return X, y, y_pred
 
 
 def rware_policy_return_dataset(
@@ -43,10 +46,12 @@ def rware_policy_return_dataset(
     dataset_size: int,
     num_parallel_collection: int,
     device: str,
+    gamma: float = 0.99,
 ):
     # Create policy
     checkpoint_dir = os.path.join(training_dir, "checkpoints")
     latest_policy = get_latest_model(checkpoint_dir, "policy_")
+    latest_critic = get_latest_model(checkpoint_dir, "critic_")
     training_cfg = TrainingConfig.from_file(
         os.path.join(training_dir, ".hydra", "config.yaml")
     )
@@ -60,8 +65,9 @@ def rware_policy_return_dataset(
     )
 
     ref_env = create_env(scenario, env_designer, render=True, device=device)
-    policy, _ = rware_models(ref_env, training_cfg.policy, device=device)
+    policy, critic = rware_models(ref_env, training_cfg.policy, device=device)
     policy.load_state_dict(torch.load(latest_policy))
+    critic.load_state_dict(torch.load(latest_critic))
     ref_env.close()
 
     # Collection
@@ -79,16 +85,36 @@ def rware_policy_return_dataset(
         batch_size=1,
     )
 
-    for _ in tqdm(range(dataset_size // num_parallel_collection)):
-        rollout = collection_env.rollout(
-            max_steps=scenario.max_steps, policy=policy, auto_cast_to_device=True
-        )
-        done = rollout.get(("next", "done"))
-        X = rollout.get("state")[done.squeeze()]
-        y = rollout.get(("next", "agents", "episode_reward")).mean(-2)[done]
-        data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
-        env_returns.extend(data)
-    del rollout, done
+    discount = (gamma ** torch.linspace(0, 499, 500)).view(1, 500, 1, 1)
+    with torch.no_grad():
+        for _ in tqdm(range(dataset_size // num_parallel_collection)):
+            rollout = collection_env.rollout(
+                max_steps=scenario.max_steps, policy=policy, auto_cast_to_device=True
+            )
+            X = rollout.get("state")[:, 0, : scenario.n_colors]
+            ep_reward = rollout.get(("next", "agents", "reward"))
+            ep_reward = ep_reward * discount
+            ep_reward = ep_reward.sum(dim=(1, 2, 3))
+
+            first_obs = rollout[:, 0]
+            expected_reward = (
+                critic(first_obs)["agents", "state_value"].sum(dim=-2).squeeze()
+            )
+            data = TensorDict(
+                {
+                    "env": X,
+                    "episode_reward": ep_reward,
+                    "expected_reward": expected_reward,
+                },
+                batch_size=len(ep_reward),
+            )
+
+            # done = rollout.get(("next", "done"))
+            # X = rollout.get("state")[done.squeeze()]
+            # y = rollout.get(("next", "agents", "episode_reward")).mean(-2)[done]
+            # data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
+
+            env_returns.extend(data)
     collection_env.close()
 
     return env_returns
@@ -139,7 +165,8 @@ class CollateFn:
 
     def __call__(self, batch):
         images = torch.stack([x[0] for x in batch])
-        labels = torch.stack([x[1] for x in batch])
+        labels_1 = torch.stack([x[1] for x in batch])
+        labels_2 = torch.stack([x[2] for x in batch])
 
         pos, colors = image_to_pos_colors(images, self.n_shelves)
         pos = (pos / (self.size - 1)) * 2 - 1
@@ -149,7 +176,8 @@ class CollateFn:
                 pos.to(dtype=torch.float32, device=self.device),
                 colors.to(dtype=torch.float32, device=self.device),
             ),
-            labels.to(dtype=torch.float32, device=self.device),
+            labels_1.to(dtype=torch.float32, device=self.device),
+            labels_2.to(dtype=torch.float32, device=self.device),
         )
 
 
@@ -172,14 +200,15 @@ class ImageCollateFn:
         self.device = device
 
     def __call__(self, batch):
-        X, y = default_collate(batch)
+        X, y_1, y_2 = default_collate(batch)
 
         X = X.to(dtype=torch.float32, device=self.device)
-        y = y.to(dtype=torch.float32, device=self.device)
+        y_1 = y_1.to(dtype=torch.float32, device=self.device)
+        y_2 = y_2.to(dtype=torch.float32, device=self.device)
 
         X = X * 2 - 1
 
-        return X, y
+        return X, y_1, y_2
 
 
 def make_dataloader(

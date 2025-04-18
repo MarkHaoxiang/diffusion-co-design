@@ -11,4 +11,5 @@ class Config(_Config):
     train_epochs: int
     lr: float
     weight_decay: float
+    train_target: Literal["sampling", "critic"]
     logging_mode: Literal["online", "offline", "disabled"]

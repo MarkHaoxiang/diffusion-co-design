@@ -1,4 +1,5 @@
 import os
+from functools import partial
 
 import hydra
 import torch
@@ -9,11 +10,7 @@ from diffusion_co_design.common import (
     cuda as device,
 )
 
-from dataset import (
-    load_dataset,
-    make_dataloader,
-    working_dir,
-)
+from dataset import load_dataset, make_dataloader
 from diffusion_co_design.rware.model.classifier import make_model
 
 from conf.schema import Config
@@ -21,6 +18,7 @@ from conf.schema import Config
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg):
+    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     cfg = Config.from_raw(cfg)
     training_cfg = TrainingConfig.from_file(
         os.path.join(cfg.training_dir, ".hydra", "config.yaml")
@@ -37,21 +35,15 @@ def main(cfg):
         device=device,
     )
 
-    train_dataloader = make_dataloader(
-        train_dataset,
+    make_dataloader_fn = partial(
+        make_dataloader,
         scenario=training_cfg.scenario,
-        batch_size=128,
+        batch_size=cfg.batch_size,
         representation=cfg.model.representation,
         device=device,
     )
-
-    eval_dataloader = make_dataloader(
-        eval_dataset,
-        scenario=training_cfg.scenario,
-        batch_size=128,
-        representation=cfg.model.representation,
-        device=device,
-    )
+    train_dataloader = make_dataloader_fn(train_dataset)
+    eval_dataloader = make_dataloader_fn(eval_dataset)
 
     # Load model
     model = make_model(
@@ -72,7 +64,7 @@ def main(cfg):
     experiment_name = f"{cfg.model.name}_{cfg.model.representation}"
     with (
         ExperimentLogger(
-            directory=working_dir,
+            directory=output_dir,
             experiment_name=experiment_name,
             config=cfg,
             project_name="diffusion-co-design-rware-classifier",
@@ -83,10 +75,17 @@ def main(cfg):
         for epoch in range(cfg.train_epochs):
             running_train_loss = 0
             model.train()
-            for x, y in train_dataloader:
+            for x, y, y_critic in train_dataloader:
                 optim.zero_grad()
+
+                match cfg.train_target:
+                    case "sampling":
+                        y_target = y
+                    case "critic":
+                        y_target = y_critic
+
                 y_pred = model.predict(x)
-                loss = criterion(y_pred, y)
+                loss = criterion(y_pred, y_target)
                 loss.backward()
                 optim.step()
                 running_train_loss += loss.item()
@@ -94,24 +93,28 @@ def main(cfg):
 
             # Evaluate
             model.eval()
-            running_eval_loss = 0
+            running_eval_loss_sampling = 0
+            running_eval_loss_critic = 0
             with torch.no_grad():
-                for x, y in eval_dataloader:
+                for x, y, y_critic in eval_dataloader:
                     y_pred = model.predict(x)
-                    loss = criterion(y_pred, y)
-                    running_eval_loss += loss.item()
-            running_eval_loss = running_eval_loss / len(eval_dataloader)
+                    loss_sampling = criterion(y_pred, y)
+                    loss_critic = criterion(y_pred, y_critic)
+                    running_eval_loss_sampling += loss_sampling.item()
+                    running_eval_loss_critic += loss_critic.item()
+            n = len(eval_dataloader)
+            running_eval_loss_sampling = running_eval_loss_sampling / n
+            running_eval_loss_critic = running_eval_loss_critic / n
 
             train_losses.append(running_train_loss)
-            eval_losses.append(running_eval_loss)
-            pbar.set_description(
-                f" Train Loss {running_train_loss} Eval Loss {running_eval_loss}"
-            )
+            eval_losses.append(running_eval_loss_sampling)
+            pbar.set_description(f" Train Loss {running_train_loss}")
 
             logger.log(
                 {
                     "train/loss": running_train_loss,
-                    "eval/loss": running_eval_loss,
+                    "eval/loss_sampling": running_eval_loss_sampling,
+                    "eval/loss_critic": running_eval_loss_critic,
                 },
             )
             logger.commit()
