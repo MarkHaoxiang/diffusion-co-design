@@ -13,7 +13,6 @@ from torchrl.envs import (
     RewardSum,
     Compose,
     RemoveEmptySpecs,
-    MarlGroupMapType,
 )
 from pettingzoo.utils.conversions import aec_to_parallel
 
@@ -79,6 +78,14 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
                 horizon=self.start_iter + self.max_num_steps,
             )
         return super().reset(seed, options)
+
+    def state(self):
+        state = super().state()
+        # Add layout to state
+        state["layout"] = np.stack(
+            [self.mdp.farm_case.xcoords, self.mdp.farm_case.ycoords], axis=-1
+        )
+        return state
 
 
 class WfcrlCoDesignWrapper(PettingZooWrapper):
@@ -185,6 +192,7 @@ def create_env(
     device: str | None = None,
 ):
     theta = designer.generate_environment_weights().numpy(force=True)
+    print(theta.shape)
     env = _create_designable_windfarm(
         n_turbines=scenario.n_turbines,
         initial_xcoords=theta[:, 0],
@@ -196,7 +204,6 @@ def create_env(
         env=env,
         reset_policy=designer.to_td_module(),
         environment_objective=None,
-        group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
         scenario_cfg=scenario,
         return_state=True,
         device=device,

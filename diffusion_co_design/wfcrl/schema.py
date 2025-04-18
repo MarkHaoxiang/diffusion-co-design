@@ -9,6 +9,9 @@ from diffusion_co_design.common import (
 class ScenarioConfig(Config):
     n_turbines: int
     max_steps: int
+    map_x_length: int
+    map_y_length: int
+    min_distance_between_turbines: int
 
 
 class RLConfig(Config):

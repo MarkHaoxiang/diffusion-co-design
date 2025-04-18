@@ -5,7 +5,11 @@ defaults:
 experiment_name: wfcrl_test
 memory_management: gpu
 scenario:
+  n_turbines: 10
   max_steps: 150
+  max_x_length: 1000
+  max_y_length: 1000
+  min_distance_between_turbines: 100
 policy:
   policy_hidden_size: 64
   policy_depth: 2
