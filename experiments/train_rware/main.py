@@ -42,6 +42,7 @@ def train(cfg: TrainingConfig):
         designer=cfg.designer,
         scenario=cfg.scenario,
         artifact_dir=output_dir,
+        ppo_cfg=cfg.ppo,
         device=device.train_device,
     )
 
@@ -240,10 +241,10 @@ def train(cfg: TrainingConfig):
                         os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")
                     )
 
-            if isinstance(master_designer, DiskDesigner):
-                master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
             pbar.update()
             sampling_start = time.time()
+            if isinstance(master_designer, DiskDesigner):
+                master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
     finally:
         # Cleaup
         logger.close()

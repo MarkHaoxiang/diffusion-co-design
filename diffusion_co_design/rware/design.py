@@ -6,6 +6,7 @@ from typing import Literal
 import numpy as np
 import torch
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
+from torchrl.objectives.value.functional import reward2go
 from tensordict import TensorDict
 
 from diffusion_co_design.common import OUTPUT_DIR, get_latest_model
@@ -23,6 +24,7 @@ from diffusion_co_design.rware.schema import (
     DesignerConfig,
     ClassifierConfig,
     DiffusionOperation,
+    PPOConfig,
     Representation,
 )
 
@@ -76,11 +78,12 @@ class CentralisedDesigner(Designer):
         raise NotImplementedError("Use with disk designer")
 
 
-def get_env_from_td(td, scenario: ScenarioConfig):
+def get_env_from_td(td, scenario: ScenarioConfig, gamma: float = 0.99):
     done = td.get(("next", "done"))
     X = td.get("state")[done.squeeze()].to(dtype=torch.float32)
     X = X[:, : scenario.n_colors]
-    y = td.get(("next", "agents", "episode_reward")).mean(-2)[done]
+    reward = td.get(("next", "agents", "reward")).sum(dim=-2)
+    y = reward2go(reward, done=done, gamma=gamma, time_dim=-2)[:, 0].squeeze(-1)
     return X, y
 
 
@@ -89,6 +92,7 @@ class ValueDesigner(CentralisedDesigner):
         self,
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
+        gamma: float = 0.99,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
@@ -122,12 +126,13 @@ class ValueDesigner(CentralisedDesigner):
         self.n_update_iterations = n_update_iterations
         self.device = device
         self.running_loss = 0
+        self.gamma = gamma
 
     def update(self, sampling_td):
         super().update(sampling_td)
 
         # Update replay buffer
-        X, y = get_env_from_td(sampling_td, self.scenario)
+        X, y = get_env_from_td(sampling_td, self.scenario, gamma=self.gamma)
 
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
         self.env_buffer.extend(data)
@@ -185,6 +190,7 @@ class SamplingDesigner(ValueDesigner):
         self,
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
+        gamma: float = 0.99,
         n_sample: int = 5,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
@@ -197,6 +203,7 @@ class SamplingDesigner(ValueDesigner):
         super().__init__(
             scenario,
             classifier,
+            gamma=gamma,
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
             buffer_size=buffer_size,
@@ -237,6 +244,7 @@ class DiffusionDesigner(ValueDesigner):
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
         diffusion: DiffusionOperation,
+        gamma: float = 0.99,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
         buffer_size: int = 2048,
@@ -248,6 +256,7 @@ class DiffusionDesigner(ValueDesigner):
         super().__init__(
             scenario,
             classifier,
+            gamma=gamma,
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
             buffer_size=buffer_size,
@@ -381,6 +390,7 @@ class DiskDesigner(Designer):
             self.master_designer.reset()  # type: ignore
             if batch_size is not None:
                 self.force_regenerate(batch_size=batch_size, mode="eval")
+                self.environment_repeat_counter = 1
 
     def _generate_environment_weights(self, objective):
         with self.lock:
@@ -430,6 +440,7 @@ class DesignerRegistry:
     def get(
         designer: DesignerConfig,
         scenario: ScenarioConfig,
+        ppo_cfg: PPOConfig,
         artifact_dir: str,
         device: torch.device,
     ) -> tuple[Designer, Designer]:
@@ -452,6 +463,7 @@ class DesignerRegistry:
                     scenario,
                     classifier=designer.value_model,
                     diffusion=designer.diffusion,
+                    gamma=ppo_cfg.gamma,
                     n_update_iterations=designer.value_n_update_iterations,
                     train_batch_size=designer.value_train_batch_size,
                     buffer_size=designer.value_buffer_size,
@@ -483,6 +495,7 @@ class DesignerRegistry:
                 master_designer = SamplingDesigner(
                     scenario,
                     classifier=designer.value_model,
+                    gamma=ppo_cfg.gamma,
                     n_update_iterations=designer.value_n_update_iterations,
                     train_batch_size=designer.value_train_batch_size,
                     buffer_size=designer.value_buffer_size,

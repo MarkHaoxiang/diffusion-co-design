@@ -128,6 +128,7 @@ def create_env(
             render_mode="rgb_array" if render else None,
             sensor_range=3,
             max_steps=scenario.max_steps,
+            max_inactivity_steps=None,
             reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.SHAPED,
             # image_observation_layers=[
