@@ -94,11 +94,13 @@ class Generator:
 
     def generate_batch(
         self,
+        batch_size: int | None = None,
         value: nn.Module | None = None,
         use_operation: bool = False,
         operation_override: OptimizerDetails | None = None,
     ):
-        initial_noise = torch.randn(self.shape, generator=self.rng, device=device)
+        shape = self.shape(batch_size)
+        initial_noise = torch.randn(shape, generator=self.rng, device=device)
 
         # print(operation_override.__dict__)
         # assert False
@@ -139,7 +141,7 @@ class Generator:
             operation.loss_func = criterion
             sample = self.diffusion.ddim_sample_loop_operation(
                 model=self.model,
-                shape=self.shape,
+                shape=shape,
                 noise=initial_noise,
                 operated_image=operation.operated_image,
                 operation=operation,
@@ -170,12 +172,12 @@ class Generator:
 
         return sample.numpy(force=True)
 
-    @property
-    def shape(self):
+    def shape(self, batch_size: int | None = None):
+        B = batch_size or self.batch_size
         if self.representation == "image":
-            return (self.batch_size, self.n_colors, self.size, self.size)
+            return (B, self.n_colors, self.size, self.size)
         elif self.representation == "flat":
-            return (self.batch_size, 2 * self.n_shelves, 1)
+            return (B, 2 * self.n_shelves, 1)
             # return (self.batch_size, (2 + self.n_colors) * self.n_shelves, 1)
         elif self.representation == "graph":
-            return (self.batch_size, self.n_shelves, 2)
+            return (B, self.n_shelves, 2)

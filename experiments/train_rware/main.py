@@ -39,17 +39,14 @@ def train(cfg: TrainingConfig):
     assert (cfg.ppo.frames_per_batch / n_train_envs) % cfg.scenario.max_steps == 0
 
     master_designer, env_designer = DesignerRegistry.get(
-        cfg.designer,
-        cfg.scenario,
-        output_dir,
-        environment_batch_size=max(
-            n_train_envs + cfg.logging.evaluation_episodes, n_train_envs * 2 + 1
-        ),
+        designer=cfg.designer,
+        scenario=cfg.scenario,
+        artifact_dir=output_dir,
         device=device.train_device,
     )
 
     # designer.share_memory()
-    master_designer.reset()
+    master_designer.reset(batch_size=n_train_envs + cfg.logging.evaluation_episodes + 2)
     placeholder_env = create_env(
         cfg.scenario, env_designer, is_eval=False, device=device.env_device
     )
@@ -70,8 +67,6 @@ def train(cfg: TrainingConfig):
         device=device.env_device,
     )
 
-    if master_designer.environment_repeats == 1:
-        master_designer.reset()
     policy, critic = rware_models(
         placeholder_env, cfg.policy, device=device.train_device
     )
@@ -140,8 +135,7 @@ def train(cfg: TrainingConfig):
     )
 
     # Main Training Loop
-    master_designer.reset()
-
+    master_designer.reset(batch_size=n_train_envs)
     try:
         logger.begin()
         total_time, total_frames = 0.0, 0
@@ -208,9 +202,8 @@ def train(cfg: TrainingConfig):
                 and iteration % cfg.logging.evaluation_interval == 0
             ):
                 evaluation_start = time.time()
-                with (
-                    torch.no_grad(),
-                ):
+                master_designer.reset(batch_size=cfg.logging.evaluation_episodes * 2)
+                with torch.no_grad():
                     frames = []
 
                     def callback(env, td):
@@ -221,6 +214,7 @@ def train(cfg: TrainingConfig):
                         policy=policy,
                         callback=callback,
                         auto_cast_to_device=True,
+                        break_when_all_done=True,
                     )
 
                     evaluation_time = time.time() - evaluation_start
@@ -241,6 +235,7 @@ def train(cfg: TrainingConfig):
                         os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")
                     )
 
+            master_designer.reset(batch_size=n_train_envs)
             pbar.update()
             sampling_start = time.time()
     finally:

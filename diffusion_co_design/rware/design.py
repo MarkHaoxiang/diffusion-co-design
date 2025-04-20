@@ -65,7 +65,7 @@ class RandomDesigner(Designer):
 
 class CentralisedDesigner(Designer):
     @abstractmethod
-    def reset_env_buffer(self) -> list:
+    def reset_env_buffer(self, batch_size: int) -> list:
         raise NotImplementedError
 
     def forward(self, objective):
@@ -110,12 +110,12 @@ class ValueDesigner(CentralisedDesigner):
         )
         self.criterion = torch.nn.MSELoss()
 
-        self.batch_size = train_batch_size
         self.buffer_size = buffer_size
+        self.train_batch_size = train_batch_size
         self.env_buffer = ReplayBuffer(
             storage=LazyTensorStorage(max_size=buffer_size),
             sampler=SamplerWithoutReplacement(),
-            batch_size=self.batch_size,
+            batch_size=self.train_batch_size,
         )
 
         self.n_update_iterations = n_update_iterations
@@ -132,12 +132,12 @@ class ValueDesigner(CentralisedDesigner):
         self.env_buffer.extend(data)
 
         # Train
-        if len(self.env_buffer) >= self.batch_size:
+        if len(self.env_buffer) >= self.train_batch_size:
             self.running_loss = 0
             self.model.train()
             for _ in range(self.n_update_iterations):
                 self.optim.zero_grad()
-                sample = self.env_buffer.sample(batch_size=self.batch_size)
+                sample = self.env_buffer.sample(batch_size=self.train_batch_size)
                 X_batch = sample.get("env").to(dtype=torch.float32, device=self.device)
                 # Data Preprocessing
                 match self.representation:
@@ -184,7 +184,6 @@ class SamplingDesigner(ValueDesigner):
         self,
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
-        generator_batch_size: int,
         n_sample: int = 5,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
@@ -205,31 +204,28 @@ class SamplingDesigner(ValueDesigner):
             environment_repeats=environment_repeats,
             device=device,
         )
-        self._generate_args = (
-            scenario.size,
-            scenario.n_shelves,
-            scenario.agent_idxs,
-            scenario.goal_idxs,
-            scenario.n_colors,
-        )
         self.n_sample = n_sample
-        self.generator_batch_size = generator_batch_size
 
-    def reset_env_buffer(self):
+    def reset_env_buffer(self, batch_size: int):
+        B = batch_size
         self.model.eval()
         X_numpy: np.ndarray = np.array(
-            generate(*self._generate_args, n=self.generator_batch_size * self.n_sample)
+            generate(
+                size=self.scenario.size,
+                n_shelves=self.scenario.n_shelves,
+                goal_idxs=self.scenario.goal_idxs,
+                n_colors=self.scenario.n_colors,
+                n=B * self.n_sample,
+            )
         )
         X_torch = torch.tensor(X_numpy, dtype=torch.float32, device=self.device)
         X_torch = X_torch * 2 - 1
         y: torch.Tensor = self.model(X_torch).squeeze()
 
-        y = y.reshape(self.generator_batch_size, self.n_sample)
-        X_numpy = X_numpy.reshape(
-            (self.generator_batch_size, self.n_sample, *X_numpy.shape[1:])
-        )
+        y = y.reshape(B, self.n_sample)
+        X_numpy = X_numpy.reshape((B, self.n_sample, *X_numpy.shape[1:]))
         indices = y.argmax(dim=1).numpy(force=True)
-        batch = list(X_numpy[np.arange(self.generator_batch_size), indices])
+        batch = list(X_numpy[np.arange(B), indices])
 
         return batch
 
@@ -239,7 +235,6 @@ class DiffusionDesigner(ValueDesigner):
         self,
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
-        generator_batch_size: int,
         diffusion: DiffusionOperation,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
@@ -260,7 +255,6 @@ class DiffusionDesigner(ValueDesigner):
             environment_repeats=environment_repeats,
             device=device,
         )
-        self.generator = None
 
         pretrain_dir = os.path.join(
             OUTPUT_DIR, "rware", "diffusion", self.representation, scenario.name
@@ -271,17 +265,17 @@ class DiffusionDesigner(ValueDesigner):
             generator_model_path=latest_checkpoint,
             scenario=scenario,
             representation=self.representation,  # type: ignore
-            batch_size=generator_batch_size,
             guidance_wt=diffusion.forward_guidance_wt,
         )
 
         self.diffusion = diffusion
         self.early_start = diffusion.early_start
 
-    def reset_env_buffer(self):
+    def reset_env_buffer(self, batch_size: int):
+        B = batch_size
         batch = []
         if len(self.env_buffer) < self.buffer_size and self.early_start:
-            for _ in range(self.generator.batch_size):
+            for _ in range(B):
                 batch.append(
                     np.array(
                         generate(
@@ -314,10 +308,11 @@ class DiffusionDesigner(ValueDesigner):
             self.model.eval()
 
             for env in self.generator.generate_batch(
-                value=self.model, use_operation=True, operation_override=operation
+                value=self.model,
+                use_operation=True,
+                operation_override=operation,
+                batch_size=B,
             ):
-                # for env in self.generator.generate_batch():
-                # for env in self.generator.generate_batch(value=self.model):
                 batch.append(env)
         return batch
 
@@ -348,9 +343,9 @@ class DiskDesigner(Designer):
         self.lock = lock
         self.buffer_path = os.path.join(artifact_dir, "designer_buffer.pkl")
 
-    def force_regenerate(self):
-        assert self.is_master
-        batch = self.master_designer.reset_env_buffer()
+    def force_regenerate(self, batch_size: int):
+        assert self.master_designer
+        batch = self.master_designer.reset_env_buffer(batch_size)
         with open(self.buffer_path, "wb") as f:
             pkl.dump(batch, f)
 
@@ -367,18 +362,18 @@ class DiskDesigner(Designer):
             if self.environment_repeat_counter == 0:
                 self.force_regenerate()
 
-    def reset(self):
-        super().reset()
+    def reset(self, batch_size: int, **kwargs):  # type: ignore
+        super().reset(**kwargs)
         if self.is_master:
-            self.master_designer.reset()
-            self.force_regenerate()
+            self.master_designer.reset()  # type: ignore
+            self.force_regenerate(batch_size=batch_size)
 
     def _generate_environment_weights(self, objective):
         with self.lock:
             with open(self.buffer_path, "rb") as f:
                 batch = pkl.load(f)
             if len(batch) <= 0 and self.is_master:
-                batch = self.master_designer.reset_env_buffer(write=False)
+                batch = self.master_designer.reset_env_buffer()
             elif len(batch) <= 0 and not self.is_master:
                 assert False, "Hack failed"
             res = batch.pop()
@@ -422,7 +417,6 @@ class DesignerRegistry:
         designer: DesignerConfig,
         scenario: ScenarioConfig,
         artifact_dir: str,
-        environment_batch_size: int,
         device: torch.device,
     ) -> tuple[Designer, Designer]:
         match designer.type:
@@ -444,7 +438,6 @@ class DesignerRegistry:
                     scenario,
                     classifier=designer.value_model,
                     diffusion=designer.diffusion,
-                    generator_batch_size=environment_batch_size,
                     n_update_iterations=designer.value_n_update_iterations,
                     train_batch_size=designer.value_train_batch_size,
                     buffer_size=designer.value_buffer_size,
@@ -476,7 +469,6 @@ class DesignerRegistry:
                 master_designer = SamplingDesigner(
                     scenario,
                     classifier=designer.value_model,
-                    generator_batch_size=environment_batch_size,
                     n_update_iterations=designer.value_n_update_iterations,
                     train_batch_size=designer.value_train_batch_size,
                     buffer_size=designer.value_buffer_size,

@@ -1,7 +1,7 @@
 name: gnn-cnn
 representation: graph
 model_kwargs:
-  width: 128
+  width: 64
   depth: 2
-  top_k: 9
+  top_k: 5
   add_goal_positions: true

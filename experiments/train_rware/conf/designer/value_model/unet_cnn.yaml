@@ -2,4 +2,4 @@ name: unet-cnn
 representation: image
 model_kwargs:
   width: 128
-  depth: 3
+  depth: 2

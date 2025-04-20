@@ -39,7 +39,7 @@ class BaseDesigner(nn.Module, ABC):
     def update(self, sampling_td: TensorDict):
         self.update_counter += 1
 
-    def reset(self):
+    def reset(self, **kwargs):
         self.environment_repeat_counter = 0
         self.previous_environment = None
 

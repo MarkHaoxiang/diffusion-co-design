@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: random
+  - designer: diffusion_test
 
 experiment_name: rware_test
 scenario_name: rware_16_50_5_4_corners
@@ -20,11 +20,11 @@ ppo:
   entropy_eps: 1e-4
   normalise_advantage: false
 policy:
-  version: "v2"
+  version: "v1"
 start_from_checkpoint: null
 
 logging:
   mode: disabled
   evaluation_interval: 1
-  evaluation_episodes: 1
+  evaluation_episodes: 2
   checkpoint_interval: 999
