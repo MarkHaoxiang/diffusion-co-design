@@ -24,7 +24,7 @@ from diffusion_co_design.common import RLExperimentLogger, memory_management
 from diffusion_co_design.common.ppo import group_optimizers
 from diffusion_co_design.rware.env import create_batched_env, create_env
 from diffusion_co_design.rware.model.rl import rware_models
-from diffusion_co_design.rware.design import DesignerRegistry
+from diffusion_co_design.rware.design import DesignerRegistry, DiskDesigner
 from diffusion_co_design.rware.schema import TrainingConfig
 from diffusion_co_design.common import start_from_checkpoint
 
@@ -202,7 +202,12 @@ def train(cfg: TrainingConfig):
                 and iteration % cfg.logging.evaluation_interval == 0
             ):
                 evaluation_start = time.time()
-                master_designer.reset(batch_size=cfg.logging.evaluation_episodes * 2)
+                if isinstance(master_designer, DiskDesigner):
+                    master_designer.force_regenerate(
+                        batch_size=cfg.logging.evaluation_episodes * 2,
+                        mode="eval",
+                    )
+
                 with torch.no_grad():
                     frames = []
 
@@ -235,7 +240,8 @@ def train(cfg: TrainingConfig):
                         os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")
                     )
 
-            master_designer.reset(batch_size=n_train_envs)
+            if isinstance(master_designer, DiskDesigner):
+                master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
             pbar.update()
             sampling_start = time.time()
     finally:

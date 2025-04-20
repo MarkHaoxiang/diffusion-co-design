@@ -22,7 +22,7 @@ LoggerTypes = Literal["wandb", "csv"] | None
 
 
 class LoggingConfig(Config):
-    mode: str = "online"
+    mode: Literal["online", "offline", "disabled"] = "online"
     evaluation_interval: int = 20
     evaluation_episodes: int = 5
     checkpoint_interval: int = 50

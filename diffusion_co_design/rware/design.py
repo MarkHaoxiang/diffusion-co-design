@@ -1,6 +1,7 @@
 from abc import abstractmethod
 import os
 import pickle as pkl
+from typing import Literal
 
 import numpy as np
 import torch
@@ -343,11 +344,28 @@ class DiskDesigner(Designer):
         self.lock = lock
         self.buffer_path = os.path.join(artifact_dir, "designer_buffer.pkl")
 
-    def force_regenerate(self, batch_size: int):
+    def force_regenerate(
+        self, batch_size: int, mode: Literal["train", "eval"] = "train"
+    ):
         assert self.master_designer
-        batch = self.master_designer.reset_env_buffer(batch_size)
-        with open(self.buffer_path, "wb") as f:
-            pkl.dump(batch, f)
+
+        def regenerate():
+            with self.lock:
+                batch = self.master_designer.reset_env_buffer(batch_size)
+                with open(self.buffer_path, "wb") as f:
+                    pkl.dump(batch, f)
+
+        match mode:
+            case "train":
+                self.environment_repeat_counter = (
+                    self.environment_repeat_counter + 1
+                ) % self.environment_repeats
+                if self.environment_repeat_counter == 0:
+                    regenerate()
+            case "eval":
+                regenerate()
+            case _:
+                raise ValueError(f"Unknown mode {mode}")
 
     def forward(self, objective):
         return self.generate_environment_weights(objective)
@@ -355,18 +373,14 @@ class DiskDesigner(Designer):
     def update(self, sampling_td):
         super().update(sampling_td)
         if self.is_master:
-            self.environment_repeat_counter = (
-                self.environment_repeat_counter + 1
-            ) % self.environment_repeats
             self.master_designer.update(sampling_td)
-            if self.environment_repeat_counter == 0:
-                self.force_regenerate()
 
-    def reset(self, batch_size: int, **kwargs):  # type: ignore
+    def reset(self, batch_size: int | None = None, **kwargs):  # type: ignore
         super().reset(**kwargs)
         if self.is_master:
             self.master_designer.reset()  # type: ignore
-            self.force_regenerate(batch_size=batch_size)
+            if batch_size is not None:
+                self.force_regenerate(batch_size=batch_size, mode="eval")
 
     def _generate_environment_weights(self, objective):
         with self.lock:
