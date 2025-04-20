@@ -80,10 +80,12 @@ class CentralisedDesigner(Designer):
 
 def get_env_from_td(td, scenario: ScenarioConfig, gamma: float = 0.99):
     done = td.get(("next", "done"))
-    X = td.get("state")[done.squeeze()].to(dtype=torch.float32)
+    X = td.get("state")[done.squeeze(-1)].to(dtype=torch.float32)
     X = X[:, : scenario.n_colors]
     reward = td.get(("next", "agents", "reward")).sum(dim=-2)
-    y = reward2go(reward, done=done, gamma=gamma, time_dim=-2)[:, 0].squeeze(-1)
+    y = reward2go(reward, done=done, gamma=gamma, time_dim=-2)
+    y = y.reshape(-1, scenario.max_steps)
+    y = y[:, 0]
     return X, y
 
 
