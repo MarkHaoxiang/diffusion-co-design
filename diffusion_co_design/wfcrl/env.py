@@ -95,6 +95,13 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         )
         return state
 
+    def _build_agent_spaces(self):
+        super()._build_agent_spaces()
+        for i, agent in enumerate(self.possible_agents):
+            self._obs_spaces[agent]["layout"] = spaces.Box(
+                low=0, high=np.inf, shape=(2,), dtype=np.float64
+            )
+
 
 class WfcrlCoDesignWrapper(PettingZooWrapper):
     def __init__(

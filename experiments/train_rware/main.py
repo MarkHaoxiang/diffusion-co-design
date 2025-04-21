@@ -35,7 +35,7 @@ def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     device = memory_management(cfg.memory_management)
 
-    n_train_envs = min(1, cfg.ppo.frames_per_batch // cfg.scenario.max_steps)
+    n_train_envs = min(20, cfg.ppo.frames_per_batch // cfg.scenario.max_steps)
     assert (cfg.ppo.frames_per_batch / n_train_envs) % cfg.scenario.max_steps == 0
 
     master_designer, env_designer = DesignerRegistry.get(
@@ -244,6 +244,7 @@ def train(cfg: TrainingConfig):
             pbar.update()
             sampling_start = time.time()
             if isinstance(master_designer, DiskDesigner):
+                # TODO: This relies on an faulty assumption of 1 episode rollout per process per iteration.
                 master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
     finally:
         # Cleaup
