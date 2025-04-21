@@ -5,9 +5,11 @@ from typing import Literal
 
 import numpy as np
 import torch
+from torchrl.envs import EnvBase
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from torchrl.objectives.value.functional import reward2go
 from tensordict import TensorDict
+from tensordict.nn import TensorDictModule
 
 from diffusion_co_design.common import OUTPUT_DIR, get_latest_model
 from diffusion_co_design.rware.model.classifier import make_model, image_to_pos_colors
@@ -49,17 +51,15 @@ class Designer(BaseDesigner):
 
 
 class RandomDesigner(Designer):
-    def __init__(self, scenario: ScenarioConfig, environment_repeats: int = 1):
-        super().__init__(scenario, environment_repeats)
-        self._generate_kwargs = {
-            "size": scenario.size,
-            "n_shelves": scenario.n_shelves,
-            "goal_idxs": scenario.goal_idxs,
-            "n_colors": scenario.n_colors,
-        }
-
     def forward(self, objective):
-        env = torch.tensor(generate(**self._generate_kwargs)[0])
+        env = torch.tensor(
+            generate(
+                size=self.scenario.size,
+                n_shelves=self.scenario.n_shelves,
+                goal_idxs=self.scenario.goal_idxs,
+                n_colors=self.scenario.n_colors,
+            )[0]
+        )
         return env
 
     def _generate_environment_weights(self, objective):
@@ -101,6 +101,8 @@ class ValueDesigner(CentralisedDesigner):
         lr: float = 3e-5,
         weight_decay: float = 0.0,
         environment_repeats: int = 1,
+        distill_from_critic: bool = False,
+        distill_samples: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario, environment_repeats=environment_repeats)
@@ -130,6 +132,13 @@ class ValueDesigner(CentralisedDesigner):
         self.running_loss = 0
         self.gamma = gamma
 
+        self.distill_from_critic = distill_from_critic
+        self.distill_samples = distill_samples
+        self.critic: TensorDictModule | None = None
+        self.ref_env: EnvBase | None = None
+        if self.distill_from_critic:
+            self.manual_designer = FixedDesigner(scenario=scenario)
+
     def update(self, sampling_td):
         super().update(sampling_td)
 
@@ -139,6 +148,11 @@ class ValueDesigner(CentralisedDesigner):
         data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
         self.env_buffer.extend(data)
 
+        if self.distill_from_critic:
+            assert self.critic is not None
+            assert self.ref_env is not None
+            self.ref_env._reset_policy = self.manual_designer.to_td_module()
+
         # Train
         if len(self.env_buffer) >= self.train_batch_size:
             self.running_loss = 0
@@ -147,7 +161,39 @@ class ValueDesigner(CentralisedDesigner):
                 self.optim.zero_grad()
                 sample = self.env_buffer.sample(batch_size=self.train_batch_size)
                 X_batch = sample.get("env").to(dtype=torch.float32, device=self.device)
+
                 # Data Preprocessing
+
+                if self.distill_from_critic:
+                    assert self.critic is not None
+                    assert self.ref_env is not None
+                    observations_tds = []
+                    for env_image in X_batch:
+                        observations_tds.append([])
+                        self.manual_designer.layout_image = env_image
+                        for _ in range(self.distill_samples):
+                            observations_tds[-1].append(self.ref_env.reset())
+                        observations_tds[-1] = torch.stack(observations_tds[-1])
+                    observations_tds = torch.stack(observations_tds)
+                    self.critic.eval()
+                    with torch.no_grad():
+                        y_batch = self.critic(observations_tds).get(
+                            ("agents", "state_value")
+                        )
+                        assert y_batch.shape == (
+                            self.train_batch_size,
+                            self.distill_samples,
+                            self.scenario.n_agents,
+                            1,
+                        )
+                        y_batch = y_batch.mean(dim=-2)
+                        y_batch = y_batch.sum(dim=-1)
+                        y_batch = y_batch.squeeze(-1)
+                else:
+                    y_batch = sample.get("episode_reward").to(
+                        dtype=torch.float32, device=self.device
+                    )
+
                 match self.representation:
                     case "graph":
                         pos, colors = image_to_pos_colors(
@@ -160,10 +206,6 @@ class ValueDesigner(CentralisedDesigner):
                         )
                     case "image":
                         X_batch = X_batch * 2 - 1
-
-                y_batch = sample.get("episode_reward").to(
-                    dtype=torch.float32, device=self.device
-                )
 
                 # Timesteps
                 # t, _ = self.generator.schedule_sampler.sample(len(X_batch), self.device)
@@ -200,6 +242,8 @@ class SamplingDesigner(ValueDesigner):
         lr: float = 3e-5,
         weight_decay: float = 0.05,
         environment_repeats: int = 1,
+        distill_from_critic: bool = False,
+        distill_samples: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -212,6 +256,8 @@ class SamplingDesigner(ValueDesigner):
             lr=lr,
             weight_decay=weight_decay,
             environment_repeats=environment_repeats,
+            distill_from_critic=distill_from_critic,
+            distill_samples=distill_samples,
             device=device,
         )
         self.n_sample = n_sample
@@ -253,6 +299,8 @@ class DiffusionDesigner(ValueDesigner):
         lr: float = 3e-5,
         weight_decay: float = 0.0,
         environment_repeats: int = 1,
+        distill_from_critic: bool = False,
+        distill_samples: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -265,6 +313,8 @@ class DiffusionDesigner(ValueDesigner):
             lr=lr,
             weight_decay=weight_decay,
             environment_repeats=environment_repeats,
+            distill_from_critic=distill_from_critic,
+            distill_samples=distill_samples,
             device=device,
         )
 
@@ -471,6 +521,8 @@ class DesignerRegistry:
                     buffer_size=designer.value_buffer_size,
                     lr=designer.value_lr,
                     weight_decay=designer.value_weight_decay,
+                    distill_from_critic=designer.value_distill_enable,
+                    distill_samples=designer.value_distill_samples,
                     device=device,
                 )
                 master = DiskDesigner(
@@ -503,6 +555,8 @@ class DesignerRegistry:
                     buffer_size=designer.value_buffer_size,
                     lr=designer.value_lr,
                     weight_decay=designer.value_weight_decay,
+                    distill_from_critic=designer.value_distill_enable,
+                    distill_samples=designer.value_distill_samples,
                     device=device,
                 )
                 master = DiskDesigner(

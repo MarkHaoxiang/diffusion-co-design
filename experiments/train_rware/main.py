@@ -72,6 +72,12 @@ def train(cfg: TrainingConfig):
         placeholder_env, cfg.policy, device=device.train_device
     )
 
+    if isinstance(master_designer, DiskDesigner):
+        master_designer.master_designer.critic = critic
+        master_designer.master_designer.ref_env = create_env(
+            cfg.scenario, designer=None, is_eval=False, device=device.env_device
+        )
+
     collector = SyncDataCollector(
         train_env,
         policy,
@@ -186,10 +192,10 @@ def train(cfg: TrainingConfig):
                     training_log_td.set("grad_norm", grad_norm.mean())
                     training_tds.append(loss_vals.detach())
 
-            collector.update_policy_weights_()
-
-            # Designer (aka diffusion policy) update
             master_designer.update(sampling_td)
+            del minibatch
+            collector.update_policy_weights_()
+            # Designer (aka diffusion policy) update
 
             training_time = time.time() - training_start
             total_time += sampling_time + training_time

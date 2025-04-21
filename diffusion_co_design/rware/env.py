@@ -12,7 +12,7 @@ from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
 from diffusion_co_design.rware.diffusion.transform import storage_to_layout
-from diffusion_co_design.rware.design import ScenarioConfig, Designer
+from diffusion_co_design.rware.design import ScenarioConfig, Designer, FixedDesigner
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
@@ -102,7 +102,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
 
 def create_env(
     scenario: ScenarioConfig,
-    designer: Designer,
+    designer: Designer | None,
     is_eval: bool = False,
     render: bool = False,
     device: str | None = None,
@@ -113,6 +113,9 @@ def create_env(
     # Or does this even matter if everything is fixed for initial experiments?
     # if is_eval:  # Temp generalisation_experiment
     # design_policy = FixedDesigner(scenario)
+
+    if designer is None:
+        designer = FixedDesigner(scenario)
 
     scenario_objective = {
         "agent_positions": torch.tensor(scenario.agent_idxs),

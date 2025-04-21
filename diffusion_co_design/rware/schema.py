@@ -65,6 +65,8 @@ class DesignerConfig(Config):
     value_buffer_size: int = 4096
     value_weight_decay: float = 0.05
     value_lr: float = 3e-5
+    value_distill_enable: bool = False
+    value_distill_samples: int = 1
     diffusion: DiffusionOperation = DiffusionOperation()
 
 
