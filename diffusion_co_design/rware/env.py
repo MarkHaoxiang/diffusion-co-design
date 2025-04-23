@@ -52,28 +52,30 @@ class RwareCoDesignWrapper(PettingZooWrapper):
     def _reset(self, tensordict: TensorDict | None = None, **kwargs):
         """Extract the layout from tensordict and pass to env"""
 
-        if (
-            self._env._environment_objective is not None
-            and self._env._reset_policy is not None
-        ):
+        if self._env._reset_policy is not None:
             # Should recompute layout
+
             if tensordict is not None:
-                tensordict[("environment_design", "objective")] = (
-                    self._env._environment_objective
-                )
+                if self._env._environment_objective is not None:
+                    tensordict[("environment_design", "objective")] = (
+                        self._env._environment_objective
+                    )
                 reset_policy_output = self._env._reset_policy(tensordict)
                 tensordict.update(
                     reset_policy_output, keys_to_update=reset_policy_output.keys()
                 )
             else:
-                td = TensorDict(
-                    {
-                        (
-                            "environment_design",
-                            "objective",
-                        ): self._env._environment_objective
-                    }
-                )
+                if self._env._environment_objective is not None:
+                    td = TensorDict(
+                        {
+                            (
+                                "environment_design",
+                                "objective",
+                            ): self._env._environment_objective
+                        }
+                    )
+                else:
+                    td = TensorDict({}, device=self.device)
                 reset_policy_output = self._env._reset_policy(td)
             layout = storage_to_layout(
                 features=reset_policy_output.get(

@@ -66,6 +66,21 @@ class RandomDesigner(Designer):
         return self.forward(objective)
 
 
+class FixedDesigner(Designer):
+    def __init__(self, scenario):
+        super().__init__(scenario)
+        self.layout_image = torch.nn.Parameter(
+            RandomDesigner(scenario)._generate_environment_weights(None),
+            requires_grad=False,
+        )
+
+    def forward(self, objective):
+        return self.layout_image.data
+
+    def _generate_environment_weights(self, objective):
+        return self.layout_image
+
+
 class CentralisedDesigner(Designer):
     @abstractmethod
     def reset_env_buffer(self, batch_size: int) -> list:
@@ -163,7 +178,7 @@ class ValueDesigner(CentralisedDesigner):
         if self.distill_from_critic:
             assert self.critic is not None
             assert self.ref_env is not None
-            self.ref_env._reset_policy = self.manual_designer.to_td_module()
+            self.ref_env._env._reset_policy = self.manual_designer.to_td_module()
 
         # Train
         if len(self.env_buffer) >= self.train_batch_size:
@@ -183,7 +198,7 @@ class ValueDesigner(CentralisedDesigner):
                     observations_tds = []
                     for env_image in X_img:
                         observations_tds.append([])
-                        self.manual_designer.layout_image = env_image
+                        self.manual_designer.layout_image.data.copy_(env_image)
                         for _ in range(self.distill_samples):
                             observations_tds[-1].append(self.ref_env.reset())
                         observations_tds[-1] = torch.stack(observations_tds[-1])
@@ -199,9 +214,10 @@ class ValueDesigner(CentralisedDesigner):
                             self.scenario.n_agents,
                             1,
                         ), y_batch.shape
+                        y_batch = y_batch.sum(dim=-2)
                         y_batch = y_batch.mean(dim=-2)
-                        y_batch = y_batch.sum(dim=-1)
                         y_batch = y_batch.squeeze(-1)
+                        assert y_batch.shape == (self.train_batch_size,)
                 else:
                     y_batch = sample.get("episode_reward").to(
                         dtype=torch.float32, device=self.device
@@ -223,9 +239,10 @@ class ValueDesigner(CentralisedDesigner):
                 self.optim.step()
             # Logs
             self.running_loss = self.running_loss / self.n_update_iterations
+
         if self.representation == "graph":
-            X = (X["pos"], X["colors"])
-        classifier_prediction = self.model.predict(X)
+            X_post = (X_post["pos"], X_post["colors"])
+        classifier_prediction = self.model.predict(X_post)
         self.classifier_prediction_mean = classifier_prediction.mean().item()
         self.classifier_prediction_max = classifier_prediction.max().item()
         self.classifier_prediction_min = classifier_prediction.min().item()
@@ -256,7 +273,7 @@ class SamplingDesigner(ValueDesigner):
         train_batch_size: int = 64,
         buffer_size: int = 2048,
         lr: float = 3e-5,
-        weight_decay: float = 0.05,
+        weight_decay: float = 0.00,
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
@@ -482,18 +499,6 @@ class DiskDesigner(Designer):
         if self.is_master:
             return self.master_designer.get_model()
         return super().get_model()
-
-
-class FixedDesigner(Designer):
-    def __init__(self, scenario):
-        super().__init__(scenario)
-        self.layout_image = RandomDesigner(scenario)._generate_environment_weights(None)
-
-    def forward(self, objective):
-        return self.layout_image
-
-    def _generate_environment_weights(self, objective):
-        return self.layout_image
 
 
 class DesignerRegistry:
