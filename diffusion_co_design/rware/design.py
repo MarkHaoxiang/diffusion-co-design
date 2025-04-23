@@ -123,7 +123,7 @@ class ValueDesigner(CentralisedDesigner):
         self.train_batch_size = train_batch_size
         self.env_buffer = ReplayBuffer(
             storage=LazyTensorStorage(max_size=buffer_size),
-            sampler=SamplerWithoutReplacement(),
+            sampler=SamplerWithoutReplacement(drop_last=True),
             batch_size=self.train_batch_size,
         )
 
@@ -144,8 +144,20 @@ class ValueDesigner(CentralisedDesigner):
 
         # Update replay buffer
         X, y = get_env_from_td(sampling_td, self.scenario, gamma=self.gamma)
+        match self.representation:
+            case "graph":
+                pos, colors = image_to_pos_colors(X, self.scenario.n_shelves)
+                pos = (pos / (self.scenario.size - 1)) * 2 - 1
+                X_post = {
+                    "pos": pos.to(dtype=torch.float32, device=self.device),
+                    "colors": colors.to(dtype=torch.float32, device=self.device),
+                }
+            case "image":
+                X_post = X * 2 - 1
 
-        data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
+        data = TensorDict(
+            {"env": X, "env_post": X_post, "episode_reward": y}, batch_size=len(y)
+        )
         self.env_buffer.extend(data)
 
         if self.distill_from_critic:
@@ -160,15 +172,16 @@ class ValueDesigner(CentralisedDesigner):
             for _ in range(self.n_update_iterations):
                 self.optim.zero_grad()
                 sample = self.env_buffer.sample(batch_size=self.train_batch_size)
-                X_batch = sample.get("env").to(dtype=torch.float32, device=self.device)
-
-                # Data Preprocessing
+                X_batch = sample.get("env_post").to(
+                    dtype=torch.float32, device=self.device
+                )
 
                 if self.distill_from_critic:
                     assert self.critic is not None
                     assert self.ref_env is not None
+                    X_img = sample.get("env")
                     observations_tds = []
-                    for env_image in X_batch:
+                    for env_image in X_img:
                         observations_tds.append([])
                         self.manual_designer.layout_image = env_image
                         for _ in range(self.distill_samples):
@@ -185,7 +198,7 @@ class ValueDesigner(CentralisedDesigner):
                             self.distill_samples,
                             self.scenario.n_agents,
                             1,
-                        )
+                        ), y_batch.shape
                         y_batch = y_batch.mean(dim=-2)
                         y_batch = y_batch.sum(dim=-1)
                         y_batch = y_batch.squeeze(-1)
@@ -194,18 +207,9 @@ class ValueDesigner(CentralisedDesigner):
                         dtype=torch.float32, device=self.device
                     )
 
-                match self.representation:
-                    case "graph":
-                        pos, colors = image_to_pos_colors(
-                            X_batch, self.scenario.n_shelves
-                        )
-                        pos = (pos / (self.scenario.size - 1)) * 2 - 1
-                        X_batch = (
-                            pos.to(dtype=torch.float32, device=self.device),
-                            colors.to(dtype=torch.float32, device=self.device),
-                        )
-                    case "image":
-                        X_batch = X_batch * 2 - 1
+                # Data Preprocessing
+                if self.representation == "graph":
+                    X_batch = (X_batch["pos"], X_batch["colors"])
 
                 # Timesteps
                 # t, _ = self.generator.schedule_sampler.sample(len(X_batch), self.device)
@@ -217,10 +221,22 @@ class ValueDesigner(CentralisedDesigner):
                 loss.backward()
                 self.running_loss += loss.item()
                 self.optim.step()
+            # Logs
             self.running_loss = self.running_loss / self.n_update_iterations
+        if self.representation == "graph":
+            X = (X["pos"], X["colors"])
+        classifier_prediction = self.model.predict(X)
+        self.classifier_prediction_mean = classifier_prediction.mean().item()
+        self.classifier_prediction_max = classifier_prediction.max().item()
+        self.classifier_prediction_min = classifier_prediction.min().item()
 
     def get_logs(self):
-        return {"designer_loss": self.running_loss}
+        return {
+            "designer_loss": self.running_loss,
+            "classifier_prediction_mean": self.classifier_prediction_mean,
+            "classifier_prediction_max": self.classifier_prediction_max,
+            "classifier_prediction_min": self.classifier_prediction_min,
+        }
 
     def get_model(self):
         return self.model

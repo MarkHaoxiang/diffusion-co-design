@@ -128,6 +128,136 @@ class UnetCNNClassifier(ImageClassifier):
         return self.model(image).squeeze(-1)
 
 
+# =====
+# Custom CNN Module
+# =====
+# Adapted from guided_diffusion EncoderUNetModel
+# 1. Removes timestep embeddings
+# 2. Removes some checkpointing for backwards speed at the cost of memory
+# 3. Simplifications
+# 4. Some adaptions to make it more suitable as a multi-agent critic
+
+
+class CustomCNNClassifier(ImageClassifier):
+    def __init__(
+        self,
+        cfg: ScenarioConfig,
+        in_channels: int | None = None,
+        dropout: float = 0,
+        model_channels: int = 128,
+        out_channels: int = 1,
+        num_res_blocks: int = 2,
+        attention_resolutions: tuple[int, ...] = (16, 8, 4),
+        channel_mult: tuple[int, ...] = (1, 2, 2, 2),
+        num_attention_heads: int = 1,
+        num_attention_head_channels: int = 64,
+        use_new_attention_order: bool = True,
+        resblock_updown: bool = True,
+        downsample_conv_resample: bool = False,
+    ):
+        super().__init__(cfg)
+        image_size = cfg.size
+        if in_channels is None:
+            in_channels = cfg.n_colors
+
+        ch = int(channel_mult[0] * model_channels)
+
+        attention_resolutions = tuple(image_size // x for x in attention_resolutions)
+
+        # Input block
+        self.input_blocks = nn.ModuleList(
+            [
+                conv_nd(
+                    dims=2,
+                    in_channels=in_channels,
+                    out_channels=ch,
+                    kernel_size=3,
+                    padding=1,
+                )
+            ]
+        )
+
+        self._feature_size = ch
+        input_block_channels = [ch]
+        ds = 1
+        for level, mult in enumerate(channel_mult):
+            for _ in range(num_res_blocks):
+                out_ch = int(mult * model_channels)
+                self.input_blocks.append(
+                    ResBlock(
+                        channels=ch,
+                        dropout=dropout,
+                        out_channels=out_ch,
+                    )
+                )
+                ch = out_ch
+                if ds in attention_resolutions:
+                    self.input_blocks.append(
+                        AttentionBlock(
+                            channels=ch,
+                            num_heads=num_attention_heads,
+                            num_head_channels=num_attention_head_channels,
+                            use_new_attention_order=use_new_attention_order,
+                        )
+                    )
+                self._feature_size += ch
+                input_block_channels.append(ch)
+
+            if level < len(channel_mult) - 1:  # Not last
+                if resblock_updown:
+                    self.input_blocks.append(
+                        ResBlock(channels=ch, dropout=dropout, updown="down")
+                    )
+                else:
+                    self.input_blocks.append(
+                        Downsample(channels=ch, use_conv=downsample_conv_resample)
+                    )
+                input_block_channels.append(ch)
+                ds *= 2
+                self._feature_size += ch
+
+        # Middle block
+        self.middle_block = nn.Sequential(
+            ResBlock(channels=ch, dropout=dropout),
+            AttentionBlock(
+                channels=ch,
+                num_heads=num_attention_heads,
+                num_head_channels=num_attention_head_channels,
+                use_new_attention_order=use_new_attention_order,
+            ),
+            ResBlock(channels=ch, dropout=dropout),
+        )
+        self._feature_size += ch
+
+        # Flatten out
+        self.out = nn.Sequential(
+            normalization(ch),
+            nn.SiLU(),
+            AttentionPool2d(
+                spacial_dim=(image_size // ds),
+                embed_dim=ch,
+                num_heads_channels=num_attention_head_channels,
+                output_dim=out_channels,
+            ),
+        )
+
+    def forward(self, x):
+        """
+        Apply the model to an input batch.
+
+        :param x: an [N x C x ...] Tensor of inputs.
+        :param timesteps: a 1-D batch of timesteps.
+        :return: an [N x K] Tensor of outputs.
+        """
+
+        h = x.type(torch.float32)
+        for module in self.input_blocks:
+            h = module(h)
+        h = self.middle_block(h)
+        h = h.type(torch.float32)
+        return self.out(h).squeeze(-1)
+
+
 class GNNCNN(GraphClassifier):
     def __init__(
         self,
@@ -136,19 +266,29 @@ class GNNCNN(GraphClassifier):
         depth: int = 2,
         top_k: int = 5,
         add_goal_positions: bool = False,
+        use_custom_backbone: bool = True,
     ):
         super().__init__(cfg)
-        model_dict = classifier_defaults()
-        model_dict["image_size"] = cfg.size
+
         self.num_channels = cfg.n_colors + 1 * add_goal_positions
-        model_dict["image_channels"] = self.num_channels
+        if use_custom_backbone:
+            self.model = CustomCNNClassifier(
+                cfg=cfg,
+                model_channels=width,
+                num_res_blocks=depth,
+                out_channels=1,
+            )
+        else:
+            model_dict = classifier_defaults()
+            model_dict["image_size"] = cfg.size
+            model_dict["image_channels"] = self.num_channels
 
-        model_dict["classifier_width"] = width
-        model_dict["classifier_depth"] = depth
-        model_dict["classifier_attention_resolutions"] = "16, 8, 4"
-        model_dict["output_dim"] = 1
+            model_dict["classifier_width"] = width
+            model_dict["classifier_depth"] = depth
+            model_dict["classifier_attention_resolutions"] = "16, 8, 4"
+            model_dict["output_dim"] = 1
 
-        self.model = create_classifier(**model_dict)
+            self.model = create_classifier(**model_dict)
 
         lin = torch.linspace(-1, 1, steps=self.cfg.size)
         xx, yy = torch.meshgrid(lin, lin, indexing="ij")
@@ -352,140 +492,6 @@ class GNNClassifier(GraphClassifier):
         else:
             pos, color = x
             return self.gnn(pos, color)
-
-
-# =====
-# Custom CNN Module
-# =====
-# Adapted from guided_diffusion EncoderUNetModel
-# 1. Removes timestep embeddings
-# 2. Removes some checkpointing for backwards speed at the cost of memory
-# 3. Simplifications
-# 4. Some adaptions to make it more suitable as a multi-agent critic
-
-
-class CustomCNNClassifier(ImageClassifier):
-    def __init__(
-        self,
-        cfg: ScenarioConfig,
-        dropout: float = 0,
-        model_channels: int = 128,
-        out_channels: int = 1,
-        num_res_blocks: int = 2,
-        attention_resolutions: tuple[int, ...] = (16, 8, 4),
-        channel_mult: tuple[int, ...] = (1, 2, 2, 2),
-        num_attention_heads: int = 1,
-        num_attention_head_channels: int = 64,
-        use_new_attention_order: bool = True,
-        resblock_updown: bool = True,
-        downsample_conv_resample: bool = False,
-    ):
-        super().__init__(cfg)
-        image_size = cfg.size
-        in_channels = cfg.n_colors
-
-        ch = int(channel_mult[0] * model_channels)
-
-        attention_resolutions = tuple(image_size // x for x in attention_resolutions)
-
-        # Input block
-        self.input_blocks = nn.ModuleList(
-            [
-                conv_nd(
-                    dims=2,
-                    in_channels=in_channels,
-                    out_channels=ch,
-                    kernel_size=3,
-                    padding=1,
-                )
-            ]
-        )
-
-        self._feature_size = ch
-        input_block_channels = [ch]
-        ds = 1
-        for level, mult in enumerate(channel_mult):
-            for _ in range(num_res_blocks):
-                out_ch = int(mult * model_channels)
-                self.input_blocks.append(
-                    ResBlock(
-                        channels=ch,
-                        dropout=dropout,
-                        out_channels=out_ch,
-                    )
-                )
-                ch = out_ch
-                if ds in attention_resolutions:
-                    self.input_blocks.append(
-                        AttentionBlock(
-                            channels=ch,
-                            num_heads=num_attention_heads,
-                            num_head_channels=num_attention_head_channels,
-                            use_new_attention_order=use_new_attention_order,
-                        )
-                    )
-                self._feature_size += ch
-                input_block_channels.append(ch)
-
-            if level < len(channel_mult) - 1:  # Not last
-                if resblock_updown:
-                    self.input_blocks.append(
-                        ResBlock(channels=ch, dropout=dropout, updown="down")
-                    )
-                else:
-                    self.input_blocks.append(
-                        Downsample(channels=ch, use_conv=downsample_conv_resample)
-                    )
-                input_block_channels.append(ch)
-                ds *= 2
-                self._feature_size += ch
-
-        # Middle block
-        self.middle_block = nn.Sequential(
-            ResBlock(channels=ch, dropout=dropout),
-            AttentionBlock(
-                channels=ch,
-                num_heads=num_attention_heads,
-                num_head_channels=num_attention_head_channels,
-                use_new_attention_order=use_new_attention_order,
-            ),
-            ResBlock(channels=ch, dropout=dropout),
-        )
-        self._feature_size += ch
-
-        # Flatten out
-        self.out = nn.Sequential(
-            normalization(ch),
-            nn.SiLU(),
-            AttentionPool2d(
-                spacial_dim=(image_size // ds),
-                embed_dim=ch,
-                num_heads_channels=num_attention_head_channels,
-                output_dim=out_channels,
-            ),
-        )
-
-    def forward(self, x):
-        """
-        Apply the model to an input batch.
-
-        :param x: an [N x C x ...] Tensor of inputs.
-        :param timesteps: a 1-D batch of timesteps.
-        :return: an [N x K] Tensor of outputs.
-        """
-
-        h = x.type(torch.float32)
-        print(h.shape)
-        for module in self.input_blocks:
-            h = module(h)
-            print(h.shape)
-        h = self.middle_block(h)
-        print("middle")
-        print(h.shape)
-        print(h.type)
-        h = h.type(torch.float32)
-        assert False
-        return self.out(h).squeeze(-1)
 
 
 def make_model(

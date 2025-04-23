@@ -110,7 +110,7 @@ class RLExperimentLogger(ExperimentLogger):
             log = {f"train/{k}": v for k, v in log.items()}
         self.metrics_to_log.update(log)
 
-    def collect_sampling_td(self, td: TensorDictBase, sampling_time: float):
+    def collect_sampling_td(self, td: TensorDictBase):
         if "info" in td.get(self.group_name).keys():
             self.metrics_to_log.update(
                 {
@@ -134,7 +134,6 @@ class RLExperimentLogger(ExperimentLogger):
 
         self.metrics_to_log.update(
             {
-                "train/sampling_time": sampling_time,
                 "train/reward/reward_min": reward.min().item(),
                 "train/reward/reward_mean": reward.mean().item(),
                 "train/reward/reward_max": reward.max().item(),
@@ -144,17 +143,9 @@ class RLExperimentLogger(ExperimentLogger):
             }
         )
 
-    def collect_training_td(
-        self, td: TensorDictBase, training_time: float, total_time: float
-    ):
+    def collect_training_td(self, td: TensorDictBase):
         self.metrics_to_log.update(
             {f"train/learner/{key}": value.mean().item() for key, value in td.items()}
-        )
-        self.metrics_to_log.update(
-            {
-                "train/training_time": training_time,
-                "train/total_time": total_time,
-            }
         )
 
     def collect_evaluation_td(
@@ -177,6 +168,22 @@ class RLExperimentLogger(ExperimentLogger):
 
             self.metrics_to_log.update(metrics_to_log)
             self.metrics_to_log["eval/video"] = wandb.Video(vid, fps=10, format="mp4")  # type: ignore
+
+    def collect_times(
+        self,
+        sampling_time: float,
+        rl_training_time: float,
+        designer_time: float,
+        total_time: float,
+    ):
+        self.metrics_to_log.update(
+            {
+                "train/sampling_time": sampling_time,
+                "train/training_time": rl_training_time,
+                "train/designer_time": designer_time,
+                "train/total_time": total_time,
+            }
+        )
 
     def commit(
         self, total_frames: int | None = None, current_frames: int | None = None

@@ -166,10 +166,7 @@ def train(cfg: TrainingConfig):
             total_frames += current_frames
             replay_buffer.extend(sampling_td.reshape(-1))
 
-            logger.collect_sampling_td(sampling_td, sampling_time)
-
-            # del sampling_td  # Clear now to reduce memory
-            # torch.cuda.empty_cache()
+            logger.collect_sampling_td(sampling_td)
 
             # PPO Update
             for _ in range(cfg.ppo.n_epochs):
@@ -191,17 +188,22 @@ def train(cfg: TrainingConfig):
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())
                     training_tds.append(loss_vals.detach())
+            logger.collect_training_td(training_log_td)
+            del minibatch, training_log_td
+            torch.cuda.empty_cache()
 
+            # Design update
+            design_start = time.time()
             master_designer.update(sampling_td)
-            del minibatch
+            design_time = time.time() - design_start
+
             collector.update_policy_weights_()
-            # Designer (aka diffusion policy) update
 
             training_time = time.time() - training_start
-            total_time += sampling_time + training_time
+            total_time += sampling_time + training_time + design_time
 
             # Logging
-            logger.collect_training_td(training_log_td, training_time, total_time)
+            logger.collect_times(sampling_time, training_time, design_time, total_time)
             logger.log(master_designer.get_logs())
 
             if (

@@ -20,7 +20,7 @@ ppo:
   entropy_eps: 1e-4
   normalise_advantage: false
 policy:
-  version: "v1"
+  version: "v2"
 start_from_checkpoint: null
 
 logging:

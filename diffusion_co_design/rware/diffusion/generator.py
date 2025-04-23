@@ -118,7 +118,7 @@ class Generator:
         if not use_operation:
             sample = self.diffusion.ddim_sample_loop(
                 model=self.model,
-                shape=self.shape,
+                shape=shape,
                 noise=initial_noise,
                 clip_denoised=self.clip_denoised,
                 cond_fn=cond_fn,

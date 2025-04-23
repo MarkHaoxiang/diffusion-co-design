@@ -1,7 +1,8 @@
 name: gnn-cnn
 representation: graph
 model_kwargs:
-  width: 64
+  width: 128
   depth: 2
-  top_k: 5
-  add_goal_positions: true
+  top_k: 9
+  add_goal_positions: false
+  use_custom_backbone: true
