@@ -144,7 +144,6 @@ class ValueDesigner(CentralisedDesigner):
 
         self.n_update_iterations = n_update_iterations
         self.device = device
-        self.running_loss = 0
         self.gamma = gamma
 
         self.distill_from_critic = distill_from_critic
@@ -153,6 +152,22 @@ class ValueDesigner(CentralisedDesigner):
         self.ref_env: EnvBase | None = None
         if self.distill_from_critic:
             self.manual_designer = FixedDesigner(scenario=scenario)
+
+        # Logging
+        self.ref_random_designs = torch.tensor(
+            generate(
+                size=scenario.size,
+                n_shelves=scenario.n_shelves,
+                goal_idxs=scenario.goal_idxs,
+                n_colors=scenario.n_colors,
+                n=64,
+                training_dataset=True,
+                representation=self.representation,
+                rng=np.random.default_rng(seed=0),
+            ),
+            dtype=torch.float32,
+            device=self.device,
+        )
 
     def update(self, sampling_td):
         super().update(sampling_td)
@@ -183,6 +198,7 @@ class ValueDesigner(CentralisedDesigner):
         # Train
         if len(self.env_buffer) >= self.train_batch_size:
             self.running_loss = 0
+            train_y_batch = []
             self.model.train()
             for _ in range(self.n_update_iterations):
                 self.optim.zero_grad()
@@ -222,6 +238,7 @@ class ValueDesigner(CentralisedDesigner):
                     y_batch = sample.get("episode_reward").to(
                         dtype=torch.float32, device=self.device
                     )
+                train_y_batch.append(y_batch)
 
                 # Data Preprocessing
                 if self.representation == "graph":
@@ -239,6 +256,10 @@ class ValueDesigner(CentralisedDesigner):
                 self.optim.step()
             # Logs
             self.running_loss = self.running_loss / self.n_update_iterations
+            train_y_batch = torch.cat(train_y_batch)
+            self.train_y_mean = train_y_batch.mean().item()
+            self.train_y_max = train_y_batch.max().item()
+            self.train_y_min = train_y_batch.min().item()
 
         if self.representation == "graph":
             X_post = (X_post["pos"], X_post["colors"])
@@ -247,13 +268,30 @@ class ValueDesigner(CentralisedDesigner):
         self.classifier_prediction_max = classifier_prediction.max().item()
         self.classifier_prediction_min = classifier_prediction.min().item()
 
+        classifier_prediction_rand = self.model(self.ref_random_designs)
+        self.classifier_prediction_rand_mean = classifier_prediction_rand.mean().item()
+        self.classifier_prediction_rand_max = classifier_prediction_rand.max().item()
+        self.classifier_prediction_rand_min = classifier_prediction_rand.min().item()
+
     def get_logs(self):
-        return {
-            "designer_loss": self.running_loss,
+        logs = {
             "classifier_prediction_mean": self.classifier_prediction_mean,
             "classifier_prediction_max": self.classifier_prediction_max,
             "classifier_prediction_min": self.classifier_prediction_min,
+            "classifier_prediction_rand_mean": self.classifier_prediction_rand_mean,
+            "classifier_prediction_rand_max": self.classifier_prediction_rand_max,
+            "classifier_prediction_rand_min": self.classifier_prediction_rand_min,
         }
+        if len(self.env_buffer) >= self.train_batch_size:
+            logs.update(
+                {
+                    "designer_loss": self.running_loss,
+                    "design_y_mean": self.train_y_mean,
+                    "design_y_max": self.train_y_max,
+                    "design_y_min": self.train_y_min,
+                }
+            )
+        return logs
 
     def get_model(self):
         return self.model

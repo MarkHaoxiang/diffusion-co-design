@@ -238,6 +238,7 @@ def create_env(
             CatTensors(
                 in_keys=observation_keys,
                 out_key=("turbine", "observation_vec"),
+                del_keys=False,
             ),
             RewardSum(
                 in_keys=[env.reward_key], out_keys=[("turbine", "episode_reward")]

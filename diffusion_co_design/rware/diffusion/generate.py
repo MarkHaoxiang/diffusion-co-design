@@ -1,5 +1,3 @@
-import random
-
 import numpy as np
 from tqdm import tqdm
 
@@ -19,8 +17,12 @@ def generate(
     disable_tqdm: bool = True,
     training_dataset: bool = False,
     representation: Representation = "image",
+    rng: np.random.Generator | None = None,
 ) -> list[np.ndarray]:
     # Possible positions
+    if rng is None:
+        rng = np.random.default_rng()
+
     remaining_idxs = []
     for idx in range(size**2):
         if idx not in goal_idxs:
@@ -29,7 +31,7 @@ def generate(
 
     environments = []
     for _ in tqdm(range(n), disable=disable_tqdm):
-        shelf_idxs = random.sample(remaining_idxs, n_shelves)
+        shelf_idxs = rng.choice(remaining_idxs, n_shelves, replace=False)
 
         if representation == "image":
             # Shelf placement
@@ -85,12 +87,11 @@ def generate_scenario(
     """Generate random scenario"""
 
     # Seeding
-    random.seed(seed)
-    np.random.seed(seed=seed)
+    rng = np.random.default_rng(seed=seed)
 
     # Blocks
     block_idxs = list(range(size**2))
-    random.shuffle(block_idxs)
+    rng.shuffle(block_idxs)
 
     if agent_idxs is None and goal_idxs is None and goal_colors is None:
         agent_idxs = block_idxs[:n_agents]

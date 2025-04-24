@@ -1,9 +1,9 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: diffusion_image_distill
+  - designer: diffusion_image
 
-experiment_name: corners_agent_distill_image
+experiment_name: corners_agent_image
 scenario_name: rware_16_50_5_4_corners
 memory_management: gpu
 ppo:
@@ -14,9 +14,9 @@ ppo:
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.9
-  actor_lr: 5e-4
+  actor_lr: 3e-5
   critic_lr: 3e-5
-  max_grad_norm: 0.5
+  max_grad_norm: 1.0
   entropy_eps: 1e-3
   normalise_advantage: false
 start_from_checkpoint: /home/markhaoxiang/.diffusion_co_design/experiments/train_rware/2025-04-18/00-36-30
