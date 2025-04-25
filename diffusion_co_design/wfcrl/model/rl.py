@@ -4,7 +4,9 @@ import torch.nn as nn
 from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
+from e3nn.o3 import Irreps
 
+from diffusion_co_design.wfcrl.model.segnn import WeightBalancedIrreps, SEGNN
 from diffusion_co_design.wfcrl.schema import RLConfig
 
 
@@ -30,6 +32,21 @@ class MLPPolicy(nn.Module):
             torch.ones_like(mu) * self.std
         )  # NormalParamExtractor manages transformation
         return torch.cat((mu, std), dim=-1)
+
+
+def segnn_model(hidden_features: int = 128, lmax_h: int = 2):
+    lmax_attr = 3
+
+    input_irreps = Irreps("2x1o")  # Wind vector + yaw
+    node_attr_irreps = Irreps.spherical_harmonics(lmax_attr)
+
+    hidden_irreps = WeightBalancedIrreps(
+        Irreps("{}x0e".format(hidden_features)),
+        node_attr_irreps,
+        sh=True,
+        lmax=lmax_h,
+    )
+    pass
 
 
 def wfcrl_models(env, cfg: RLConfig, device: str):

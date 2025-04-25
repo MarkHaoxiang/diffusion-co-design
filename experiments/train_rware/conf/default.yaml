@@ -1,9 +1,9 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: diffusion_image
+  - designer: diffusion_image_distill
 
-experiment_name: corners_agent_image
+experiment_name: corners_agent_image_distill
 scenario_name: rware_16_50_5_4_corners
 memory_management: gpu
 ppo:

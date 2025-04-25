@@ -23,7 +23,7 @@ from diffusion_co_design.common import (
 )
 from diffusion_co_design.wfcrl.schema import TrainingConfig
 from diffusion_co_design.wfcrl.env import create_batched_env, create_env
-from diffusion_co_design.wfcrl.model import wfcrl_models
+from diffusion_co_design.wfcrl.model.rl import wfcrl_models
 
 group_name = "turbine"
 
