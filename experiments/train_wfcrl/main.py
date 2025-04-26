@@ -129,7 +129,7 @@ def train(cfg: TrainingConfig):
             total_frames += current_frames
             replay_buffer.extend(sampling_td.reshape(-1))
 
-            logger.collect_sampling_td(sampling_td, sampling_time)
+            logger.collect_sampling_td(sampling_td)
 
             # PPO Update
             for _ in range(cfg.ppo.n_epochs):
@@ -153,12 +153,15 @@ def train(cfg: TrainingConfig):
                     training_tds.append(loss_vals.detach())
 
             collector.update_policy_weights_()
+            logger.collect_training_td(training_log_td)
+            del minibatch, training_log_td
+            torch.cuda.empty_cache()
 
             training_time = time.time() - training_start
             total_time += sampling_time + training_time
 
             # Logging
-            logger.collect_training_td(training_log_td, training_time, total_time)
+            logger.collect_times(sampling_time, training_time, 0, total_time)
 
             if (
                 cfg.logging.evaluation_episodes > 0

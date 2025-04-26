@@ -9,7 +9,6 @@ from torchrl.envs import (
     ParallelEnv,
     PettingZooWrapper,
     TransformedEnv,
-    CatTensors,
     RewardSum,
     Compose,
     RemoveEmptySpecs,
@@ -59,7 +58,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             low=0,
             high=np.inf,
             shape=(self.num_turbines, 2),
-            dtype=np.float64,
+            dtype=np.float32,
         )
 
     def reset(self, seed=None, options=None):
@@ -92,14 +91,14 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         # Add layout to state
         state["layout"] = np.stack(
             [self.mdp.farm_case.xcoords, self.mdp.farm_case.ycoords], axis=-1
-        )
+        ).astype(np.float32)
         return state
 
     def _build_agent_spaces(self):
         super()._build_agent_spaces()
         for i, agent in enumerate(self.possible_agents):
             self._obs_spaces[agent]["layout"] = spaces.Box(
-                low=0, high=np.inf, shape=(2,), dtype=np.float64
+                low=0, high=np.inf, shape=(2,), dtype=np.float32
             )
 
 
@@ -229,17 +228,9 @@ def create_env(
         device=device,
     )
 
-    observation_keys = [
-        ("turbine", "observation", x) for x in ["wind_direction", "wind_speed", "yaw"]
-    ]
     env = TransformedEnv(
         env=env,
         transform=Compose(
-            CatTensors(
-                in_keys=observation_keys,
-                out_key=("turbine", "observation_vec"),
-                del_keys=False,
-            ),
             RewardSum(
                 in_keys=[env.reward_key], out_keys=[("turbine", "episode_reward")]
             ),

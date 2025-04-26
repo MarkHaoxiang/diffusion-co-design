@@ -11,6 +11,21 @@ class Designer(BaseDesigner):
         self.scenario = scenario
 
 
+class FixedDesigner(Designer):
+    def __init__(self, scenario):
+        super().__init__(scenario)
+        self.layout_image = torch.nn.Parameter(
+            RandomDesigner(scenario)._generate_environment_weights(None),
+            requires_grad=False,
+        )
+
+    def forward(self, objective):
+        return self.layout_image.data
+
+    def _generate_environment_weights(self, objective):
+        return self.layout_image
+
+
 class RandomDesigner(Designer):
     def __init__(self, scenario: ScenarioConfig, environment_repeats: int = 1):
         super().__init__(scenario=scenario, environment_repeats=environment_repeats)

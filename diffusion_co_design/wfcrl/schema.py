@@ -16,11 +16,11 @@ class ScenarioConfig(Config):
 
 class RLConfig(Config):
     # MLP
-    policy_hidden_size: int = 64
-    policy_depth: int = 2
-    critic_hidden_size: int = 128
-    critic_depth: int = 2
-    mappo: bool = True
+    node_hidden_size: int = 64
+    edge_hidden_size: int = 16
+    mlp_hidden_size: int = 64
+    backbone_depth: int = 3
+    head_depth: int = 2
 
 
 class TrainingConfig(Config):

@@ -188,6 +188,7 @@ def train(cfg: TrainingConfig):
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())
                     training_tds.append(loss_vals.detach())
+            collector.update_policy_weights_()
             logger.collect_training_td(training_log_td)
             del minibatch, training_log_td
             torch.cuda.empty_cache()
@@ -196,8 +197,6 @@ def train(cfg: TrainingConfig):
             design_start = time.time()
             master_designer.update(sampling_td)
             design_time = time.time() - design_start
-
-            collector.update_policy_weights_()
 
             training_time = time.time() - training_start
             total_time += sampling_time + training_time + design_time
