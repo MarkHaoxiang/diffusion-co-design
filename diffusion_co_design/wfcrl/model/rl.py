@@ -19,7 +19,7 @@ class EquivariantModel(nn.Module):
         node_emb_dim: int = 64,
         edge_emb_dim: int = 16,
         n_layers: int = 4,
-        wind_speed_low: int | torch.Tensor = 3,
+        wind_speed_low: int | torch.Tensor = 0,
         wind_speed_high: int | torch.Tensor = 28,
         aggr: Literal["add", "mean", "max"] = "add",
     ):
@@ -110,6 +110,7 @@ class EquivariantModel(nn.Module):
         yaw = torch.deg2rad(yaw)
 
         # (-1|1) Normalise Layout
+        layout = layout.clone()
         layout[:, :, 0] = (layout[:, :, 0] / self.scenario.map_x_length) * 2 - 1
         layout[:, :, 1] = (layout[:, :, 1] / self.scenario.map_y_length) * 2 - 1
 
