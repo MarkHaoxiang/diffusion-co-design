@@ -12,10 +12,10 @@ class Designer(BaseDesigner):
 
 
 class FixedDesigner(Designer):
-    def __init__(self, scenario):
+    def __init__(self, scenario: ScenarioConfig, seed: int | None = None):
         super().__init__(scenario)
         self.layout_image = torch.nn.Parameter(
-            RandomDesigner(scenario)._generate_environment_weights(None),
+            RandomDesigner(scenario, seed=seed)._generate_environment_weights(None),
             requires_grad=False,
         )
 
@@ -27,7 +27,12 @@ class FixedDesigner(Designer):
 
 
 class RandomDesigner(Designer):
-    def __init__(self, scenario: ScenarioConfig, environment_repeats: int = 1):
+    def __init__(
+        self,
+        scenario: ScenarioConfig,
+        environment_repeats: int = 1,
+        seed: int | None = None,
+    ):
         super().__init__(scenario=scenario, environment_repeats=environment_repeats)
 
         self.generate = Generate(
@@ -35,6 +40,7 @@ class RandomDesigner(Designer):
             map_x_length=scenario.map_x_length,
             map_y_length=scenario.map_y_length,
             minimum_distance_between_turbines=scenario.min_distance_between_turbines,
+            rng=seed,
         )
 
     def forward(self, objective=None):

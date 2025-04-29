@@ -9,13 +9,18 @@ class Generate:
         map_x_length: int,
         map_y_length: int,
         minimum_distance_between_turbines: int,
+        rng: np.random.Generator | int | None = None,
     ):
         super().__init__()
-        self._rng = np.random.default_rng()
         self.num_turbines = num_turbines
         self.w = map_x_length
         self.h = map_y_length
         self.d = minimum_distance_between_turbines
+
+        if isinstance(rng, np.random.Generator):
+            self._rng = rng
+        else:
+            self._rng = np.random.default_rng(rng)
 
         self._reset_random_number_queue()  # Batched rng is faster
 

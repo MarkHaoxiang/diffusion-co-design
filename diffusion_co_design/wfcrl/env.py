@@ -1,3 +1,4 @@
+import os
 from typing import Literal
 import math
 import copy
@@ -74,6 +75,10 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
                 coords = options.get("ycoords")
                 assert len(coords) == old_farm_case.num_turbines
                 new_farm_case.ycoords = coords
+
+            if isinstance(self.mdp.interface, FlorisInterface):
+                # Remove cached file
+                os.remove(self.mdp.interface.simul_file)
 
             # Override MDP
             self.mdp = WindFarmMDP(
@@ -183,7 +188,9 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
         return tensordict_out
 
 
-def _create_designable_windfarm(n_turbines: int, initial_xcoords, initial_ycoords):
+def _create_designable_windfarm(
+    n_turbines: int, initial_xcoords, initial_ycoords, max_steps: int = 500
+):
     if isinstance(initial_xcoords, np.ndarray):
         initial_xcoords = initial_xcoords.tolist()
     if isinstance(initial_ycoords, np.ndarray):
@@ -202,6 +209,7 @@ def _create_designable_windfarm(n_turbines: int, initial_xcoords, initial_ycoord
         farm_case=case,
         controls=get_default_control(["yaw"]),
         start_iter=math.ceil(case.t_init / case.dt),
+        max_num_steps=max_steps,
     )
 
 
@@ -216,6 +224,7 @@ def create_env(
         n_turbines=scenario.n_turbines,
         initial_xcoords=theta[:, 0],
         initial_ycoords=theta[:, 1],
+        max_steps=scenario.max_steps,
     )
     env = aec_to_parallel(env)
 
@@ -244,11 +253,12 @@ def create_env(
 def create_batched_env(
     num_environments: int,
     scenario: ScenarioConfig,
+    designer: Designer,
     mode: Literal["train", "eval", "reference"],
     device: str | None = None,
 ):
     def create_env_fn():
-        return create_env(mode, scenario=scenario, device="cpu")
+        return create_env(mode, scenario=scenario, designer=designer, device="cpu")
 
     return ParallelEnv(
         num_workers=num_environments,

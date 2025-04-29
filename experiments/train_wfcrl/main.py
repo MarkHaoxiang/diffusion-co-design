@@ -17,11 +17,9 @@ from omegaconf import DictConfig
 
 from tqdm import tqdm
 
-from diffusion_co_design.common import (
-    RLExperimentLogger,
-    memory_management,
-)
+from diffusion_co_design.common import RLExperimentLogger, memory_management
 from diffusion_co_design.wfcrl.schema import TrainingConfig
+from diffusion_co_design.wfcrl.design import FixedDesigner
 from diffusion_co_design.wfcrl.env import create_batched_env, create_env
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models
 
@@ -35,17 +33,24 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
+    designer = FixedDesigner(cfg.scenario, seed=0)
+
     reference_env = create_env(
-        mode="reference", scenario=cfg.scenario, device=device.env_device
+        mode="reference",
+        scenario=cfg.scenario,
+        designer=designer,
+        device=device.env_device,
     )
     train_env = create_batched_env(
         mode="train",
+        designer=designer,
         num_environments=n_train_envs,
         scenario=cfg.scenario,
         device=device.env_device,
     )
     eval_env = create_batched_env(
         mode="eval",
+        designer=designer,
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
         device=device.env_device,

@@ -7,24 +7,25 @@ memory_management: gpu
 scenario:
   n_turbines: 10
   max_steps: 150
-  max_x_length: 1000
-  max_y_length: 1000
+  map_x_length: 1000
+  map_y_length: 1000
   min_distance_between_turbines: 100
 policy:
-  policy_hidden_size: 64
-  policy_depth: 2
-  critic_hidden_size: 128
-  critic_depth: 2
-  mappo: true
+  node_hidden_size: 64
+  edge_hidden_size: 16
+  mlp_hidden_size: 64
+  backbone_depth: 3
+  head_depth: 2
 ppo:
   n_iters: 250
-  n_epochs: 10
-  minibatch_size: 400
-  n_mini_batches: 30
+  n_epochs: 5
+  minibatch_size: 300
+  n_mini_batches: 10
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.95
-  lr: 1e-4
+  actor_lr: 1e-4
+  critic_lr: 1e-4
   max_grad_norm: 0.5
   entropy_eps: 1e-3
   normalise_advantage: true

@@ -31,7 +31,6 @@ ppo:
   normalise_advantage: true
 
 logging:
-  type: wandb
   mode: disabled
   # mode: online
   # mode: offline

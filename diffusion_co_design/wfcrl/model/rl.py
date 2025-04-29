@@ -1,4 +1,5 @@
 from typing import Literal
+from math import prod
 
 import torch
 import torch.nn as nn
@@ -6,7 +7,7 @@ import torch.nn as nn
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
-from torch_scatter import scatter_add, scatter_mean, scatter_max
+from torch_geometric.utils import scatter
 
 from diffusion_co_design.wfcrl.schema import ScenarioConfig, RLConfig
 from diffusion_co_design.common.nn import fully_connected
@@ -59,22 +60,14 @@ class EquivariantModel(nn.Module):
             )
 
         self.att_mlp = nn.Sequential(nn.Linear(edge_emb_dim, 1), nn.Sigmoid())
-        match aggr:
-            case "add":
-                self.aggr = scatter_add
-            case "mean":
-                self.aggr = scatter_mean
-            case "max":
-                self.aggr = scatter_max
-            case _:
-                raise ValueError(f"Unknown aggregation method: {aggr}")
+        self.aggr = aggr
 
     def forward(
         self,
-        wind_direction: torch.Tensor,  # [B, N, 1]
-        wind_speed: torch.Tensor,  # [B, N, 1]
-        yaw: torch.Tensor,  # [B, N, 1]
-        layout: torch.Tensor,  # [B, N, 2]
+        wind_direction: torch.Tensor,  # [*B, N, 1]
+        wind_speed: torch.Tensor,  # [*B, N, 1]
+        yaw: torch.Tensor,  # [*B, N, 1]
+        layout: torch.Tensor,  # [*B, N, 2]
     ):
         has_batch = len(wind_direction.shape) > 2
         if not has_batch:
@@ -83,14 +76,20 @@ class EquivariantModel(nn.Module):
             yaw = yaw.unsqueeze(0)
             layout = layout.unsqueeze(0)
 
-        B = wind_direction.shape[0]
+        self.edge_index = self.edge_index.to(device=wind_speed.device)
+        B_all = wind_direction.shape[:-2]
+        B = prod(B_all)
         N = self.n_turbines
         E = len(self.edge_index[0])
 
         # Shape checks
+        wind_direction = wind_direction.reshape(-1, N, 1)
         assert wind_direction.shape == (B, N, 1), wind_direction.shape
+        wind_speed = wind_speed.reshape(-1, N, 1)
         assert wind_speed.shape == (B, N, 1), wind_speed.shape
+        yaw = yaw.reshape(-1, N, 1)
         assert yaw.shape == (B, N, 1), yaw.shape
+        layout = layout.reshape(-1, N, 2)
         assert layout.shape == (B, N, 2), layout.shape
 
         # To radians
@@ -138,7 +137,11 @@ class EquivariantModel(nn.Module):
         assert edge_features.shape == (B, E, 5), edge_features.shape
         e = self.edge_in(edge_features)  # [B, E, edge_emb_dim]
         node_features = torch.cat(
-            [wind_speed, self.aggr(edge_features, src, dim=1, dim_size=N)], dim=-1
+            [
+                wind_speed,
+                scatter(edge_features, src, dim=1, dim_size=N, reduce=self.aggr),
+            ],
+            dim=-1,
         )  # [B, N, 1 + 5]
         assert node_features.shape == (B, N, 6), node_features.shape
         h = self.node_in(node_features)  # [B, N, node_emb_dim]
@@ -157,7 +160,9 @@ class EquivariantModel(nn.Module):
             # Attention
             msg = msg * self.att_mlp(msg)
 
-            h_aggr = self.aggr(msg, src, dim=1, dim_size=N)  # [B, N, edge_emb_dim]
+            h_aggr = scatter(
+                msg, src, dim=1, dim_size=N, reduce=self.aggr
+            )  # [B, N, edge_emb_dim]
             h_aggr = upd_mlp(torch.cat([h, h_aggr], dim=-1))  # [B, N, node_emb_dim]
 
             # Residual connections
@@ -166,9 +171,10 @@ class EquivariantModel(nn.Module):
                 e = e + msg
 
         assert h.shape == (B, N, self.node_emb_dim)
-
+        h = h.reshape(*B_all, N, self.node_emb_dim)
         if not has_batch:
             h = h.squeeze(0)
+
         return h
 
 
@@ -187,7 +193,7 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
         wind_speed_high=env.observation_spec[
             "turbine", "observation", "wind_speed"
         ].high,
-    )
+    ).to(device=device)
     backbone_key = [("turbine", "observation", "backbone_features")]
     backbone_module = TensorDictModule(
         module=backbone,
@@ -205,6 +211,7 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
             depth=cfg.head_depth,
             num_cells=cfg.mlp_hidden_size,
             activation_class=torch.nn.Tanh,
+            device=device,
         ),
         NormalParamExtractor(),
     )
