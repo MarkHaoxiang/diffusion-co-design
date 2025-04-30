@@ -43,6 +43,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         max_num_steps=500,
         load_coef=0.1,
         scenario: ScenarioConfig | None = None,
+        render_mode: Literal["rgb_array"] | None = None,
     ):
         if reward_shaper is None:
             reward_shaper = DoNothingReward()
@@ -69,6 +70,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
 
         # Used for rendering only
         self.scenario = scenario
+        self.render_mode = render_mode
 
     def reset(self, seed=None, options=None):
         # Possibly override xcoords and ycoords
@@ -108,6 +110,10 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         return state
 
     def render(self):
+        if self.render_mode is None:
+            return None
+        assert self.render_mode == "rgb_array"
+
         state = self.state()
         fig, ax = plt.subplots(figsize=(5, 5))
         canvas = FigureCanvas(fig)
