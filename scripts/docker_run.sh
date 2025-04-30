@@ -1,8 +1,7 @@
 docker run \
-    --rm \
     --volume .:/app \
     --volume /app/.venv \
-    -it \
+    -d \
     --gpus=all \
     $(docker build -q .) \
-    "$@"
+    bash
