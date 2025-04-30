@@ -129,7 +129,7 @@ def train(cfg: TrainingConfig):
         experiment_name=cfg.experiment_name,
         project_name="diffusion-co-design-rware",
         group_name=group_name,
-        config=dict(cfg),
+        config=cfg.model_dump(),
         mode=cfg.logging.mode,
     )
 

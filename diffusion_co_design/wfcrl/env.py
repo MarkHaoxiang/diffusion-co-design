@@ -42,6 +42,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
     ):
         if reward_shaper is None:
             reward_shaper = DoNothingReward()
+        max_num_steps = max_num_steps + 1  # Offset by 1 bug fix
         super().__init__(
             interface=interface,
             farm_case=farm_case,

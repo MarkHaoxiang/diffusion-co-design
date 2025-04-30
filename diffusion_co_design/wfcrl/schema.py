@@ -26,6 +26,7 @@ class RLConfig(Config):
 class TrainingConfig(Config):
     experiment_name: str
     memory_management: MEMORY_MANAGEMENT
+    normalize_reward: bool
     scenario: ScenarioConfig
     policy: RLConfig
     ppo: PPOConfig

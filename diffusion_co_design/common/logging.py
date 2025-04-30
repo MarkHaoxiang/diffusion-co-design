@@ -159,6 +159,7 @@ class RLExperimentLogger(ExperimentLogger):
             "eval/episode_len_mean": sum([td.batch_size[0] for td in td]) / len(td),
             "eval/evaluation_time": evaluation_time,
         }
+        self.metrics_to_log.update(metrics_to_log)
 
         if frames is not None:
             vid = torch.tensor(
@@ -166,7 +167,6 @@ class RLExperimentLogger(ExperimentLogger):
                 dtype=torch.uint8,
             ).unsqueeze(0)
 
-            self.metrics_to_log.update(metrics_to_log)
             self.metrics_to_log["eval/video"] = wandb.Video(vid, fps=10, format="mp4")  # type: ignore
 
     def collect_times(

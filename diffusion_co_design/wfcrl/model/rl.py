@@ -178,13 +178,45 @@ class EquivariantModel(nn.Module):
         return h
 
 
+class MLPPolicy(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        depth,
+        num_cells,
+        action_dim: int,
+        n_agents: int,
+        share_params: bool = True,
+    ):
+        super().__init__()
+        self.model = MultiAgentMLP(
+            n_agent_inputs=in_dim,
+            n_agent_outputs=action_dim,
+            n_agents=n_agents,
+            centralised=False,
+            share_params=share_params,
+            depth=depth,
+            num_cells=num_cells,
+            activation_class=nn.SiLU,
+        )
+
+        self.std = nn.Parameter(torch.zeros(action_dim))
+
+    def forward(self, x):
+        mu = self.model(x)
+        std = (
+            torch.ones_like(mu) * self.std
+        )  # NormalParamExtractor manages transformation
+        return torch.cat((mu, std), dim=-1)
+
+
 def wfcrl_models(env, cfg: RLConfig, device: str):
     observation_keys = [
         ("turbine", "observation", x)
         for x in ["wind_direction", "wind_speed", "yaw", "layout"]
     ]
 
-    backbone = EquivariantModel(
+    gnn = EquivariantModel(
         scenario=env._env._scenario_cfg,
         node_emb_dim=cfg.node_hidden_size,
         edge_emb_dim=cfg.edge_hidden_size,
@@ -194,36 +226,33 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
             "turbine", "observation", "wind_speed"
         ].high,
     ).to(device=device)
-    backbone_key = [("turbine", "observation", "backbone_features")]
-    backbone_module = TensorDictModule(
-        module=backbone,
+    gnn_key = [("turbine", "observation", "gnn_features")]
+    gnn_module = TensorDictModule(
+        module=gnn,
         in_keys=observation_keys,
-        out_keys=backbone_key,
+        out_keys=gnn_key,
     )
 
     policy_mlp = nn.Sequential(
-        MultiAgentMLP(
-            n_agent_inputs=cfg.node_hidden_size,
-            n_agent_outputs=env.action_spec.shape[-1] * 2,
-            n_agents=env.num_agents,
-            centralised=False,
-            share_params=True,
+        MLPPolicy(
+            in_dim=cfg.node_hidden_size,
             depth=cfg.head_depth,
             num_cells=cfg.mlp_hidden_size,
-            activation_class=torch.nn.Tanh,
-            device=device,
+            action_dim=env.action_spec.shape[-1],
+            n_agents=env.num_agents,
+            share_params=True,
         ),
-        NormalParamExtractor(),
+        NormalParamExtractor(scale_lb=0.01),
     )
 
     policy_mlp_module = TensorDictModule(
         module=policy_mlp,
-        in_keys=backbone_key,
+        in_keys=gnn_key,
         out_keys=[("turbine", "loc"), ("turbine", "scale")],
     )
 
     policy_module = TensorDictSequential(
-        backbone_module,
+        gnn_module,
         policy_mlp_module,
         selected_out_keys=[("turbine", "loc"), ("turbine", "scale")],
     )
@@ -256,14 +285,14 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
 
     critic_mlp_module = TensorDictModule(
         module=critic_mlp,
-        in_keys=backbone_key,
+        in_keys=gnn_key,
         out_keys=[("turbine", "state_value")],
     )
 
     critic_module = TensorDictSequential(
-        backbone_module,
+        gnn_module,
         critic_mlp_module,
-        selected_out_keys=[("turbine", "state_value")],
+        selected_out_keys=[("turbine", "state_value")] + gnn_key,
     )
 
     critic = TensorDictModule(

@@ -6,6 +6,7 @@ import hydra.core
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
+from torchrl.trainers import RewardNormalizer
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
@@ -19,7 +20,7 @@ from tqdm import tqdm
 
 from diffusion_co_design.common import RLExperimentLogger, memory_management
 from diffusion_co_design.wfcrl.schema import TrainingConfig
-from diffusion_co_design.wfcrl.design import FixedDesigner
+from diffusion_co_design.wfcrl.design import FixedDesigner, RandomDesigner
 from diffusion_co_design.wfcrl.env import create_batched_env, create_env
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models
 
@@ -33,7 +34,7 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
-    designer = FixedDesigner(cfg.scenario, seed=0)
+    designer = RandomDesigner(cfg.scenario, seed=0)
 
     reference_env = create_env(
         mode="reference",
@@ -66,7 +67,10 @@ def train(cfg: TrainingConfig):
         frames_per_batch=cfg.ppo.frames_per_batch,
         total_frames=cfg.ppo.total_frames,
         exploration_type=ExplorationType.RANDOM,
+        reset_at_each_iter=True,
     )
+    if cfg.normalize_reward:
+        reward_normalizer = RewardNormalizer(reward_key=reference_env.reward_key)
 
     replay_buffer = ReplayBuffer(
         storage=LazyTensorStorage(
@@ -97,6 +101,7 @@ def train(cfg: TrainingConfig):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
+    assert cfg.ppo.actor_lr == cfg.ppo.critic_lr
     optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo.actor_lr)
 
     # Logging
@@ -107,7 +112,7 @@ def train(cfg: TrainingConfig):
         experiment_name=cfg.experiment_name,
         project_name="diffusion-co-design-wfcrl",
         group_name=group_name,
-        config=dict(cfg),
+        config=cfg.model_dump(),
         mode=cfg.logging.mode,
     )
 
@@ -118,6 +123,21 @@ def train(cfg: TrainingConfig):
         for iteration, sampling_td in enumerate(collector):
             sampling_time = time.time() - sampling_start
             training_tds, training_start = [], time.time()
+            logger.collect_sampling_td(sampling_td)
+
+            if cfg.normalize_reward:
+                reward_normalizer.update_reward_stats(sampling_td["next"])
+                sampling_td["next"] = reward_normalizer.normalize_reward(
+                    sampling_td["next"]
+                )
+                logger.log(
+                    {
+                        "normalizer_mean": reward_normalizer._reward_stats[
+                            "mean"
+                        ].item(),
+                        "normalizer_std": reward_normalizer._reward_stats["std"].item(),
+                    }
+                )
 
             # Compute GAE
             loss_module.to(device=device.storage_device)
@@ -133,8 +153,6 @@ def train(cfg: TrainingConfig):
             current_frames = sampling_td.numel()
             total_frames += current_frames
             replay_buffer.extend(sampling_td.reshape(-1))
-
-            logger.collect_sampling_td(sampling_td)
 
             # PPO Update
             for _ in range(cfg.ppo.n_epochs):
