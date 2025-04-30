@@ -14,6 +14,9 @@ from torchrl.envs import (
     Compose,
     RemoveEmptySpecs,
 )
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from pettingzoo.utils.conversions import aec_to_parallel
 import gymnasium.spaces as spaces
 
@@ -39,6 +42,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         start_iter=0,
         max_num_steps=500,
         load_coef=0.1,
+        scenario: ScenarioConfig | None = None,
     ):
         if reward_shaper is None:
             reward_shaper = DoNothingReward()
@@ -62,6 +66,9 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             shape=(self.num_turbines, 2),
             dtype=np.float32,
         )
+
+        # Used for rendering only
+        self.scenario = scenario
 
     def reset(self, seed=None, options=None):
         # Possibly override xcoords and ycoords
@@ -99,6 +106,68 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             [self.mdp.farm_case.xcoords, self.mdp.farm_case.ycoords], axis=-1
         ).astype(np.float32)
         return state
+
+    def render(self):
+        state = self.state()
+        fig, ax = plt.subplots(figsize=(5, 5))
+        canvas = FigureCanvas(fig)
+
+        # Turbines
+        if self.scenario is not None:
+            radius = self.scenario.min_distance_between_turbines / 2
+        else:
+            radius = 50
+        xcoords = self.mdp.farm_case.xcoords
+        ycoords = self.mdp.farm_case.ycoords
+        coords = np.stack([xcoords, ycoords], axis=-1)
+        ax.scatter(coords[:, 0], coords[:, 1], alpha=0.7, edgecolors="k", zorder=2)
+        for x, y in coords:
+            circle = Circle(
+                (x, y),
+                radius=radius,
+                edgecolor="green",
+                facecolor="none",
+                linewidth=1.2,
+                zorder=1,
+            )
+            ax.add_patch(circle)
+
+        # Wind
+        wind_speed = state["wind_speed"] / 28 * radius
+        wind_direction = state["wind_direction"]
+        wind_direction = np.deg2rad(wind_direction)
+        dx = wind_speed * np.sin(wind_direction) * -1
+        dy = wind_speed * np.cos(wind_direction) * -1
+
+        ax.quiver(coords[:, 0], coords[:, 1], dx, dy, color="blue", width=0.005)
+
+        # Yaw
+        yaw = state["yaw"] + state["wind_direction"]
+        yaw = np.deg2rad(yaw)
+        dx = radius * np.sin(yaw) * -1
+        dy = radius * np.cos(yaw) * -1
+        ax.quiver(coords[:, 0], coords[:, 1], dx, dy, color="red", width=0.005)
+
+        if self.scenario is not None:
+            map_width = self.scenario.map_x_length
+            map_height = self.scenario.map_y_length
+        else:
+            map_width = max(xcoords)
+            map_height = max(ycoords)
+
+        ax.grid(True)
+        ax.set_xlim(0, map_width)
+        ax.set_ylim(0, map_height)
+
+        fig.canvas.draw()
+        width, height = fig.canvas.get_width_height()
+        img = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape(
+            height, width, 4
+        )
+        img = img[:, :, :3]
+        plt.close(fig)
+
+        return img
 
     def _build_agent_spaces(self):
         super()._build_agent_spaces()
@@ -190,14 +259,14 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
 
 
 def _create_designable_windfarm(
-    n_turbines: int, initial_xcoords, initial_ycoords, max_steps: int = 500
+    scenario: ScenarioConfig, initial_xcoords, initial_ycoords
 ):
     if isinstance(initial_xcoords, np.ndarray):
         initial_xcoords = initial_xcoords.tolist()
     if isinstance(initial_ycoords, np.ndarray):
         initial_ycoords = initial_ycoords.tolist()
     case = FlorisCase(
-        num_turbines=n_turbines,
+        num_turbines=scenario.n_turbines,
         xcoords=initial_xcoords,
         ycoords=initial_ycoords,
         dt=60,
@@ -210,7 +279,8 @@ def _create_designable_windfarm(
         farm_case=case,
         controls=get_default_control(["yaw"]),
         start_iter=math.ceil(case.t_init / case.dt),
-        max_num_steps=max_steps,
+        max_num_steps=scenario.max_steps,
+        scenario=scenario,
     )
 
 
@@ -222,10 +292,9 @@ def create_env(
 ):
     theta = designer.generate_environment_weights().numpy(force=True)
     env = _create_designable_windfarm(
-        n_turbines=scenario.n_turbines,
+        scenario=scenario,
         initial_xcoords=theta[:, 0],
         initial_ycoords=theta[:, 1],
-        max_steps=scenario.max_steps,
     )
     env = aec_to_parallel(env)
 
