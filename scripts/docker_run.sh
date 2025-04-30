@@ -5,4 +5,4 @@ docker run \
     --name "diffusion-co-design" \
     --gpus=all \
     $(docker build -q .) \
-    "$@"
+    bash -c "sleep infinity"
