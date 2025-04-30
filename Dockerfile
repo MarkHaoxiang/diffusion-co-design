@@ -1,13 +1,9 @@
 FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
 
-# MPI
-RUN apt-get update && apt-get install -y libopenmpi-dev 
+RUN apt-get update && apt-get install -y libopenmpi-dev xvfb git 
 
 # Install UV
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Install xorg virtual frame buffer
-RUN apt-get install -y xvfb
 
 WORKDIR /app
 
