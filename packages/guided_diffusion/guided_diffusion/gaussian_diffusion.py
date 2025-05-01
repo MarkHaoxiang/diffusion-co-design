@@ -763,7 +763,6 @@ class GaussianDiffusion:
 
             if operation.backward_mixed_precision:
                 scaler = th.amp.grad_scaler.GradScaler(device=x0.device)
-                x0 = x0.to(th.float16)
 
             weights = th.ones_like(x0).cuda()
 
@@ -781,11 +780,6 @@ class GaussianDiffusion:
                 else:
                     op_im = x0
 
-                # if operation_func is not None and hasattr(operation_func.module, 'cal_loss'):
-                #     tmp_loss = operation_func.module.cal_loss(x0, operated_image)
-                #     loss = tmp_loss.unsqueeze(0)
-                #     # loss = -1 * tmp_loss.unsqueeze(0)
-                # else:
                 if operation.backward_mixed_precision:
                     with th.amp.autocast(device_type="cuda", dtype=th.float16):
                         loss = criterion(op_im, operated_image)
@@ -810,7 +804,6 @@ class GaussianDiffusion:
                 if weights.sum() == 0:
                     break
 
-            x0 = x0.to(th.float32).detach()
             x0.requires_grad = False
             th.set_grad_enabled(False)
 

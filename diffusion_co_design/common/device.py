@@ -9,6 +9,8 @@ MEMORY_MANAGEMENT = Literal[
     "mixed",  # Use CPU as the storing device
 ]
 
+cuda = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
+
 
 @dataclass
 class Device:
@@ -18,7 +20,7 @@ class Device:
 
 
 def memory_management(mem: MEMORY_MANAGEMENT, gpu_id: int = 0):
-    cuda = (
+    gpu = (
         torch.device(f"cuda:{gpu_id}")
         if torch.cuda.is_available()
         else torch.device("cpu")
@@ -27,13 +29,13 @@ def memory_management(mem: MEMORY_MANAGEMENT, gpu_id: int = 0):
     match mem:
         case "gpu":
             return Device(
-                env_device=cuda,
-                storage_device=cuda,
-                train_device=cuda,
+                env_device=gpu,
+                storage_device=gpu,
+                train_device=gpu,
             )
         case "cpu":
             return Device(env_device=cpu, storage_device=cpu, train_device=cpu)
         case "mixed":
-            return Device(env_device=cuda, storage_device=cpu, train_device=cuda)
+            return Device(env_device=gpu, storage_device=cpu, train_device=gpu)
         case _:
             raise ValueError(f"Unknown option {mem}")
