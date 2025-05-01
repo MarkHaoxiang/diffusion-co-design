@@ -17,11 +17,13 @@ class Device:
     train_device: torch.device
 
 
-cuda = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
-cpu = torch.device("cpu")
-
-
-def memory_management(mem: MEMORY_MANAGEMENT):
+def memory_management(mem: MEMORY_MANAGEMENT, gpu_id: int = 0):
+    cuda = (
+        torch.device(f"cuda:{gpu_id}")
+        if torch.cuda.is_available()
+        else torch.device("cpu")
+    )
+    cpu = torch.device("cpu")
     match mem:
         case "gpu":
             return Device(

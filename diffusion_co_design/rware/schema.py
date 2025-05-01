@@ -73,6 +73,7 @@ class DesignerConfig(Config):
 class TrainingConfig(Config):
     # Problem definition: Built with diffusion.datasets.rware.generate
     memory_management: MEMORY_MANAGEMENT = "gpu"
+    gpu_id: int = 0
     experiment_name: str
     designer: DesignerConfig
     scenario_name: str

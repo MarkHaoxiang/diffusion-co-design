@@ -21,6 +21,7 @@ class OptimizerDetails:
         self.lr = 0.01
         self.loss_func = None  # Important: this is the guidance model. Also 'criterion', takes in pred_xstart and any extra info in operated_image
         self.backward_steps = 0
+        self.backward_mixed_precision: bool = True
         self.loss_cutoff = None  # disabled, ignore
         self.lr_scheduler = None
         self.warm_start = None
@@ -29,7 +30,6 @@ class OptimizerDetails:
         self.print = False  # Ignore
         self.print_every = None  # Ignore
         self.folder = None  # Ignore
-        self.tv_loss = None  # Ignore
         self.use_forward = True  # Set true to use forward.
         self.forward_guidance_wt = 5.0
         self.other_guidance_func = None

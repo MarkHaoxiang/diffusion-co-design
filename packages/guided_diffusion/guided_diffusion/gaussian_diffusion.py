@@ -760,9 +760,12 @@ class GaussianDiffusion:
 
             loss = None
             _ = None
+
+            if operation.backward_mixed_precision:
+                scaler = th.amp.grad_scaler.GradScaler(device=x0.device)
+                x0 = x0.to(th.float16)
+
             weights = th.ones_like(x0).cuda()
-            ones = th.ones_like(x0).cuda()
-            zeros = th.zeros_like(x0).cuda()
 
             for _ in range(backward_steps):
                 with th.no_grad():
@@ -783,35 +786,22 @@ class GaussianDiffusion:
                 #     loss = tmp_loss.unsqueeze(0)
                 #     # loss = -1 * tmp_loss.unsqueeze(0)
                 # else:
-                loss = criterion(op_im, operated_image)
-
-                # for __ in range(loss.shape[0]):
-                #     if loss[__] < loss_cutoff:
-                #         weights[__] = zeros[__]
-                #     else:
-                #         weights[__] = ones[__]
-                weights = ones
+                if operation.backward_mixed_precision:
+                    with th.amp.autocast(device_type="cuda", dtype=th.float16):
+                        loss = criterion(op_im, operated_image)
+                        m_loss = loss.sum()
+                    scaler.scale(m_loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss = criterion(op_im, operated_image)
+                    m_loss = loss.sum()
+                    m_loss.backward()
+                    optimizer.step()
 
                 before_x = th.clone(x0.data)
-                m_loss = loss.sum()
 
-                if operation.tv_loss != None:
-                    diff1 = x0[:, :, :, :-1] - x0[:, :, :, 1:]
-                    diff2 = x0[:, :, :-1, :] - x0[:, :, 1:, :]
-                    diff3 = x0[:, :, 1:, :-1] - x0[:, :, :-1, 1:]
-                    diff4 = x0[:, :, :-1, :-1] - x0[:, :, 1:, 1:]
-                    loss_var = (
-                        th.norm(diff1)
-                        + th.norm(diff2)
-                        + th.norm(diff3)
-                        + th.norm(diff4)
-                    )
-                    m_loss += operation.tv_loss * loss_var
-
-                m_loss.backward()
-                optimizer.step()
-
-                if operation.lr_scheduler != None:
+                if operation.lr_scheduler is not None:
                     scheduler.step()
 
                 with th.no_grad():
@@ -820,6 +810,7 @@ class GaussianDiffusion:
                 if weights.sum() == 0:
                     break
 
+            x0 = x0.to(th.float32).detach()
             x0.requires_grad = False
             th.set_grad_enabled(False)
 
