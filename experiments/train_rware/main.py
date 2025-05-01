@@ -152,13 +152,27 @@ def train(cfg: TrainingConfig):
             training_tds, training_start = [], time.time()
 
             # Compute GAE
+            sampling_td = sampling_td.reshape(-1, cfg.scenario.max_steps)
+            assert sampling_td[("next", "agents", "done")][:, -1].all()
             loss_module.to(device=device.storage_device)
+            state_value_shape = sampling_td.get(("next", group_name, "reward")).shape
+            sv = torch.zeros(state_value_shape, device=sampling_td.device)
+            nsv = torch.zeros(state_value_shape, device=sampling_td.device)
+
             with torch.no_grad():
-                loss_module.value_estimator(
-                    sampling_td,
-                    params=loss_module.critic_network_params,
-                    target_params=loss_module.target_critic_network_params,
-                )
+                batch_size = 1
+                for i, eb in enumerate(sampling_td.split(batch_size, dim=0)):
+                    loss_module.value_estimator(
+                        eb,
+                        params=loss_module.critic_network_params,
+                        target_params=loss_module.target_critic_network_params,
+                    )
+                    start = i * batch_size
+                    end = min((i + 1) * batch_size, sampling_td.shape[0])
+                    sv[start:end] = eb[(group_name, "state_value")]
+                    nsv[start:end] = eb[("next", group_name, "state_value")]
+            sampling_td[(group_name, "state_value")] = sv
+            sampling_td[("next", group_name, "state_value")] = nsv
             loss_module.to(device=device.train_device)
 
             # Add to the replay buffer (shuffling)

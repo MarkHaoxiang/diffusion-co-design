@@ -154,6 +154,7 @@ class CustomCNNClassifier(ImageClassifier):
         use_new_attention_order: bool = True,
         resblock_updown: bool = True,
         downsample_conv_resample: bool = False,
+        depthwise_separable: bool = False,
     ):
         super().__init__(cfg)
         image_size = cfg.size
@@ -188,6 +189,7 @@ class CustomCNNClassifier(ImageClassifier):
                         channels=ch,
                         dropout=dropout,
                         out_channels=out_ch,
+                        depthwise_separable=depthwise_separable,
                     )
                 )
                 ch = out_ch
@@ -206,7 +208,12 @@ class CustomCNNClassifier(ImageClassifier):
             if level < len(channel_mult) - 1:  # Not last
                 if resblock_updown:
                     self.input_blocks.append(
-                        ResBlock(channels=ch, dropout=dropout, updown="down")
+                        ResBlock(
+                            channels=ch,
+                            dropout=dropout,
+                            updown="down",
+                            depthwise_separable=depthwise_separable,
+                        )
                     )
                 else:
                     self.input_blocks.append(
@@ -218,14 +225,18 @@ class CustomCNNClassifier(ImageClassifier):
 
         # Middle block
         self.middle_block = nn.Sequential(
-            ResBlock(channels=ch, dropout=dropout),
+            ResBlock(
+                channels=ch, dropout=dropout, depthwise_separable=depthwise_separable
+            ),
             AttentionBlock(
                 channels=ch,
                 num_heads=num_attention_heads,
                 num_head_channels=num_attention_head_channels,
                 use_new_attention_order=use_new_attention_order,
             ),
-            ResBlock(channels=ch, dropout=dropout),
+            ResBlock(
+                channels=ch, dropout=dropout, depthwise_separable=depthwise_separable
+            ),
         )
         self._feature_size += ch
 

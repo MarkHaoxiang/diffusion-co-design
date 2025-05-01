@@ -29,8 +29,8 @@ policy:
 
 logging:
   type: wandb
-  # mode: disabled
-  mode: online
+  mode: disabled
+  # mode: online
   # mode: offline
   evaluation_interval: 20
   evaluation_episodes: 5

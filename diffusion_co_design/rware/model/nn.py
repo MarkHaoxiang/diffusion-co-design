@@ -8,6 +8,26 @@ from guided_diffusion.unet import Downsample, Upsample
 # Adapted from guided_diffusion ResBlock
 
 
+def maybe_depthwise_separable_conv(
+    depthwise_separable: bool,
+    dims: int,
+    in_channels: int,
+    out_channels: int,
+    *args,
+    **kwargs,
+):
+    if depthwise_separable:
+        return nn.Sequential(
+            conv_nd(
+                dims, in_channels, in_channels, groups=in_channels, *args, **kwargs
+            ),
+            nn.SiLU(),
+            conv_nd(dims, in_channels, out_channels, kernel_size=1),
+        )
+    else:
+        return conv_nd(dims, in_channels, out_channels, *args, **kwargs)
+
+
 class ResBlock(nn.Module):
     def __init__(
         self,
@@ -18,6 +38,7 @@ class ResBlock(nn.Module):
         use_conv: bool = False,
         updown: Literal["id", "up", "down"] = "id",
         use_scale_shift_norm: bool = False,
+        depthwise_separable: bool = False,
     ):
         super().__init__()
         dims = 2
@@ -29,7 +50,14 @@ class ResBlock(nn.Module):
         self.in_layers = nn.Sequential(
             normalization(channels),
             nn.SiLU(),
-            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+            maybe_depthwise_separable_conv(
+                depthwise_separable=depthwise_separable,
+                dims=dims,
+                in_channels=channels,
+                out_channels=self.out_channels,
+                kernel_size=3,
+                padding=1,
+            ),
         )
 
         self.updown = updown
@@ -63,7 +91,14 @@ class ResBlock(nn.Module):
             nn.SiLU(),
             nn.Dropout(p=dropout),
             zero_module(
-                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+                maybe_depthwise_separable_conv(
+                    depthwise_separable=depthwise_separable,
+                    dims=dims,
+                    in_channels=self.out_channels,
+                    out_channels=self.out_channels,
+                    kernel_size=3,
+                    padding=1,
+                )
             ),
         )
 

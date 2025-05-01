@@ -6,7 +6,7 @@ defaults:
 training_dir: "/home/markhaoxiang/.diffusion_co_design/experiments/train_rware/2025-04-18/00-36-30"
 batch_size: 128
 train_epochs: 100
-lr: 3e-5
+lr: 3e-4
 train_target: critic
 weight_decay: 0.0
 logging_mode: online

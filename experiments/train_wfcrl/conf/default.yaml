@@ -8,20 +8,20 @@ normalize_reward: false
 scenario:
   n_turbines: 10
   max_steps: 150
-  map_x_length: 1000
-  map_y_length: 1000
+  map_x_length: 500
+  map_y_length: 500
   min_distance_between_turbines: 100
 policy:
-  node_hidden_size: 128
+  node_hidden_size: 64
   edge_hidden_size: 32
-  mlp_hidden_size: 128
+  mlp_hidden_size: 64
   backbone_depth: 3
   head_depth: 2
 ppo:
   n_iters: 2000
   n_epochs: 20
   minibatch_size: 150
-  n_mini_batches: 20
+  n_mini_batches: 10
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.95

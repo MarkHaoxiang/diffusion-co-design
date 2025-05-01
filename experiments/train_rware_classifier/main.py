@@ -66,7 +66,7 @@ def main(cfg):
         ExperimentLogger(
             directory=output_dir,
             experiment_name=experiment_name,
-            config=cfg,
+            config=cfg.model_dump(),
             project_name="diffusion-co-design-rware-classifier",
             mode=cfg.logging_mode,
         ) as logger,
