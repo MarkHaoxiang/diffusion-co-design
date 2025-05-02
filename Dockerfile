@@ -7,6 +7,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
+ENV DIFFUSION_CO_DESIGN_WDIR=/app/.diffusion_co_design
+
 # Install project dependencies
 # From https://github.com/astral-sh/uv-docker-example/blob/main/Dockerfile
 ENV UV_LINK_MODE=copy
