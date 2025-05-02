@@ -673,7 +673,7 @@ class UNetModel(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
-    def forward(self, x, timesteps, y=None):
+    def forward(self, x, timesteps=None, y=None):
         """
         Apply the model to an input batch.
 
@@ -687,6 +687,8 @@ class UNetModel(nn.Module):
         )
 
         hs = []
+        if timesteps is None:
+            timesteps = th.zeros(x.shape[0], dtype=th.long, device=x.device)
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
         if self.num_classes is not None:

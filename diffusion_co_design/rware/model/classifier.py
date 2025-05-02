@@ -119,7 +119,7 @@ class UnetCNNClassifier(ImageClassifier):
 
         model_dict["classifier_width"] = width
         model_dict["classifier_depth"] = depth
-        model_dict["classifier_attention_resolutions"] = "16, 8, 4"
+        model_dict["classifier_attention_resolutions"] = "16,8,4"
         model_dict["output_dim"] = 1
 
         self.model = create_classifier(**model_dict)

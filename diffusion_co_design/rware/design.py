@@ -11,6 +11,8 @@ from torchrl.objectives.value.functional import reward2go
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 
+from guided_diffusion.script_util import create_model
+
 from diffusion_co_design.common import OUTPUT_DIR, get_latest_model
 from diffusion_co_design.rware.model.classifier import make_model, image_to_pos_colors
 from diffusion_co_design.rware.diffusion.transform import (
@@ -102,6 +104,56 @@ def get_env_from_td(td, scenario: ScenarioConfig, gamma: float = 0.99):
     y = y.reshape(-1, scenario.max_steps)
     y = y[:, 0]
     return X, y
+
+
+class PolicyDesigner(CentralisedDesigner):
+    def __init__(
+        self,
+        scenario: ScenarioConfig,
+        environment_repeats: int = 1,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(scenario, environment_repeats, representation="image")
+
+        self.device = device
+        self.policy = create_model(
+            image_size=self.scenario.size,
+            image_channels=scenario.n_colors,
+            num_channels=64,
+            num_res_blocks=2,
+            resblock_updown=True,
+            use_new_attention_order=True,
+            attention_resolutions="16,8,4",
+            num_head_channels=64,
+        ).to(device)
+
+    def generate_environment_batch(self, batch_size: int):
+        B = batch_size
+        C = self.scenario.n_colors
+        N = self.scenario.size
+        initial_env = torch.zeros((B, C, N, N), device=self.device)
+
+        with torch.no_grad():
+            # Calculate logits
+            logits = self.policy(initial_env).reshape(B, C, -1)  # (B, C, N * N)
+            # Apply softmax channel-wise to get placement probabilities
+            envs = torch.zeros((B, C, N * N), device=self.device)
+            batch_idxs = torch.arange(B)
+            for i in range(self.scenario.n_shelves):
+                channel_selection = i % self.scenario.n_colors  # [B]
+                mask = envs.sum(dim=1) > 0  # [B, N * N]
+                logits_i = logits[batch_idxs, channel_selection]  # [B, N * N]
+                logits_i = logits_i.masked_fill(mask, float("-inf"))  # [B, N * N]
+                probs_i = torch.softmax(logits_i, dim=-1)  # [B, N * N]
+                idxs = torch.multinomial(probs_i, 1).squeeze(1)
+                envs[batch_idxs, channel_selection, idxs] = 1
+
+            envs = envs.reshape(B, C, N, N)
+
+        return envs
+
+    def reset_env_buffer(self, batch_size):
+        return NotImplementedError()
 
 
 class ValueDesigner(CentralisedDesigner):
