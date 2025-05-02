@@ -6,6 +6,7 @@ defaults:
 experiment_name: rware_test
 scenario_name: rware_16_50_5_4_corners
 memory_management: gpu
+gpu_id: 0
 ppo:
   n_iters: 100
   n_epochs: 5
