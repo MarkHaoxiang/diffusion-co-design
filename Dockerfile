@@ -1,6 +1,6 @@
 FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
 
-RUN apt-get update && apt-get install -y libopenmpi-dev xvfb git 
+RUN apt-get update && apt-get install -y libopenmpi-dev xvfb git libfontconfig1
 
 # Install UV
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

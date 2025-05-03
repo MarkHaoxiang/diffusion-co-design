@@ -207,15 +207,17 @@ class ValueDesigner(CentralisedDesigner):
 
         # Logging
         self.ref_random_designs = torch.tensor(
-            generate(
-                size=scenario.size,
-                n_shelves=scenario.n_shelves,
-                goal_idxs=scenario.goal_idxs,
-                n_colors=scenario.n_colors,
-                n=64,
-                training_dataset=True,
-                representation=self.representation,
-                rng=np.random.default_rng(seed=0),
+            np.array(
+                generate(
+                    size=scenario.size,
+                    n_shelves=scenario.n_shelves,
+                    goal_idxs=scenario.goal_idxs,
+                    n_colors=scenario.n_colors,
+                    n=64,
+                    training_dataset=True,
+                    representation=self.representation,
+                    rng=np.random.default_rng(seed=0),
+                )
             ),
             dtype=torch.float32,
             device=self.device,
