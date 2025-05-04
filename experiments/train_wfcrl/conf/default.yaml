@@ -35,6 +35,6 @@ logging:
   # mode: disabled
   mode: online
   # mode: offline
-  evaluation_interval: 5
+  evaluation_interval: 50
   evaluation_episodes: 5
-  checkpoint_interval: 20
+  checkpoint_interval: 50

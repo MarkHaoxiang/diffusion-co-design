@@ -265,7 +265,7 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
 
 
 def _create_designable_windfarm(
-    scenario: ScenarioConfig, initial_xcoords, initial_ycoords
+    scenario: ScenarioConfig, initial_xcoords, initial_ycoords, render: bool = False
 ):
     if isinstance(initial_xcoords, np.ndarray):
         initial_xcoords = initial_xcoords.tolist()
@@ -287,6 +287,7 @@ def _create_designable_windfarm(
         start_iter=math.ceil(case.t_init / case.dt),
         max_num_steps=scenario.max_steps,
         scenario=scenario,
+        render_mode="rgb_array" if render else None,
     )
 
 
@@ -295,12 +296,14 @@ def create_env(
     scenario: ScenarioConfig,
     designer: Designer,
     device: str | None = None,
+    render: bool = False,
 ):
     theta = designer.generate_environment_weights().numpy(force=True)
     env = _create_designable_windfarm(
         scenario=scenario,
         initial_xcoords=theta[:, 0],
         initial_ycoords=theta[:, 1],
+        render=render,
     )
     env = aec_to_parallel(env)
 
@@ -333,12 +336,18 @@ def create_batched_env(
     mode: Literal["train", "eval", "reference"],
     device: str | None = None,
 ):
-    def create_env_fn():
-        return create_env(mode, scenario=scenario, designer=designer, device="cpu")
+    def create_env_fn(render: bool = False):
+        return create_env(
+            mode, scenario=scenario, designer=designer, render=render, device="cpu"
+        )
+
+    eval_kwargs = [{"render": True}]
+    for _ in range(num_environments - 1):
+        eval_kwargs.append({})
 
     return ParallelEnv(
         num_workers=num_environments,
         create_env_fn=create_env_fn,
-        create_env_kwargs={},
+        create_env_kwargs=eval_kwargs if mode == "eval" else {},
         device=device,
     )

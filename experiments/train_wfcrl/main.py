@@ -34,7 +34,7 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
-    designer = RandomDesigner(cfg.scenario, seed=0)
+    designer = RandomDesigner(cfg.scenario)
 
     reference_env = create_env(
         mode="reference",
@@ -195,15 +195,22 @@ def train(cfg: TrainingConfig):
                     torch.no_grad(),
                     set_exploration_type(ExplorationType.DETERMINISTIC),
                 ):
+                    frames = []
+
+                    def callback(env, td):
+                        return frames.append(env.render()[0])
+
                     rollouts = eval_env.rollout(
                         max_steps=cfg.scenario.max_steps,
                         policy=policy,
+                        callback=callback,
                         auto_cast_to_device=True,
+                        break_when_all_done=True,
                     )
 
                     evaluation_time = time.time() - evaluation_start
 
-                    logger.collect_evaluation_td(rollouts, evaluation_time, None)
+                    logger.collect_evaluation_td(rollouts, evaluation_time, frames)
 
             logger.commit(total_frames, current_frames)
 
