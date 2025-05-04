@@ -204,8 +204,6 @@ def train(cfg: TrainingConfig):
                     training_tds.append(loss_vals.detach())
             collector.update_policy_weights_()
             logger.collect_training_td(training_log_td)
-            del minibatch, training_log_td
-            torch.cuda.empty_cache()
 
             # Design update
             design_start = time.time()
