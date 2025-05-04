@@ -1,4 +1,6 @@
 import torch
+from torchrl.objectives import ClipPPOLoss
+from tensordict import TensorDict
 
 from diffusion_co_design.common.pydra import Config
 
@@ -44,3 +46,41 @@ def group_optimizers(*optimizers: torch.optim.Optimizer) -> torch.optim.Optimize
             raise ValueError("Cannot group optimizers of different type.")
         params.extend(optimizer.param_groups)
     return cls(params)
+
+
+def minibatch_advantage_calculation(
+    sampling_td: TensorDict,
+    loss_module: ClipPPOLoss,
+    group_name: str,
+    batch_size: int = 1,
+    batch_dim: int = 0,
+):
+    shape = sampling_td.get(("next", group_name, "reward")).shape
+
+    keys_list = [
+        (group_name, "state_value"),
+        ("next", group_name, "state_value"),
+        "advantage",
+        "value_target",
+    ]
+
+    buffer = [
+        torch.zeros(shape, device=sampling_td.device) for _ in range(len(keys_list))
+    ]
+
+    with torch.no_grad():
+        batch_size = 1
+        for i, eb in enumerate(sampling_td.split(batch_size, dim=batch_dim)):
+            loss_module.value_estimator(
+                eb,
+                params=loss_module.critic_network_params,
+                target_params=loss_module.target_critic_network_params,
+            )
+
+            start = i * batch_size
+            end = min((i + 1) * batch_size, sampling_td.shape[0])
+            for j, key in enumerate(keys_list):
+                buffer[j][start:end] = eb.get(key)
+
+    sampling_td.update({key: value for key, value in zip(keys_list, buffer)})
+    return sampling_td

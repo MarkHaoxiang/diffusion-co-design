@@ -20,13 +20,19 @@ from omegaconf import DictConfig
 # Rware
 from tqdm import tqdm
 
-from diffusion_co_design.common import RLExperimentLogger, memory_management
-from diffusion_co_design.common.ppo import group_optimizers
+from diffusion_co_design.common import (
+    RLExperimentLogger,
+    memory_management,
+    start_from_checkpoint,
+)
+from diffusion_co_design.common.ppo import (
+    group_optimizers,
+    minibatch_advantage_calculation,
+)
 from diffusion_co_design.rware.env import create_batched_env, create_env
 from diffusion_co_design.rware.model.rl import rware_models
 from diffusion_co_design.rware.design import DesignerRegistry, DiskDesigner
 from diffusion_co_design.rware.schema import TrainingConfig
-from diffusion_co_design.common import start_from_checkpoint
 
 group_name = "agents"
 
@@ -155,24 +161,13 @@ def train(cfg: TrainingConfig):
             sampling_td = sampling_td.reshape(-1, cfg.scenario.max_steps)
             assert sampling_td[("next", "agents", "done")][:, -1].all()
             loss_module.to(device=device.storage_device)
-            state_value_shape = sampling_td.get(("next", group_name, "reward")).shape
-            sv = torch.zeros(state_value_shape, device=sampling_td.device)
-            nsv = torch.zeros(state_value_shape, device=sampling_td.device)
 
-            with torch.no_grad():
-                batch_size = 1
-                for i, eb in enumerate(sampling_td.split(batch_size, dim=0)):
-                    loss_module.value_estimator(
-                        eb,
-                        params=loss_module.critic_network_params,
-                        target_params=loss_module.target_critic_network_params,
-                    )
-                    start = i * batch_size
-                    end = min((i + 1) * batch_size, sampling_td.shape[0])
-                    sv[start:end] = eb[(group_name, "state_value")]
-                    nsv[start:end] = eb[("next", group_name, "state_value")]
-            sampling_td[(group_name, "state_value")] = sv
-            sampling_td[("next", group_name, "state_value")] = nsv
+            minibatch_advantage_calculation(
+                sampling_td=sampling_td,
+                loss_module=loss_module,
+                group_name=group_name,
+            )
+
             loss_module.to(device=device.train_device)
 
             # Add to the replay buffer (shuffling)
