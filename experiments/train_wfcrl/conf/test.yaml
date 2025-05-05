@@ -3,7 +3,10 @@ defaults:
   - metadata/training@_here_
 
 experiment_name: wfcrl_test
-memory_management: gpu
+device:
+  device_management: "gpu"
+  gpu_id: 0
+  max_gpu_memory: 1.0
 normalize_reward: false
 scenario:
   n_turbines: 10

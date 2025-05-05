@@ -5,8 +5,10 @@ defaults:
 
 experiment_name: corners_agent_distill_gnn
 scenario_name: rware_16_50_5_4_corners
-memory_management: gpu
-gpu_id: 0
+device:
+  device_management: "gpu"
+  gpu_id: 0
+  max_gpu_memory: 1.0
 ppo:
   n_iters: 5000
   n_epochs: 5

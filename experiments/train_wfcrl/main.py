@@ -29,7 +29,7 @@ group_name = "turbine"
 
 def train(cfg: TrainingConfig):
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-    device = memory_management(cfg.memory_management)
+    device = memory_management(cfg.device)
     n_train_envs = min(cfg.ppo.frames_per_batch // cfg.scenario.max_steps, 20)
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0

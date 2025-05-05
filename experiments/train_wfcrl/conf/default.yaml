@@ -3,7 +3,10 @@ defaults:
   - metadata/training@_here_
 
 experiment_name: wfcrl_test
-memory_management: gpu
+device:
+  device_management: "gpu"
+  gpu_id: 0
+  max_gpu_memory: 1.0
 normalize_reward: false
 scenario:
   n_turbines: 10
@@ -25,8 +28,8 @@ ppo:
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.95
-  actor_lr: 3e-5
-  critic_lr: 3e-5
+  actor_lr: 3e-4
+  critic_lr: 3e-4
   max_grad_norm: 1.0
   entropy_eps: 1e-5
   normalise_advantage: true
