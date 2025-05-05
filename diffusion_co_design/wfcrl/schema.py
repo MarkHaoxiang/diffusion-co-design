@@ -1,9 +1,4 @@
-from diffusion_co_design.common import (
-    Config,
-    PPOConfig,
-    LoggingConfig,
-    MEMORY_MANAGEMENT,
-)
+from diffusion_co_design.common import Config, PPOConfig, LoggingConfig, DeviceConfig
 
 
 class ScenarioConfig(Config):
@@ -25,7 +20,7 @@ class RLConfig(Config):
 
 class TrainingConfig(Config):
     experiment_name: str
-    memory_management: MEMORY_MANAGEMENT
+    device: DeviceConfig = DeviceConfig()
     normalize_reward: bool
     scenario: ScenarioConfig
     policy: RLConfig

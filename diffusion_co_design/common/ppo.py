@@ -45,6 +45,7 @@ def group_optimizers(*optimizers: torch.optim.Optimizer) -> torch.optim.Optimize
         if cls is not type(optimizer):
             raise ValueError("Cannot group optimizers of different type.")
         params.extend(optimizer.param_groups)
+    assert cls is not None, "No optimizers provided."
     return cls(params)
 
 

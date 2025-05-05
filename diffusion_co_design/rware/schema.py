@@ -5,7 +5,7 @@ from diffusion_co_design.common import (
     Config,
     LoggingConfig,
     PPOConfig,
-    MEMORY_MANAGEMENT,
+    DeviceConfig,
     OUTPUT_DIR,
 )
 
@@ -72,8 +72,7 @@ class DesignerConfig(Config):
 
 class TrainingConfig(Config):
     # Problem definition: Built with diffusion.datasets.rware.generate
-    memory_management: MEMORY_MANAGEMENT = "gpu"
-    gpu_id: int = 0
+    device: DeviceConfig = DeviceConfig()
     experiment_name: str
     designer: DesignerConfig
     scenario_name: str

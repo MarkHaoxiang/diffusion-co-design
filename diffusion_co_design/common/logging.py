@@ -18,9 +18,6 @@ import numpy as np
 from diffusion_co_design.common.pydra import Config
 
 
-LoggerTypes = Literal["wandb", "csv"] | None
-
-
 class LoggingConfig(Config):
     mode: Literal["online", "offline", "disabled"] = "online"
     evaluation_interval: int = 20
