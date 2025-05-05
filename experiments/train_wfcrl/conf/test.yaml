@@ -8,13 +8,13 @@ normalize_reward: false
 scenario:
   n_turbines: 10
   max_steps: 150
-  map_x_length: 1000
-  map_y_length: 1000
+  map_x_length: 500
+  map_y_length: 500
   min_distance_between_turbines: 100
 policy:
-  node_hidden_size: 64
+  node_hidden_size: 32
   edge_hidden_size: 16
-  mlp_hidden_size: 64
+  mlp_hidden_size: 32
   backbone_depth: 3
   head_depth: 2
 ppo:
@@ -27,14 +27,14 @@ ppo:
   lmbda: 0.95
   actor_lr: 3e-4
   critic_lr: 3e-4
-  max_grad_norm: 0.5
+  max_grad_norm: 1.0
   entropy_eps: 1e-4
   normalise_advantage: true
 
 logging:
-  mode: disabled
-  # mode: online
+  # mode: disabled
+  mode: online
   # mode: offline
-  evaluation_interval: 5
-  evaluation_episodes: 5
+  evaluation_interval: 1
+  evaluation_episodes: 1
   checkpoint_interval: 20

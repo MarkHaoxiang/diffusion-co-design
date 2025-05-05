@@ -3,6 +3,7 @@ from typing import Literal
 import math
 import copy
 
+import torch
 import numpy as np
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
@@ -79,10 +80,18 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             new_farm_case = copy.copy(old_farm_case)
             if "xcoords" in options:
                 coords = options.get("xcoords")
+                if isinstance(coords, torch.Tensor):
+                    coords = coords.numpy(force=True)
+                if isinstance(coords, np.ndarray):
+                    coords = coords.tolist()
                 assert len(coords) == old_farm_case.num_turbines
                 new_farm_case.xcoords = coords
             if "ycoords" in options:
                 coords = options.get("ycoords")
+                if isinstance(coords, torch.Tensor):
+                    coords = coords.numpy(force=True)
+                if isinstance(coords, np.ndarray):
+                    coords = coords.tolist()
                 assert len(coords) == old_farm_case.num_turbines
                 new_farm_case.ycoords = coords
 
@@ -93,12 +102,13 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             # Override MDP
             self.mdp = WindFarmMDP(
                 interface=self.interface_cls,
-                farm_case=self.farm_case,
+                farm_case=new_farm_case,
                 controls=self.controls,
                 continuous_control=self.continuous_control,
                 start_iter=self.start_iter,
                 horizon=self.start_iter + self.max_num_steps,
             )
+            self.farm_case = new_farm_case
         return super().reset(seed, options)
 
     def state(self):
@@ -216,30 +226,31 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
     def _reset(self, tensordict: TensorDict | None = None, **kwargs):
         """Extract the layout from tensordict and pass to env"""
 
-        if (
-            self._env._environment_objective is not None
-            and self._env._reset_policy is not None
-        ):
+        if self._env._reset_policy is not None:
             # Should recompute layout
-            if tensordict is not None:
-                tensordict[("environment_design", "objective")] = (
-                    self._env._environment_objective
-                )
-                reset_policy_output = self._env._reset_policy(tensordict)
-                tensordict.update(
-                    reset_policy_output, keys_to_update=reset_policy_output.keys()
-                )
+            if self._env._environment_objective is not None:
+                if tensordict is not None:
+                    tensordict[("environment_design", "objective")] = (
+                        self._env._environment_objective
+                    )
+                    td = tensordict
 
+                else:
+                    td = TensorDict(
+                        {
+                            (
+                                "environment_design",
+                                "objective",
+                            ): self._env._environment_objective
+                        }
+                    )
             else:
-                td = TensorDict(
-                    {
-                        (
-                            "environment_design",
-                            "objective",
-                        ): self._env._environment_objective
-                    }
-                )
-                reset_policy_output = self._env._reset_policy(td)
+                if tensordict is not None:
+                    td = tensordict
+                else:
+                    td = TensorDict({}, device=self.device)
+            reset_policy_output = self._env._reset_policy(td)
+            td.update(reset_policy_output, keys_to_update=reset_policy_output.keys())
 
             theta = reset_policy_output.get(
                 ("environment_design", "layout_weights")

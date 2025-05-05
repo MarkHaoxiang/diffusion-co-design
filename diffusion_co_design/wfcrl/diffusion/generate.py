@@ -18,7 +18,6 @@ class Generate:
         self.d = minimum_distance_between_turbines
 
         self._rng_uninitialised = rng
-        self._lazy_initialise = False
 
     def _get_random_point(self):
         if self._rng_i >= len(self._random_number_queue):
@@ -32,7 +31,7 @@ class Generate:
         self._random_number_queue = self._rng.uniform(
             low=0.0,
             high=1.0,
-            size=(2048, 2),
+            size=(128, 2),
         )
 
     def __call__(
@@ -41,14 +40,12 @@ class Generate:
         training_dataset: bool = False,
         max_attempts_per_environment: int = 10,
     ):
-        if not self._lazy_initialise:
-            self._lazy_initialise = True
-            rng = self._rng_uninitialised
-            if isinstance(rng, np.random.Generator):
-                self._rng = rng
-            else:
-                self._rng = np.random.default_rng(rng)
-            self._reset_random_number_queue()  # Batched for speed
+        rng = self._rng_uninitialised
+        if isinstance(rng, np.random.Generator):
+            self._rng = rng
+        else:
+            self._rng = np.random.default_rng(rng)
+        self._reset_random_number_queue()  # Batched for speed
 
         environments = np.zeros((n, self.num_turbines, 2), dtype=np.float32)
         i = 0
