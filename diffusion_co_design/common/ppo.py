@@ -1,4 +1,6 @@
 import torch
+from torch.optim import Adam
+import torch.optim as o
 from torchrl.objectives import ClipPPOLoss
 from tensordict import TensorDict
 
@@ -15,6 +17,7 @@ class PPOConfig(Config):
     lmbda: float  # lambda for generalised advantage estimation
     actor_lr: float  # Learning rate for the actor
     critic_lr: float  # Learning rate for the critic
+    lr_scheduler_enabled: bool  # Whether to use a learning rate scheduler
 
     max_grad_norm: float  # Maximum norm for the gradients
     entropy_eps: float  # coefficient of the entropy term in the PPO loss
@@ -47,6 +50,26 @@ def group_optimizers(*optimizers: torch.optim.Optimizer) -> torch.optim.Optimize
         params.extend(optimizer.param_groups)
     assert cls is not None, "No optimizers provided."
     return cls(params)
+
+
+def make_optimiser_and_lr_scheduler(actor, critic, cfg: PPOConfig):
+    actor_optim = o.Adam(actor.parameters(), cfg.actor_lr)
+    critic_optim = o.Adam(critic.parameters(), cfg.critic_lr)
+    optim = group_optimizers(actor_optim, critic_optim)
+
+    if cfg.lr_scheduler_enabled:
+        scheduler = o.lr_scheduler.CosineAnnealingLR(optimizer=optim, T_max=cfg.n_iters)
+
+        def scheduler_step():
+            scheduler.step()
+            return scheduler.get_last_lr()
+
+    else:
+
+        def scheduler_step():
+            return list((cfg.actor_lr, cfg.critic_lr))
+
+    return optim, scheduler_step
 
 
 def minibatch_advantage_calculation(

@@ -26,8 +26,8 @@ from diffusion_co_design.common import (
     start_from_checkpoint,
 )
 from diffusion_co_design.common.ppo import (
-    group_optimizers,
     minibatch_advantage_calculation,
+    make_optimiser_and_lr_scheduler,
 )
 from diffusion_co_design.rware.env import create_batched_env, create_env
 from diffusion_co_design.rware.model.rl import rware_models
@@ -123,10 +123,9 @@ def train(cfg: TrainingConfig):
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
 
-    actor_optim = Adam(policy.parameters(), cfg.ppo.actor_lr)
-    critic_optim = Adam(critic.parameters(), cfg.ppo.critic_lr)
-    optim = group_optimizers(actor_optim, critic_optim)
-    del actor_optim, critic_optim
+    optim, scheduler_step = make_optimiser_and_lr_scheduler(
+        actor=policy, critic=critic, cfg=cfg.ppo
+    )
 
     # Logging
     pbar = tqdm(total=cfg.ppo.n_iters)
@@ -241,6 +240,8 @@ def train(cfg: TrainingConfig):
 
                     logger.collect_evaluation_td(rollouts, evaluation_time, frames)
 
+            lr = scheduler_step()
+            logger.log({"lr_actor": lr[0], "lr_critic": lr[1]})
             logger.commit(total_frames, current_frames)
 
             if iteration % cfg.logging.checkpoint_interval == 0:

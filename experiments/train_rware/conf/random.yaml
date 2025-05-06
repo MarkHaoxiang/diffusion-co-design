@@ -8,7 +8,7 @@ scenario_name: rware_16_50_5_4_corners
 device:
   device_management: "gpu"
   gpu_id: 0
-  max_gpu_memory: 1.0
+  max_gpu_memory: 0.2
 ppo:
   n_iters: 5000
   n_epochs: 5
@@ -17,8 +17,9 @@ ppo:
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.9
-  actor_lr: 3e-5
-  critic_lr: 3e-5
+  actor_lr: 3e-4
+  critic_lr: 1e-4
+  lr_scheduler_enabled: true
   max_grad_norm: 1.0
   entropy_eps: 1e-3
   normalise_advantage: false
