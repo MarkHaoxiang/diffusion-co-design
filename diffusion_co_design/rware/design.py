@@ -453,6 +453,7 @@ class DiffusionDesigner(ValueDesigner):
             scenario=scenario,
             representation=self.representation,  # type: ignore
             guidance_wt=diffusion.forward_guidance_wt,
+            device=device,
         )
 
         self.diffusion = diffusion

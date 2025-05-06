@@ -41,9 +41,6 @@ class OptimizerDetails:
         self.projection_constraint = None  # Projection constraint after on z_(t-1)
 
 
-device = dist_util.dev()
-
-
 class Generator:
     def __init__(
         self,
@@ -53,6 +50,7 @@ class Generator:
         batch_size: int = 32,
         rng: torch.Generator | None = None,
         guidance_wt: float = 50.0,
+        device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
 
@@ -87,7 +85,7 @@ class Generator:
                 self.diffusion.original_num_steps,
             )
 
-        dist_util.setup_dist()
+        self.device = device
 
         # Schedule sampler (for training time dependent diffusion)
         self.schedule_sampler = create_named_schedule_sampler("uniform", self.diffusion)
@@ -100,7 +98,7 @@ class Generator:
         operation_override: OptimizerDetails | None = None,
     ):
         shape = self.shape(batch_size)
-        initial_noise = torch.randn(shape, generator=self.rng, device=device)
+        initial_noise = torch.randn(shape, generator=self.rng, device=self.device)
 
         # print(operation_override.__dict__)
         # assert False
