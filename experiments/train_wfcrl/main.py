@@ -19,6 +19,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from diffusion_co_design.common import RLExperimentLogger, memory_management
+from diffusion_co_design.common.ppo import make_optimiser_and_lr_scheduler
 from diffusion_co_design.wfcrl.schema import TrainingConfig
 from diffusion_co_design.wfcrl.design import FixedDesigner, RandomDesigner
 from diffusion_co_design.wfcrl.env import create_batched_env, create_env
@@ -34,7 +35,8 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
-    designer = RandomDesigner(cfg.scenario)
+    # designer = RandomDesigner(cfg.scenario)
+    designer = FixedDesigner(cfg.scenario, seed=0)
 
     reference_env = create_env(
         mode="reference",
@@ -101,8 +103,9 @@ def train(cfg: TrainingConfig):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
-    assert cfg.ppo.actor_lr == cfg.ppo.critic_lr
-    optim = torch.optim.Adam(loss_module.parameters(), cfg.ppo.actor_lr)
+    optim, scheduler_step = make_optimiser_and_lr_scheduler(
+        actor=policy, critic=critic, cfg=cfg.ppo
+    )
 
     # Logging
     pbar = tqdm(total=cfg.ppo.n_iters)
@@ -212,6 +215,8 @@ def train(cfg: TrainingConfig):
 
                     logger.collect_evaluation_td(rollouts, evaluation_time, frames)
 
+            lr = scheduler_step()
+            logger.log({"lr_actor": lr[0], "lr_critic": lr[1]})
             logger.commit(total_frames, current_frames)
 
             if iteration % cfg.logging.checkpoint_interval == 0:

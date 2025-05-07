@@ -764,7 +764,7 @@ class GaussianDiffusion:
             if operation.backward_mixed_precision:
                 scaler = th.amp.grad_scaler.GradScaler(device=x0.device)
 
-            weights = th.ones_like(x0).cuda()
+            weights = th.ones_like(x0, device=x0.device)
 
             for _ in range(backward_steps):
                 with th.no_grad():

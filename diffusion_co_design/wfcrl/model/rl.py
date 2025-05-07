@@ -216,7 +216,7 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
         for x in ["wind_direction", "wind_speed", "yaw", "layout"]
     ]
 
-    gnn = EquivariantModel(
+    policy_gnn = EquivariantModel(
         scenario=env._env._scenario_cfg,
         node_emb_dim=cfg.node_hidden_size,
         edge_emb_dim=cfg.edge_hidden_size,
@@ -226,11 +226,11 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
             "turbine", "observation", "wind_speed"
         ].high,
     ).to(device=device)
-    gnn_key = [("turbine", "observation", "gnn_features")]
-    gnn_module = TensorDictModule(
-        module=gnn,
+    policy_gnn_key = [("turbine", "observation", "policy_gnn_features")]
+    policy_gnn_module = TensorDictModule(
+        module=policy_gnn,
         in_keys=observation_keys,
-        out_keys=gnn_key,
+        out_keys=policy_gnn_key,
     )
 
     policy_mlp = nn.Sequential(
@@ -247,12 +247,12 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
 
     policy_mlp_module = TensorDictModule(
         module=policy_mlp,
-        in_keys=gnn_key,
+        in_keys=policy_gnn_key,
         out_keys=[("turbine", "loc"), ("turbine", "scale")],
     )
 
     policy_module = TensorDictSequential(
-        gnn_module,
+        policy_gnn_module,
         policy_mlp_module,
         selected_out_keys=[("turbine", "loc"), ("turbine", "scale")],
     )
@@ -271,6 +271,23 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
         log_prob_key=("turbine", "sample_log_prob"),
     )
 
+    critic_gnn = EquivariantModel(
+        scenario=env._env._scenario_cfg,
+        node_emb_dim=cfg.node_hidden_size,
+        edge_emb_dim=cfg.edge_hidden_size,
+        n_layers=cfg.backbone_depth,
+        wind_speed_low=env.observation_spec["turbine", "observation", "wind_speed"].low,
+        wind_speed_high=env.observation_spec[
+            "turbine", "observation", "wind_speed"
+        ].high,
+    ).to(device=device)
+    critic_gnn_key = [("turbine", "observation", "critic_gnn_features")]
+    critic_gnn_module = TensorDictModule(
+        module=critic_gnn,
+        in_keys=observation_keys,
+        out_keys=critic_gnn_key,
+    )
+
     critic_mlp = MultiAgentMLP(
         n_agent_inputs=cfg.node_hidden_size,
         n_agent_outputs=1,  # 1 value per agent
@@ -285,14 +302,14 @@ def wfcrl_models(env, cfg: RLConfig, device: str):
 
     critic_mlp_module = TensorDictModule(
         module=critic_mlp,
-        in_keys=gnn_key,
+        in_keys=critic_gnn_key,
         out_keys=[("turbine", "state_value")],
     )
 
     critic_module = TensorDictSequential(
-        gnn_module,
+        critic_gnn_module,
         critic_mlp_module,
-        selected_out_keys=[("turbine", "state_value")] + gnn_key,
+        selected_out_keys=[("turbine", "state_value")],
     )
 
     critic = TensorDictModule(
