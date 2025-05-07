@@ -144,8 +144,8 @@ def train(cfg: TrainingConfig):
             (policy, "policy_"),
             (critic, "critic_"),
         ],
-        device=device.train_device,
     )
+    torch.cuda.empty_cache()
 
     # Main Training Loop
     master_designer.reset(batch_size=n_train_envs)

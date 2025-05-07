@@ -14,7 +14,6 @@ def get_latest_model(dir: str, prefix: str) -> str:
 def start_from_checkpoint(
     training_dir: str | None,
     models: list[tuple[torch.nn.Module | None, str]],
-    device: torch.device,
 ):
     if training_dir is None:
         return
@@ -26,5 +25,5 @@ def start_from_checkpoint(
             continue
 
         checkpoint = get_latest_model(training_dir, name)
-        state_dict = torch.load(checkpoint, map_location=device)
-        model.load_state_dict(state_dict).to(device)
+        state_dict = torch.load(checkpoint)
+        model.load_state_dict(state_dict)
