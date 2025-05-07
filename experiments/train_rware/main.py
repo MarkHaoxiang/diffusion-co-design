@@ -144,6 +144,7 @@ def train(cfg: TrainingConfig):
             (policy, "policy_"),
             (critic, "critic_"),
         ],
+        device=device.train_device,
     )
 
     # Main Training Loop
