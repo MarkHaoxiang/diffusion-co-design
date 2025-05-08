@@ -7,7 +7,7 @@ device:
   device_management: "gpu"
   gpu_id: 0
   max_gpu_memory: 1.0
-normalize_reward: false
+normalize_reward: true
 scenario:
   n_turbines: 10
   max_steps: 150
@@ -36,8 +36,8 @@ ppo:
   normalise_advantage: true
 
 logging:
-  # mode: disabled
-  mode: online
+  mode: disabled
+  # mode: online
   # mode: offline
   evaluation_interval: 1
   evaluation_episodes: 1

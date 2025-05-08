@@ -1,3 +1,5 @@
+from typing import Literal
+
 from diffusion_co_design.common import Config, PPOConfig, LoggingConfig, DeviceConfig
 
 
@@ -10,12 +12,19 @@ class ScenarioConfig(Config):
 
 
 class RLConfig(Config):
+    model_type: Literal["mlp", "gnn"]
     # MLP
-    node_hidden_size: int = 64
-    edge_hidden_size: int = 16
     mlp_hidden_size: int = 64
-    backbone_depth: int = 3
-    head_depth: int = 2
+    mlp_depth: int = 2
+    # GNN
+    policy_node_hidden_size: int = 64
+    policy_edge_hidden_size: int = 16
+    policy_head_hidden_size: int = 64
+    policy_gnn_depth: int = 3
+    policy_head_depth: int = 2
+    critic_node_hidden_size: int = 64
+    critic_edge_hidden_size: int = 16
+    critic_gnn_depth: int = 3
 
 
 class TrainingConfig(Config):

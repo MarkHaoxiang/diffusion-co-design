@@ -7,7 +7,7 @@ device:
   device_management: "gpu"
   gpu_id: 0
   max_gpu_memory: 1.0
-normalize_reward: false
+normalize_reward: true
 scenario:
   n_turbines: 10
   max_steps: 150
@@ -15,11 +15,17 @@ scenario:
   map_y_length: 500
   min_distance_between_turbines: 100
 policy:
-  node_hidden_size: 64
-  edge_hidden_size: 32
+  model_type: "gnn"
   mlp_hidden_size: 64
-  backbone_depth: 3
-  head_depth: 2
+  mlp_depth: 2
+  policy_node_hidden_size: 64
+  policy_edge_hidden_size: 16
+  policy_head_hidden_size: 64
+  policy_gnn_depth: 2
+  policy_head_depth: 2
+  critic_node_hidden_size: 64
+  critic_edge_hidden_size: 32
+  critic_gnn_depth: 3
 ppo:
   n_iters: 2000
   n_epochs: 20

@@ -178,6 +178,8 @@ def train(cfg: TrainingConfig):
             logger.collect_sampling_td(sampling_td)
 
             # PPO Update
+            policy.train()
+            critic.train()
             for _ in range(cfg.ppo.n_epochs):
                 for _ in range(cfg.ppo.n_mini_batches):
                     minibatch: TensorDict = replay_buffer.sample()
@@ -199,6 +201,9 @@ def train(cfg: TrainingConfig):
                     training_tds.append(loss_vals.detach())
             collector.update_policy_weights_()
             logger.collect_training_td(training_log_td)
+
+            policy.eval()
+            critic.eval()
 
             # Design update
             design_start = time.time()

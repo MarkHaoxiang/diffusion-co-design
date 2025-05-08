@@ -96,8 +96,8 @@ def train(cfg: TrainingConfig):
         action=train_env.action_key,
         sample_log_prob=(group_name, "sample_log_prob"),
         value=(group_name, "state_value"),
-        done=(group_name, "done"),
         terminated=(group_name, "terminated"),
+        done=(group_name, "done"),
     )
 
     loss_module.make_value_estimator(
@@ -158,6 +158,8 @@ def train(cfg: TrainingConfig):
             replay_buffer.extend(sampling_td.reshape(-1))
 
             # PPO Update
+            policy.train()
+            critic.train()
             for _ in range(cfg.ppo.n_epochs):
                 for _ in range(cfg.ppo.n_mini_batches):
                     minibatch: TensorDict = replay_buffer.sample()
@@ -168,6 +170,7 @@ def train(cfg: TrainingConfig):
                         + loss_vals["loss_entropy"]
                     )
                     loss_value.backward()
+
                     grad_norm = torch.nn.utils.clip_grad_norm_(
                         loss_module.parameters(), cfg.ppo.max_grad_norm
                     )
@@ -177,11 +180,11 @@ def train(cfg: TrainingConfig):
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())
                     training_tds.append(loss_vals.detach())
-
             collector.update_policy_weights_()
             logger.collect_training_td(training_log_td)
-            del minibatch, training_log_td
-            torch.cuda.empty_cache()
+
+            policy.eval()
+            critic.eval()
 
             training_time = time.time() - training_start
             total_time += sampling_time + training_time
