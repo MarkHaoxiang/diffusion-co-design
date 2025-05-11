@@ -1,5 +1,4 @@
 import torch
-from torch.optim import Adam
 import torch.optim as o
 from torchrl.objectives import ClipPPOLoss
 from tensordict import TensorDict
@@ -16,7 +15,9 @@ class PPOConfig(Config):
     gamma: float  # discount factor
     lmbda: float  # lambda for generalised advantage estimation
     actor_lr: float  # Learning rate for the actor
+    min_actor_lr: float = 0  # Prevent decay past this LR for the actor
     critic_lr: float  # Learning rate for the critic
+    min_critic_lr: float = 0  # Prevent decay past this LR for the critic
     lr_scheduler_enabled: bool  # Whether to use a learning rate scheduler
 
     max_grad_norm: float  # Maximum norm for the gradients
@@ -55,21 +56,32 @@ def group_optimizers(*optimizers: torch.optim.Optimizer) -> torch.optim.Optimize
 def make_optimiser_and_lr_scheduler(actor, critic, cfg: PPOConfig):
     actor_optim = o.Adam(actor.parameters(), cfg.actor_lr)
     critic_optim = o.Adam(critic.parameters(), cfg.critic_lr)
-    optim = group_optimizers(actor_optim, critic_optim)
 
     if cfg.lr_scheduler_enabled:
-        scheduler = o.lr_scheduler.CosineAnnealingLR(optimizer=optim, T_max=cfg.n_iters)
+        actor_scheduler = o.lr_scheduler.CosineAnnealingLR(
+            optimizer=actor_optim, T_max=cfg.n_iters, eta_min=cfg.min_actor_lr
+        )
+        critic_scheduler = o.lr_scheduler.CosineAnnealingLR(
+            optimizer=critic_optim, T_max=cfg.n_iters, eta_min=cfg.min_critic_lr
+        )
 
         def scheduler_step():
-            scheduler.step()
-            return scheduler.get_last_lr()
+            actor_scheduler.step()
+            critic_scheduler.step()
+            return actor_scheduler.get_last_lr() + critic_scheduler.get_last_lr()
 
     else:
 
         def scheduler_step():
             return list((cfg.actor_lr, cfg.critic_lr))
 
-    return optim, scheduler_step
+    def optim_step():
+        actor_optim.step()
+        critic_optim.step()
+        actor_optim.zero_grad()
+        critic_optim.zero_grad()
+
+    return optim_step, scheduler_step
 
 
 def minibatch_advantage_calculation(

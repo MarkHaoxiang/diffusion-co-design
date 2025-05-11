@@ -7,7 +7,6 @@ import hydra.core
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
-from torch.optim import Adam
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
@@ -123,7 +122,7 @@ def train(cfg: TrainingConfig):
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
 
-    optim, scheduler_step = make_optimiser_and_lr_scheduler(
+    optim_step, scheduler_step = make_optimiser_and_lr_scheduler(
         actor=policy, critic=critic, cfg=cfg.ppo
     )
 
@@ -193,8 +192,7 @@ def train(cfg: TrainingConfig):
                     grad_norm = torch.nn.utils.clip_grad_norm_(
                         loss_module.parameters(), cfg.ppo.max_grad_norm
                     )
-                    optim.step()
-                    optim.zero_grad()
+                    optim_step()
 
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())

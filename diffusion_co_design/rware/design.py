@@ -20,7 +20,7 @@ from diffusion_co_design.rware.diffusion.transform import (
     image_projection_constraint,
     storage_to_layout,
 )
-from diffusion_co_design.rware.diffusion.generate import generate
+from diffusion_co_design.rware.diffusion.generate import generate, get_position
 from diffusion_co_design.rware.diffusion.generator import Generator, OptimizerDetails
 from diffusion_co_design.common.design import BaseDesigner
 from diffusion_co_design.rware.schema import (
@@ -127,11 +127,20 @@ class PolicyDesigner(CentralisedDesigner):
             num_head_channels=64,
         ).to(device)
 
-    def generate_environment_batch(self, batch_size: int):
+    def make_initial_env(self, batch_size: int):
         B = batch_size
         C = self.scenario.n_colors
         N = self.scenario.size
         initial_env = torch.zeros((B, C, N, N), device=self.device)
+        for idx, color in zip(self.scenario.goal_idxs, self.scenario.goal_colors):
+            initial_env[:, color, *get_position(idx, N)] = 1
+        return initial_env
+
+    def generate_environment_batch(self, batch_size: int):
+        B = batch_size
+        C = self.scenario.n_colors
+        N = self.scenario.size
+        initial_env = self.make_initial_env(B)
 
         with torch.no_grad():
             # Calculate logits
@@ -151,6 +160,26 @@ class PolicyDesigner(CentralisedDesigner):
             envs = envs.reshape(B, C, N, N)
 
         return envs
+
+    def get_log_likelihood(self, envs: torch.Tensor):
+        # This doesn't return the exact log likelihood, but returns the log likelihood in expectation
+        B = envs.shape[0]
+        C = self.scenario.n_colors
+        N = self.scenario.size
+        assert envs.shape == (B, C, N, N), envs.shape
+
+        initial_env = self.make_initial_env(B)
+        logits = self.policy(initial_env)
+        batch_idxs = torch.arange(B)
+        constructed_envs = torch.zeros((B, C, N * N), device=self.device)
+        for i in range(self.scenario.n_shelves):
+            channel_selection = i % self.scenario.n_colors  # [B]
+            mask = constructed_envs.sum(dim=1) > 0  # [B, N * N]
+            logits_i = logits[batch_idxs, channel_selection]  # [B, N * N]
+            logits_i = logits_i.masked_fill(mask, float("-inf"))  # [B, N * N]
+            probs_i = torch.softmax(logits_i, dim=-1)  # [B, N * N]
+
+        pass
 
     def reset_env_buffer(self, batch_size):
         return NotImplementedError()
