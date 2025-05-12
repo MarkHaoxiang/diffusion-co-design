@@ -1,0 +1,4 @@
+type: rl
+value_n_update_iterations: 1
+value_train_batch_size: 20
+value_rl: 3e-4

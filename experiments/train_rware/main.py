@@ -30,6 +30,7 @@ from diffusion_co_design.common.ppo import (
 )
 from diffusion_co_design.rware.env import create_batched_env, create_env
 from diffusion_co_design.rware.model.rl import rware_models
+import diffusion_co_design.rware.design as design
 from diffusion_co_design.rware.design import DesignerRegistry, DiskDesigner
 from diffusion_co_design.rware.schema import TrainingConfig
 
@@ -51,8 +52,11 @@ def train(cfg: TrainingConfig):
         device=device.train_device,
     )
 
-    # designer.share_memory()
-    master_designer.reset(batch_size=n_train_envs + cfg.logging.evaluation_episodes + 2)
+    # designer.share_memory(
+    environment_reset_num = n_train_envs + cfg.logging.evaluation_episodes + 2
+    if cfg.designer.environment_repeats == 1:
+        environment_reset_num += n_train_envs  # Collector construction reset
+    master_designer.reset(batch_size=environment_reset_num)
     placeholder_env = create_env(
         cfg.scenario, env_designer, is_eval=False, device=device.env_device
     )
@@ -78,10 +82,22 @@ def train(cfg: TrainingConfig):
     )
 
     if isinstance(master_designer, DiskDesigner):
-        master_designer.master_designer.critic = critic
-        master_designer.master_designer.ref_env = create_env(
-            cfg.scenario, designer=None, is_eval=False, device=device.env_device
-        )
+        core = master_designer.master_designer
+        if isinstance(core, design.DiffusionDesigner):
+            core.critic = critic
+            core.ref_env = create_env(
+                cfg.scenario, designer=None, is_eval=False, device=device.env_device
+            )
+        elif isinstance(core, design.PolicyDesigner):
+            core.train_env = create_batched_env(
+                num_environments=n_train_envs,
+                designer=design.RandomDesigner(scenario=cfg.scenario),
+                scenario=cfg.scenario,
+                is_eval=False,
+                device=device.env_device,
+            )
+            core.train_env_batch_size = n_train_envs
+            core.agent_policy = policy
 
     collector = SyncDataCollector(
         train_env,

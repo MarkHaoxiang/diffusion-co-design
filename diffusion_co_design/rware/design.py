@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import math
 import os
 import pickle as pkl
 from typing import Literal
@@ -6,6 +7,7 @@ from typing import Literal
 import numpy as np
 import torch
 from torchrl.envs import EnvBase
+from torchrl.envs.batched_envs import BatchedEnvBase
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from torchrl.objectives.value.functional import reward2go
 from tensordict import TensorDict
@@ -111,6 +113,10 @@ class PolicyDesigner(CentralisedDesigner):
         self,
         scenario: ScenarioConfig,
         environment_repeats: int = 1,
+        lr: float = 3e-4,
+        train_batch_size: int = 64,
+        train_epochs: int = 5,
+        gamma: float = 0.99,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario, environment_repeats, representation="image")
@@ -126,6 +132,17 @@ class PolicyDesigner(CentralisedDesigner):
             attention_resolutions="16,8,4",
             num_head_channels=64,
         ).to(device)
+
+        self.optim = torch.optim.Adam(self.policy.parameters(), lr=lr)
+
+        self.train_batch_size = train_batch_size
+        self.train_epochs = train_epochs
+        self.agent_policy: TensorDictModule | None = None
+        self.train_env: BatchedEnvBase | None = None
+        self.train_env_batch_size: int | None = None
+        self.gamma = gamma
+
+        self.reinforce_loss = 0.0
 
     def make_initial_env(self, batch_size: int):
         B = batch_size
@@ -147,6 +164,9 @@ class PolicyDesigner(CentralisedDesigner):
             logits = self.policy(initial_env).reshape(B, C, -1)  # (B, C, N * N)
             # Apply softmax channel-wise to get placement probabilities
             envs = torch.zeros((B, C, N * N), device=self.device)
+            actions = torch.zeros(
+                (B, self.scenario.n_shelves), device=self.device, dtype=torch.long
+            )
             batch_idxs = torch.arange(B)
             for i in range(self.scenario.n_shelves):
                 channel_selection = i % self.scenario.n_colors  # [B]
@@ -156,33 +176,114 @@ class PolicyDesigner(CentralisedDesigner):
                 probs_i = torch.softmax(logits_i, dim=-1)  # [B, N * N]
                 idxs = torch.multinomial(probs_i, 1).squeeze(1)
                 envs[batch_idxs, channel_selection, idxs] = 1
+                actions[batch_idxs, i] = idxs
 
             envs = envs.reshape(B, C, N, N)
 
-        return envs
+        return envs, actions
 
-    def get_log_likelihood(self, envs: torch.Tensor):
-        # This doesn't return the exact log likelihood, but returns the log likelihood in expectation
+    def reinforce(
+        self, envs: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor
+    ):
         B = envs.shape[0]
         C = self.scenario.n_colors
         N = self.scenario.size
         assert envs.shape == (B, C, N, N), envs.shape
+        assert actions.shape == (B, self.scenario.n_shelves), actions.shape
+        assert rewards.shape == (B,), rewards.shape
 
         initial_env = self.make_initial_env(B)
-        logits = self.policy(initial_env)
+        logits = self.policy(initial_env).reshape(B, C, -1)
         batch_idxs = torch.arange(B)
         constructed_envs = torch.zeros((B, C, N * N), device=self.device)
+
+        loss = torch.tensor(0.0, device=self.device)
+
         for i in range(self.scenario.n_shelves):
             channel_selection = i % self.scenario.n_colors  # [B]
             mask = constructed_envs.sum(dim=1) > 0  # [B, N * N]
             logits_i = logits[batch_idxs, channel_selection]  # [B, N * N]
             logits_i = logits_i.masked_fill(mask, float("-inf"))  # [B, N * N]
             probs_i = torch.softmax(logits_i, dim=-1)  # [B, N * N]
+            idxs = actions[batch_idxs, i]  # [B]
 
-        pass
+            action_log_probs = torch.log(probs_i[batch_idxs, idxs] + 1e-8)  # [B]
+
+            loss += -(action_log_probs * rewards).mean()  # [B]
+            constructed_envs[batch_idxs, channel_selection, idxs] = 1
+
+        self.optim.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
+        self.optim.step()
+        return loss.item()
 
     def reset_env_buffer(self, batch_size):
-        return NotImplementedError()
+        self.policy.eval()
+        envs, _ = self.generate_environment_batch(batch_size=batch_size)
+        batch = list(envs.numpy(force=True))
+        return batch
+
+    def get_model(self):
+        return self.policy
+
+    def update(self, sampling_td):
+        super().update(sampling_td)
+
+        assert self.train_env is not None
+        assert self.agent_policy is not None
+        self.reinforce_loss = 0.0
+        for _ in range(self.train_epochs):
+            # Generate envs
+            self.policy.eval()
+            envs, actions = self.generate_environment_batch(
+                batch_size=self.train_batch_size
+            )
+
+            # Reset Collect rewards
+            chunk_number = math.ceil(self.train_batch_size / self.train_env_batch_size)
+            env_chunks = torch.chunk(envs, chunk_number, dim=0)
+
+            rewards_list = []
+            for env_chunk in env_chunks:
+                envs_list = list(env_chunk)
+                n = len(envs_list)
+                if n < self.train_env_batch_size:
+                    envs_list += [envs_list[-1]] * (
+                        self.train_env_batch_size - n
+                    )  # Pad if needed
+
+                td = self.train_env.reset(
+                    list_of_kwargs=[{"layout_override": env} for env in envs_list]
+                )
+                td = self.train_env.rollout(
+                    max_steps=self.scenario.max_steps,
+                    policy=self.agent_policy,
+                    auto_reset=False,
+                    tensordict=td,
+                )
+
+                done = td.get(("next", "done"))
+                reward = td.get(("next", "agents", "reward")).sum(dim=-2)
+                y = reward2go(reward, done=done, gamma=self.gamma, time_dim=-2)
+                y = y.reshape(-1, self.scenario.max_steps)
+                y = y[:n, 0]
+
+                rewards_list.append(y)
+
+            rewards = torch.cat(rewards_list, dim=0)
+            assert rewards.shape == (self.train_batch_size,), rewards.shape
+
+            # Reinforce
+            self.policy.train()
+            self.reinforce_loss += self.reinforce(envs, actions, rewards)
+
+        self.reinforce_loss /= self.train_epochs
+        self.train_env.reset()
+
+    def get_logs(self):
+        logs = {"designer_loss": self.reinforce_loss}
+        return logs
 
 
 class ValueDesigner(CentralisedDesigner):
@@ -628,7 +729,6 @@ class DesignerRegistry:
     RANDOM = "random"
     RL = "rl"
     DIFFUSION = "diffusion"
-    DIFFUSION_SHARED = "diffusion_shared"
     SAMPLING = "sampling"
 
     @staticmethod
@@ -648,26 +748,55 @@ class DesignerRegistry:
                     scenario, environment_repeats=designer.environment_repeats
                 )
                 return rand, rand
-            case DesignerRegistry.RL:
-                raise NotImplementedError()
-            case DesignerRegistry.DIFFUSION:
+            case (
+                DesignerRegistry.RL
+                | DesignerRegistry.DIFFUSION
+                | DesignerRegistry.SAMPLING
+            ):
                 lock = torch.multiprocessing.Lock()
-                assert designer.diffusion is not None
-                assert designer.value_model is not None
-                master_designer: CentralisedDesigner = DiffusionDesigner(
-                    scenario,
-                    classifier=designer.value_model,
-                    diffusion=designer.diffusion,
-                    gamma=ppo_cfg.gamma,
-                    n_update_iterations=designer.value_n_update_iterations,
-                    train_batch_size=designer.value_train_batch_size,
-                    buffer_size=designer.value_buffer_size,
-                    lr=designer.value_lr,
-                    weight_decay=designer.value_weight_decay,
-                    distill_from_critic=designer.value_distill_enable,
-                    distill_samples=designer.value_distill_samples,
-                    device=device,
-                )
+                master_designer: CentralisedDesigner = None  # type: ignore
+                match designer.type:
+                    case DesignerRegistry.RL:
+                        master_designer = PolicyDesigner(
+                            scenario=scenario,
+                            lr=designer.value_lr,
+                            train_batch_size=designer.value_train_batch_size,
+                            train_epochs=designer.value_n_update_iterations,
+                            gamma=ppo_cfg.gamma,
+                            device=device,
+                        )
+                    case DesignerRegistry.DIFFUSION:
+                        assert designer.diffusion is not None
+                        assert designer.value_model is not None
+                        master_designer = DiffusionDesigner(
+                            scenario=scenario,
+                            classifier=designer.value_model,
+                            diffusion=designer.diffusion,
+                            gamma=ppo_cfg.gamma,
+                            n_update_iterations=designer.value_n_update_iterations,
+                            train_batch_size=designer.value_train_batch_size,
+                            buffer_size=designer.value_buffer_size,
+                            lr=designer.value_lr,
+                            weight_decay=designer.value_weight_decay,
+                            distill_from_critic=designer.value_distill_enable,
+                            distill_samples=designer.value_distill_samples,
+                            device=device,
+                        )
+                    case DesignerRegistry.SAMPLING:
+                        assert designer.value_model is not None
+                        master_designer = SamplingDesigner(
+                            scenario=scenario,
+                            classifier=designer.value_model,
+                            gamma=ppo_cfg.gamma,
+                            n_update_iterations=designer.value_n_update_iterations,
+                            train_batch_size=designer.value_train_batch_size,
+                            buffer_size=designer.value_buffer_size,
+                            lr=designer.value_lr,
+                            weight_decay=designer.value_weight_decay,
+                            distill_from_critic=designer.value_distill_enable,
+                            distill_samples=designer.value_distill_samples,
+                            device=device,
+                        )
                 master = DiskDesigner(
                     scenario,
                     lock,
@@ -684,39 +813,6 @@ class DesignerRegistry:
                     environment_repeats=designer.environment_repeats,
                 )
                 return master, env
-            case DesignerRegistry.DIFFUSION_SHARED:
-                raise NotImplementedError()
-            case DesignerRegistry.SAMPLING:
-                assert designer.value_model is not None
-                lock = torch.multiprocessing.Lock()
-                master_designer = SamplingDesigner(
-                    scenario,
-                    classifier=designer.value_model,
-                    gamma=ppo_cfg.gamma,
-                    n_update_iterations=designer.value_n_update_iterations,
-                    train_batch_size=designer.value_train_batch_size,
-                    buffer_size=designer.value_buffer_size,
-                    lr=designer.value_lr,
-                    weight_decay=designer.value_weight_decay,
-                    distill_from_critic=designer.value_distill_enable,
-                    distill_samples=designer.value_distill_samples,
-                    device=device,
-                )
-                master = DiskDesigner(
-                    scenario,
-                    lock,
-                    artifact_dir,
-                    environment_repeats=designer.environment_repeats,
-                    representation=master_designer.representation,
-                    master_designer=master_designer,
-                )
-                env = DiskDesigner(
-                    scenario,
-                    lock,
-                    artifact_dir,
-                    representation=master_designer.representation,
-                    environment_repeats=designer.environment_repeats,
-                )
-                return master, env
+
             case _:
                 raise ValueError(f"Unknown designer type {designer}")
