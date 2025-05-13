@@ -204,10 +204,10 @@ class PolicyDesigner(CentralisedDesigner):
             mask = constructed_envs.sum(dim=1) > 0  # [B, N * N]
             logits_i = logits[batch_idxs, channel_selection]  # [B, N * N]
             logits_i = logits_i.masked_fill(mask, float("-inf"))  # [B, N * N]
-            probs_i = torch.softmax(logits_i, dim=-1)  # [B, N * N]
             idxs = actions[batch_idxs, i]  # [B]
 
-            action_log_probs = torch.log(probs_i[batch_idxs, idxs] + 1e-8)  # [B]
+            log_probs_i = torch.nn.functional.log_softmax(logits_i, dim=-1)
+            action_log_probs = log_probs_i[batch_idxs, idxs]  # [B]
 
             loss += -(action_log_probs * rewards).mean()  # [B]
             constructed_envs[batch_idxs, channel_selection, idxs] = 1
