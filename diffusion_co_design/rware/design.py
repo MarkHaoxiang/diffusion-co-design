@@ -21,6 +21,7 @@ from diffusion_co_design.rware.diffusion.transform import (
     graph_projection_constraint,
     image_projection_constraint,
     storage_to_layout,
+    train_to_eval,
 )
 from diffusion_co_design.rware.diffusion.generate import generate, get_position
 from diffusion_co_design.rware.diffusion.generator import Generator, OptimizerDetails
@@ -516,6 +517,7 @@ class SamplingDesigner(ValueDesigner):
             device=device,
         )
         self.n_sample = n_sample
+        assert self.representation == "image"
 
     def reset_env_buffer(self, batch_size: int):
         B = batch_size
@@ -527,16 +529,100 @@ class SamplingDesigner(ValueDesigner):
                 goal_idxs=self.scenario.goal_idxs,
                 n_colors=self.scenario.n_colors,
                 n=B * self.n_sample,
+                training_dataset=True,
             )
         )
         X_torch = torch.tensor(X_numpy, dtype=torch.float32, device=self.device)
-        X_torch = X_torch * 2 - 1
         y: torch.Tensor = self.model(X_torch).squeeze()
 
         y = y.reshape(B, self.n_sample)
         X_numpy = X_numpy.reshape((B, self.n_sample, *X_numpy.shape[1:]))
         indices = y.argmax(dim=1).numpy(force=True)
         batch = list(X_numpy[np.arange(B), indices])
+
+        return batch
+
+
+class GradientDescentDesigner(ValueDesigner):
+    def __init__(
+        self,
+        scenario: ScenarioConfig,
+        classifier: ClassifierConfig,
+        epochs: int = 10,
+        gradient_iterations: int = 10,
+        gradient_lr: float = 0.01,
+        gamma: float = 0.99,
+        n_update_iterations: int = 5,
+        train_batch_size: int = 64,
+        buffer_size: int = 2048,
+        lr: float = 0.00003,
+        weight_decay: float = 0,
+        environment_repeats: int = 1,
+        distill_from_critic: bool = False,
+        distill_samples: int = 1,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(
+            scenario=scenario,
+            classifier=classifier,
+            gamma=gamma,
+            n_update_iterations=n_update_iterations,
+            train_batch_size=train_batch_size,
+            buffer_size=buffer_size,
+            lr=lr,
+            weight_decay=weight_decay,
+            environment_repeats=environment_repeats,
+            distill_from_critic=distill_from_critic,
+            distill_samples=distill_samples,
+            device=device,
+        )
+
+        self.epochs = epochs
+        self.gradient_iterations = gradient_iterations
+        self.gradient_lr = gradient_lr
+
+    def reset_env_buffer(self, batch_size: int):
+        B = batch_size
+
+        match self.representation:
+            case "graph":
+                projection_constraint = graph_projection_constraint(self.scenario)
+            case "image":
+                projection_constraint = image_projection_constraint(self.scenario)
+
+        # Generate random initial environments
+        env = torch.tensor(
+            generate(
+                size=self.scenario.size,
+                n_shelves=self.scenario.n_shelves,
+                goal_idxs=self.scenario.goal_idxs,
+                n_colors=self.scenario.n_colors,
+                n=B,
+                representation=self.representation,
+                training_dataset=True,
+            ),
+            dtype=torch.float32,
+            device=self.device,
+        )
+
+        env_optim = torch.optim.Adam([env], lr=self.gradient_lr)
+
+        for epoch in range(self.epochs):
+            env.requires_grad = True
+            for iteration in range(self.gradient_iterations):
+                env_optim.zero_grad()
+
+                y_pred = self.model(env)
+                loss = -y_pred.sum()
+                loss.backward()
+                env_optim.step()
+            env = projection_constraint(env.detach())
+
+        env = train_to_eval(
+            env=env.detach(), cfg=self.scenario, representation=self.representation
+        )
+
+        batch = list(env.numpy(force=True))
 
         return batch
 
@@ -593,18 +679,14 @@ class DiffusionDesigner(ValueDesigner):
         B = batch_size
         batch = []
         if len(self.env_buffer) < self.buffer_size and self.early_start:
-            for _ in range(B):
-                batch.append(
-                    np.array(
-                        generate(
-                            size=self.scenario.size,
-                            n_shelves=self.scenario.n_shelves,
-                            goal_idxs=self.scenario.goal_idxs,
-                            n_colors=self.scenario.n_colors,
-                            representation=self.representation,
-                        )[0]
-                    )
-                )
+            batch = generate(
+                size=self.scenario.size,
+                n_shelves=self.scenario.n_shelves,
+                goal_idxs=self.scenario.goal_idxs,
+                n_colors=self.scenario.n_colors,
+                n=B,
+                representation=self.representation,
+            )
         else:
             forward_enable = self.diffusion.forward_guidance_wt > 0
             operation = OptimizerDetails()
@@ -625,13 +707,14 @@ class DiffusionDesigner(ValueDesigner):
 
             self.model.eval()
 
-            for env in self.generator.generate_batch(
-                value=self.model,
-                use_operation=True,
-                operation_override=operation,
-                batch_size=B,
-            ):
-                batch.append(env)
+            batch = list(
+                self.generator.generate_batch(
+                    value=self.model,
+                    use_operation=True,
+                    operation_override=operation,
+                    batch_size=B,
+                )
+            )
         return batch
 
 

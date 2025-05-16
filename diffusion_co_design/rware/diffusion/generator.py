@@ -7,6 +7,7 @@ from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
 from diffusion_co_design.rware.schema import ScenarioConfig, Representation
 from diffusion_co_design.rware.model.diffusion import diffusion_setup
+from diffusion_co_design.rware.diffusion.transform import train_to_eval
 
 
 # Using Universal Guided Diffusion
@@ -89,6 +90,7 @@ class Generator:
 
         # Schedule sampler (for training time dependent diffusion)
         self.schedule_sampler = create_named_schedule_sampler("uniform", self.diffusion)
+        self.scenario = scenario
 
     def generate_batch(
         self,
@@ -147,26 +149,9 @@ class Generator:
             )
 
         # Storage
-        if self.representation == "image":
-            sample = (
-                ((sample + 1) * 0.5).clamp(0, 1).round().to(torch.uint8).contiguous()
-            )
-        elif self.representation == "flat":
-            sample = ((sample + 1) * 0.5).clamp(0, 1)
-            # feature_dim_shelf = 2 + self.n_colors
-            feature_dim_shelf = 2
-            # Get idxs like 0, feature_dim_shelf, 2*feature_dim_shelf, ...
-            assert sample.shape[1] == feature_dim_shelf * self.n_shelves
-            # x_idxs = torch.arange(0, sample.shape[1], feature_dim_shelf)
-            # y_idxs = x_idxs + 1
-
-            # sample[:, x_idxs] *= self.size
-            # sample[:, y_idxs] *= self.size
-            sample *= self.size - 1
-        elif self.representation == "graph":
-            sample = ((sample + 1) * 0.5).clamp(0, 1)
-            assert sample.shape[1] == self.n_shelves
-            sample *= self.size - 1
+        sample = train_to_eval(
+            env=sample, cfg=self.scenario, representation=self.representation
+        )
 
         return sample.numpy(force=True)
 

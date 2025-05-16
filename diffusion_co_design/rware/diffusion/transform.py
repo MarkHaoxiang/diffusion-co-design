@@ -8,6 +8,23 @@ from diffusion_co_design.rware.diffusion.generate import get_position
 from diffusion_co_design.rware.schema import ScenarioConfig, Representation
 
 
+def train_to_eval(
+    env: torch.Tensor, cfg: ScenarioConfig, representation: Representation
+):
+    if representation == "image":
+        env = ((env + 1) * 0.5).clamp(0, 1).round().to(torch.uint8).contiguous()
+    elif representation == "flat":
+        env = ((env + 1) * 0.5).clamp(0, 1)
+        feature_dim_shelf = 2
+        assert env.shape[1] == feature_dim_shelf * cfg.n_shelves
+        env *= cfg.size - 1
+    elif representation == "graph":
+        env = ((env + 1) * 0.5).clamp(0, 1)
+        assert env.shape[1] == cfg.n_shelves
+        env *= cfg.size - 1
+    return env
+
+
 def graph_projection_constraint(cfg: ScenarioConfig):
     def _graph_projection_constraint(pos):
         B, N, _ = pos.shape
