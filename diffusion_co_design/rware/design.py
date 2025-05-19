@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 import math
 import os
 import pickle as pkl
@@ -287,7 +287,7 @@ class PolicyDesigner(CentralisedDesigner):
         return logs
 
 
-class ValueDesigner(CentralisedDesigner):
+class ValueDesigner(CentralisedDesigner, ABC):
     def __init__(
         self,
         scenario: ScenarioConfig,
@@ -301,6 +301,7 @@ class ValueDesigner(CentralisedDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
+        early_start: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario, environment_repeats=environment_repeats)
@@ -353,6 +354,25 @@ class ValueDesigner(CentralisedDesigner):
             dtype=torch.float32,
             device=self.device,
         )
+
+        self.early_start = early_start
+
+    @abstractmethod
+    def _reset_env_buffer(self, batch_size):
+        raise NotImplementedError()
+
+    def reset_env_buffer(self, batch_size):
+        if len(self.env_buffer) < self.buffer_size and self.early_start:
+            return generate(
+                size=self.scenario.size,
+                n_shelves=self.scenario.n_shelves,
+                goal_idxs=self.scenario.goal_idxs,
+                n_colors=self.scenario.n_colors,
+                n=batch_size,
+                representation=self.representation,
+            )
+        else:
+            return self._reset_env_buffer(batch_size)
 
     def update(self, sampling_td):
         super().update(sampling_td)
@@ -500,6 +520,7 @@ class SamplingDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
+        early_start: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -514,12 +535,13 @@ class SamplingDesigner(ValueDesigner):
             environment_repeats=environment_repeats,
             distill_from_critic=distill_from_critic,
             distill_samples=distill_samples,
+            early_start=early_start,
             device=device,
         )
         self.n_sample = n_sample
         assert self.representation == "image"
 
-    def reset_env_buffer(self, batch_size: int):
+    def _reset_env_buffer(self, batch_size: int):
         B = batch_size
         self.model.eval()
         X_numpy: np.ndarray = np.array(
@@ -548,9 +570,9 @@ class GradientDescentDesigner(ValueDesigner):
         self,
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
-        epochs: int = 10,
+        epochs: int = 20,
         gradient_iterations: int = 10,
-        gradient_lr: float = 0.01,
+        gradient_lr: float = 0.03,
         gamma: float = 0.99,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
@@ -560,6 +582,7 @@ class GradientDescentDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
+        early_start: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -574,6 +597,7 @@ class GradientDescentDesigner(ValueDesigner):
             environment_repeats=environment_repeats,
             distill_from_critic=distill_from_critic,
             distill_samples=distill_samples,
+            early_start=early_start,
             device=device,
         )
 
@@ -581,9 +605,7 @@ class GradientDescentDesigner(ValueDesigner):
         self.gradient_iterations = gradient_iterations
         self.gradient_lr = gradient_lr
 
-    def reset_env_buffer(self, batch_size: int):
-        B = batch_size
-
+    def _reset_env_buffer(self, batch_size: int):
         match self.representation:
             case "graph":
                 projection_constraint = graph_projection_constraint(self.scenario)
@@ -592,14 +614,16 @@ class GradientDescentDesigner(ValueDesigner):
 
         # Generate random initial environments
         env = torch.tensor(
-            generate(
-                size=self.scenario.size,
-                n_shelves=self.scenario.n_shelves,
-                goal_idxs=self.scenario.goal_idxs,
-                n_colors=self.scenario.n_colors,
-                n=B,
-                representation=self.representation,
-                training_dataset=True,
+            np.array(
+                generate(
+                    size=self.scenario.size,
+                    n_shelves=self.scenario.n_shelves,
+                    goal_idxs=self.scenario.goal_idxs,
+                    n_colors=self.scenario.n_colors,
+                    n=batch_size,
+                    representation=self.representation,
+                    training_dataset=True,
+                )
             ),
             dtype=torch.float32,
             device=self.device,
@@ -616,6 +640,7 @@ class GradientDescentDesigner(ValueDesigner):
                 loss = -y_pred.sum()
                 loss.backward()
                 env_optim.step()
+
             env = projection_constraint(env.detach())
 
         env = train_to_eval(
@@ -642,6 +667,7 @@ class DiffusionDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
+        early_start: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -656,6 +682,7 @@ class DiffusionDesigner(ValueDesigner):
             environment_repeats=environment_repeats,
             distill_from_critic=distill_from_critic,
             distill_samples=distill_samples,
+            early_start=early_start,
             device=device,
         )
 
@@ -673,49 +700,35 @@ class DiffusionDesigner(ValueDesigner):
         )
 
         self.diffusion = diffusion
-        self.early_start = diffusion.early_start
 
-    def reset_env_buffer(self, batch_size: int):
-        B = batch_size
-        batch = []
-        if len(self.env_buffer) < self.buffer_size and self.early_start:
-            batch = generate(
-                size=self.scenario.size,
-                n_shelves=self.scenario.n_shelves,
-                goal_idxs=self.scenario.goal_idxs,
-                n_colors=self.scenario.n_colors,
-                n=B,
-                representation=self.representation,
-            )
-        else:
-            forward_enable = self.diffusion.forward_guidance_wt > 0
-            operation = OptimizerDetails()
-            operation.num_recurrences = self.diffusion.num_recurrences
-            operation.lr = self.diffusion.backward_lr
-            operation.backward_steps = self.diffusion.backward_steps
-            operation.use_forward = forward_enable
+    def _reset_env_buffer(self, batch_size: int):
+        forward_enable = self.diffusion.forward_guidance_wt > 0
+        operation = OptimizerDetails()
+        operation.num_recurrences = self.diffusion.num_recurrences
+        operation.lr = self.diffusion.backward_lr
+        operation.backward_steps = self.diffusion.backward_steps
+        operation.use_forward = forward_enable
 
-            match self.representation:
-                case "graph":
-                    operation.projection_constraint = graph_projection_constraint(
-                        self.scenario
-                    )
-                case "image":
-                    operation.projection_constraint = image_projection_constraint(
-                        self.scenario
-                    )
-
-            self.model.eval()
-
-            batch = list(
-                self.generator.generate_batch(
-                    value=self.model,
-                    use_operation=True,
-                    operation_override=operation,
-                    batch_size=B,
+        match self.representation:
+            case "graph":
+                operation.projection_constraint = graph_projection_constraint(
+                    self.scenario
                 )
+            case "image":
+                operation.projection_constraint = image_projection_constraint(
+                    self.scenario
+                )
+
+        self.model.eval()
+
+        return list(
+            self.generator.generate_batch(
+                value=self.model,
+                use_operation=True,
+                operation_override=operation,
+                batch_size=batch_size,
             )
-        return batch
+        )
 
 
 class DiskDesigner(Designer):
@@ -813,6 +826,7 @@ class DesignerRegistry:
     RL = "rl"
     DIFFUSION = "diffusion"
     SAMPLING = "sampling"
+    DESCENT = "descent"
 
     @staticmethod
     def get(
@@ -835,6 +849,7 @@ class DesignerRegistry:
                 DesignerRegistry.RL
                 | DesignerRegistry.DIFFUSION
                 | DesignerRegistry.SAMPLING
+                | DesignerRegistry.DESCENT
             ):
                 lock = torch.multiprocessing.Lock()
                 master_designer: CentralisedDesigner = None  # type: ignore
@@ -863,6 +878,7 @@ class DesignerRegistry:
                             weight_decay=designer.value_weight_decay,
                             distill_from_critic=designer.value_distill_enable,
                             distill_samples=designer.value_distill_samples,
+                            early_start=designer.value_early_start,
                             device=device,
                         )
                     case DesignerRegistry.SAMPLING:
@@ -871,6 +887,7 @@ class DesignerRegistry:
                             scenario=scenario,
                             classifier=designer.value_model,
                             gamma=ppo_cfg.gamma,
+                            n_sample=designer.value_n_sample,
                             n_update_iterations=designer.value_n_update_iterations,
                             train_batch_size=designer.value_train_batch_size,
                             buffer_size=designer.value_buffer_size,
@@ -878,6 +895,26 @@ class DesignerRegistry:
                             weight_decay=designer.value_weight_decay,
                             distill_from_critic=designer.value_distill_enable,
                             distill_samples=designer.value_distill_samples,
+                            early_start=designer.value_early_start,
+                            device=device,
+                        )
+                    case DesignerRegistry.DESCENT:
+                        assert designer.value_model is not None
+                        master_designer = GradientDescentDesigner(
+                            scenario=scenario,
+                            classifier=designer.value_model,
+                            epochs=designer.gradient_epochs,
+                            gradient_iterations=designer.gradient_iterations,
+                            gradient_lr=designer.gradient_lr,
+                            gamma=ppo_cfg.gamma,
+                            n_update_iterations=designer.value_n_update_iterations,
+                            train_batch_size=designer.value_train_batch_size,
+                            buffer_size=designer.value_buffer_size,
+                            lr=designer.value_lr,
+                            weight_decay=designer.value_weight_decay,
+                            distill_from_critic=designer.value_distill_enable,
+                            distill_samples=designer.value_distill_samples,
+                            early_start=designer.value_early_start,
                             device=device,
                         )
                 master = DiskDesigner(

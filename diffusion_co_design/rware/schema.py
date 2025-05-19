@@ -32,9 +32,6 @@ class DiffusionOperation(Config):
     backward_lr: float = 0.01
     backward_steps: int = 0
     forward_guidance_wt: float = 5.0
-    early_start: bool = (
-        True  # Fill environment buffer with randomly generated environments
-    )
 
 
 class ClassifierConfig(Config):
@@ -60,13 +57,18 @@ class DesignerConfig(Config):
     type: str
     environment_repeats: int = 1
     value_model: ClassifierConfig | None = None
+    value_early_start: bool = False
     value_n_update_iterations: int = 5
     value_train_batch_size: int = 64
     value_buffer_size: int = 4096
     value_weight_decay: float = 0.05
     value_lr: float = 3e-5
+    value_n_sample: int = 5
     value_distill_enable: bool = False
     value_distill_samples: int = 1
+    gradient_epochs: int = 20
+    gradient_iterations: int = 10
+    gradient_lr: float = 0.03
     diffusion: DiffusionOperation = DiffusionOperation()
 
 
