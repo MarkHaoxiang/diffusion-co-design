@@ -1,6 +1,6 @@
 ppo:
   n_iters: 4000
-  n_epochs: 10
+  n_epochs: 5
   minibatch_size: 500
   n_mini_batches: 10
   clip_epsilon: 0.2
