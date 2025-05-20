@@ -264,7 +264,8 @@ def train(cfg: TrainingConfig):
             logger.log({"lr_actor": lr[0], "lr_critic": lr[1]})
             logger.commit(total_frames, current_frames)
 
-            if iteration % cfg.logging.checkpoint_interval == 0:
+            is_final_iteration = iteration == cfg.ppo.n_iters - 1
+            if iteration % cfg.logging.checkpoint_interval == 0 or is_final_iteration:
                 logger.checkpoint_state_dict(policy, f"policy_{iteration}")
                 logger.checkpoint_state_dict(critic, f"critic_{iteration}")
                 model = master_designer.get_model()
