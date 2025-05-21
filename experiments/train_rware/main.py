@@ -68,7 +68,7 @@ def train(cfg: TrainingConfig):
         device=device.env_device,
     )
     env_designer = copy.copy(env_designer)
-    env_designer.environment_repeats = 0
+    env_designer.environment_repeats = 1
     eval_env = create_batched_env(
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
@@ -89,9 +89,10 @@ def train(cfg: TrainingConfig):
                 cfg.scenario, designer=None, is_eval=False, device=device.env_device
             )
         elif isinstance(core, design.PolicyDesigner):
+            placeholder_designer = design.RandomDesigner(scenario=cfg.scenario)
             core.train_env = create_batched_env(
                 num_environments=n_train_envs,
-                designer=design.RandomDesigner(scenario=cfg.scenario),
+                designer=placeholder_designer,
                 scenario=cfg.scenario,
                 is_eval=False,
                 device=device.env_device,

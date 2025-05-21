@@ -770,10 +770,9 @@ class DiskDesigner(Designer):
 
         match mode:
             case "train":
-                self.environment_repeat_counter = (
-                    self.environment_repeat_counter + 1
-                ) % self.environment_repeats
-                if self.environment_repeat_counter == 0:
+                with open(self.buffer_path, "rb") as f:
+                    batch_len = len(pkl.load(f))
+                if batch_len < batch_size:
                     regenerate()
             case "eval":
                 regenerate()
