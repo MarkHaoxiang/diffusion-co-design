@@ -16,12 +16,13 @@ scenario:
   min_distance_between_turbines: 100
 policy:
   model_type: "gnn"
+  initial_std: 0.3
   mlp_hidden_size: 64
   mlp_depth: 2
   policy_node_hidden_size: 64
-  policy_edge_hidden_size: 16
+  policy_edge_hidden_size: 32
   policy_head_hidden_size: 64
-  policy_gnn_depth: 2
+  policy_gnn_depth: 1
   policy_head_depth: 2
   critic_node_hidden_size: 64
   critic_edge_hidden_size: 32
@@ -36,6 +37,7 @@ ppo:
   lmbda: 0.95
   actor_lr: 3e-4
   critic_lr: 3e-4
+  min_critic_lr: 1e-4
   lr_scheduler_enabled: true
   max_grad_norm: 1.0
   entropy_eps: 1e-5

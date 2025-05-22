@@ -4,7 +4,7 @@ from math import prod
 import torch
 import torch.nn as nn
 
-from tensordict.nn import TensorDictModule, TensorDictSequential
+from tensordict.nn import TensorDictModule, TensorDictSequential, InteractionType
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 from torch_geometric.utils import scatter
@@ -291,6 +291,7 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
         out_keys=[("turbine", "observation_vec")],
     )
 
+    scale_mapping = "biased_softplus_" + str(cfg.initial_std)
     policy_mlp = nn.Sequential(
         MLPPolicy(
             in_dim=5,
@@ -300,7 +301,7 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
             n_agents=env.num_agents,
             share_params=False,
         ).to(device=device),
-        NormalParamExtractor(),
+        NormalParamExtractor(scale_mapping=scale_mapping),
     )
 
     policy_mlp_module = TensorDictModule(
@@ -321,6 +322,7 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
         in_keys=[("turbine", "loc"), ("turbine", "scale")],
         out_keys=[env.action_key],
         distribution_class=TanhNormal,
+        default_interaction_type=InteractionType.RANDOM,
         distribution_kwargs={
             "low": env.full_action_spec_unbatched[env.action_key].space.low,
             "high": env.full_action_spec_unbatched[env.action_key].space.high,
@@ -393,6 +395,7 @@ def wfcrl_models_gnn(env, cfg: RLConfig, device: str):
         out_keys=policy_gnn_key,
     )
 
+    scale_mapping = "biased_softplus_" + str(cfg.initial_std)
     policy_mlp = nn.Sequential(
         MLPPolicy(
             in_dim=cfg.policy_node_hidden_size,
@@ -402,7 +405,7 @@ def wfcrl_models_gnn(env, cfg: RLConfig, device: str):
             n_agents=env.num_agents,
             share_params=True,
         ),
-        NormalParamExtractor(scale_lb=0.01),
+        NormalParamExtractor(scale_mapping=scale_mapping, scale_lb=0.01),
     )
 
     policy_mlp_module = TensorDictModule(
@@ -420,6 +423,7 @@ def wfcrl_models_gnn(env, cfg: RLConfig, device: str):
     policy = ProbabilisticActor(
         module=policy_module,
         spec=env.action_spec_unbatched,
+        default_interaction_type=InteractionType.RANDOM,
         in_keys=[("turbine", "loc"), ("turbine", "scale")],
         out_keys=[env.action_key],
         distribution_class=TanhNormal,

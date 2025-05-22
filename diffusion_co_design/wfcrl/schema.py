@@ -13,6 +13,7 @@ class ScenarioConfig(Config):
 
 class RLConfig(Config):
     model_type: Literal["mlp", "gnn"]
+    initial_std: float = 0.3
     # MLP
     mlp_hidden_size: int = 64
     mlp_depth: int = 2

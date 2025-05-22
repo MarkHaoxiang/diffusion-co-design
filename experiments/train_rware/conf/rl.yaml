@@ -1,7 +1,7 @@
 defaults:
-  - _self_
   - metadata/training@_here_
   - template/default@_here_
+  - _self_
 
 experiment_name: corners_agent_rl_210525
 scenario_name: rware_16_50_5_4_corners

@@ -35,8 +35,8 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
-    # designer = RandomDesigner(cfg.scenario)
-    designer = FixedDesigner(cfg.scenario, seed=0)
+    designer = RandomDesigner(cfg.scenario)
+    # designer = FixedDesigner(cfg.scenario, seed=0)
 
     reference_env = create_env(
         mode="reference",
@@ -103,7 +103,7 @@ def train(cfg: TrainingConfig):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
     )
-    optim, scheduler_step = make_optimiser_and_lr_scheduler(
+    optim_step, scheduler_step = make_optimiser_and_lr_scheduler(
         actor=policy, critic=critic, cfg=cfg.ppo
     )
 
@@ -174,8 +174,7 @@ def train(cfg: TrainingConfig):
                     grad_norm = torch.nn.utils.clip_grad_norm_(
                         loss_module.parameters(), cfg.ppo.max_grad_norm
                     )
-                    optim.step()
-                    optim.zero_grad()
+                    optim_step()
 
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())
@@ -199,7 +198,7 @@ def train(cfg: TrainingConfig):
                 evaluation_start = time.time()
                 with (
                     torch.no_grad(),
-                    set_exploration_type(ExplorationType.DETERMINISTIC),
+                    set_exploration_type(ExplorationType.RANDOM),
                 ):
                     frames = []
 
