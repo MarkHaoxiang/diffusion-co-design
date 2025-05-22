@@ -145,12 +145,14 @@ def train(cfg: TrainingConfig):
 
     # Logging
     pbar = tqdm(total=cfg.ppo.n_iters)
+    log_config = cfg.model_dump()
+    log_config["scenario"] = cfg.scenario.model_dump()
     logger = RLExperimentLogger(
         directory=output_dir,
         experiment_name=cfg.experiment_name,
         project_name="diffusion-co-design-rware",
         group_name=group_name,
-        config=cfg.model_dump(),
+        config=log_config,
         mode=cfg.logging.mode,
     )
 

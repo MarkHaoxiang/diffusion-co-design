@@ -301,7 +301,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
-        early_start: bool = False,
+        early_start: int | None = None,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario, environment_repeats=environment_repeats)
@@ -362,7 +362,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
         raise NotImplementedError()
 
     def reset_env_buffer(self, batch_size):
-        if len(self.env_buffer) < self.buffer_size and self.early_start:
+        if self.early_start and len(self.env_buffer) < self.early_start:
             return generate(
                 size=self.scenario.size,
                 n_shelves=self.scenario.n_shelves,
@@ -520,7 +520,7 @@ class SamplingDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
-        early_start: bool = False,
+        early_start: int | None = None,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -582,7 +582,7 @@ class GradientDescentDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
-        early_start: bool = False,
+        early_start: int | None = None,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -667,7 +667,7 @@ class DiffusionDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
-        early_start: bool = False,
+        early_start: int | None = None,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(

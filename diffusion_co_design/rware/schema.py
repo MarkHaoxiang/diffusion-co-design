@@ -57,7 +57,7 @@ class DesignerConfig(Config):
     type: str
     environment_repeats: int = 1
     value_model: ClassifierConfig | None = None
-    value_early_start: bool = False
+    value_early_start: int | None = None
     value_n_update_iterations: int = 5
     value_train_batch_size: int = 64
     value_buffer_size: int = 4096
