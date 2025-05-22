@@ -1,6 +1,7 @@
 import os
 from os.path import join
 import time
+import warnings
 
 import hydra.core
 import hydra.core.hydra_config
@@ -169,12 +170,16 @@ def train(cfg: TrainingConfig):
                         + loss_vals["loss_critic"]
                         + loss_vals["loss_entropy"]
                     )
-                    loss_value.backward()
 
-                    grad_norm = torch.nn.utils.clip_grad_norm_(
-                        loss_module.parameters(), cfg.ppo.max_grad_norm
-                    )
-                    optim_step()
+                    # NaN check
+                    if torch.isnan(loss_value) or torch.isinf(loss_value):
+                        warnings.warn("NaN or Inf detected in loss value")
+                    else:
+                        loss_value.backward()
+                        grad_norm = torch.nn.utils.clip_grad_norm_(
+                            loss_module.parameters(), cfg.ppo.max_grad_norm
+                        )
+                        optim_step()
 
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())
