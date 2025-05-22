@@ -229,7 +229,7 @@ class PolicyDesigner(CentralisedDesigner):
         return self.policy
 
     def update(self, sampling_td):
-        super().update(sampling_td)
+        tmp = super().update(sampling_td)
 
         assert self.train_env is not None
         assert self.agent_policy is not None
@@ -255,7 +255,7 @@ class PolicyDesigner(CentralisedDesigner):
                     )  # Pad if needed
 
                 td = self.train_env.reset(
-                    list_of_kwargs=[{"layout_override": env} for env in envs_list]
+                    list_of_kwargs=[{"layout_override": env.cpu()} for env in envs_list]
                 )
                 td = self.train_env.rollout(
                     max_steps=self.scenario.max_steps,
