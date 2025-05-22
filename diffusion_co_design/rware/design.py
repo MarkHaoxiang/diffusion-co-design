@@ -229,7 +229,7 @@ class PolicyDesigner(CentralisedDesigner):
         return self.policy
 
     def update(self, sampling_td):
-        tmp = super().update(sampling_td)
+        super().update(sampling_td)
 
         assert self.train_env is not None
         assert self.agent_policy is not None
