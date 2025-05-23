@@ -19,7 +19,11 @@ from omegaconf import DictConfig
 
 from tqdm import tqdm
 
-from diffusion_co_design.common import RLExperimentLogger, memory_management
+from diffusion_co_design.common import (
+    RLExperimentLogger,
+    memory_management,
+    start_from_checkpoint,
+)
 from diffusion_co_design.common.ppo import make_optimiser_and_lr_scheduler
 from diffusion_co_design.wfcrl.schema import TrainingConfig
 from diffusion_co_design.wfcrl.design import FixedDesigner, RandomDesigner
@@ -87,6 +91,7 @@ def train(cfg: TrainingConfig):
         actor_network=policy,
         critic_network=critic,
         clip_epsilon=cfg.ppo.clip_epsilon,
+        entropy_bonus=True if cfg.ppo.entropy_eps > 0 else False,
         entropy_coef=cfg.ppo.entropy_eps,
         normalize_advantage=cfg.ppo.normalise_advantage,
         normalize_advantage_exclude_dims=(-2,),
@@ -118,6 +123,14 @@ def train(cfg: TrainingConfig):
         group_name=group_name,
         config=cfg.model_dump(),
         mode=cfg.logging.mode,
+    )
+
+    start_from_checkpoint(
+        training_dir=cfg.start_from_checkpoint,
+        models=[
+            (policy, "policy_"),
+            (critic, "critic_"),
+        ],
     )
 
     try:
@@ -164,26 +177,29 @@ def train(cfg: TrainingConfig):
             for _ in range(cfg.ppo.n_epochs):
                 for _ in range(cfg.ppo.n_mini_batches):
                     minibatch: TensorDict = replay_buffer.sample()
+
                     loss_vals = loss_module(minibatch.to(device=device.train_device))
-                    loss_value = (
-                        loss_vals["loss_objective"]
-                        + loss_vals["loss_critic"]
-                        + loss_vals["loss_entropy"]
-                    )
+                    loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"]
+                    if cfg.ppo.entropy_eps > 0:
+                        loss_value += loss_vals["loss_entropy"]
 
                     # NaN check
                     if torch.isnan(loss_value) or torch.isinf(loss_value):
                         warnings.warn("NaN or Inf detected in loss value")
-                    else:
-                        loss_value.backward()
-                        grad_norm = torch.nn.utils.clip_grad_norm_(
-                            loss_module.parameters(), cfg.ppo.max_grad_norm
-                        )
-                        optim_step()
+                        torch.save(sampling_td, "nan_inf_sampling_td.pt")
+                        torch.save(minibatch, "nan_inf_minibatch.pt")
+                        assert False
+
+                    loss_value.backward()
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        loss_module.parameters(), cfg.ppo.max_grad_norm
+                    )
+                    optim_step()
 
                     training_log_td = loss_vals.detach()
                     training_log_td.set("grad_norm", grad_norm.mean())
                     training_tds.append(loss_vals.detach())
+
             collector.update_policy_weights_()
             logger.collect_training_td(training_log_td)
 

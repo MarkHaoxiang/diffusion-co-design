@@ -211,7 +211,7 @@ class MLPPolicy(nn.Module):
             share_params=share_params,
             depth=depth,
             num_cells=num_cells,
-            activation_class=nn.SiLU,
+            activation_class=nn.Tanh,
         )
 
         self.std = nn.Parameter(torch.zeros(action_dim))
@@ -301,7 +301,7 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
             n_agents=env.num_agents,
             share_params=False,
         ).to(device=device),
-        NormalParamExtractor(scale_mapping=scale_mapping),
+        NormalParamExtractor(scale_mapping=scale_mapping, scale_lb=0.01),
     )
 
     policy_mlp_module = TensorDictModule(

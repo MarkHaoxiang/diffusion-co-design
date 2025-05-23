@@ -36,3 +36,4 @@ class TrainingConfig(Config):
     policy: RLConfig
     ppo: PPOConfig
     logging: LoggingConfig
+    start_from_checkpoint: str | None = None

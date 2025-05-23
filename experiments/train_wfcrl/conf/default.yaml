@@ -40,8 +40,9 @@ ppo:
   min_critic_lr: 1e-4
   lr_scheduler_enabled: true
   max_grad_norm: 1.0
-  entropy_eps: 1e-5
+  entropy_eps: 0.0
   normalise_advantage: true
+start_from_checkpoint: null
 
 logging:
   # mode: disabled
