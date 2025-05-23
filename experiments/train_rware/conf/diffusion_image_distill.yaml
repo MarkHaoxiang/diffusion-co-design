@@ -4,7 +4,7 @@ defaults:
   - _self_
   - designer: diffusion_image_distill
 
-experiment_name: corners_agent_distill_210525
+experiment_name: corners_agent_distill_image_210525
 scenario_name: rware_16_50_5_4_corners
 device:
   device_management: "gpu"
