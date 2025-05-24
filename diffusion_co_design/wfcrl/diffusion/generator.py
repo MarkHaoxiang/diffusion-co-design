@@ -1,0 +1,116 @@
+import warnings
+
+import torch
+from torch import nn
+import numpy as np
+from scipy.optimize import minimize
+
+from diffusion_co_design.common.design import OptimizerDetails, BaseGenerator
+from diffusion_co_design.wfcrl.schema import ScenarioConfig
+from diffusion_co_design.wfcrl.model.diffusion import diffusion_setup
+
+
+def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig):
+    env[:, :, 0] = (env[:, :, 0] + 1) / 2 * (cfg.map_x_length - 1)
+    env[:, :, 1] = (env[:, :, 1] + 1) / 2 * (cfg.map_y_length - 1)
+    return env
+
+
+def projection_constraint(cfg: ScenarioConfig):
+    min_d = 2 * cfg.min_distance_between_turbines / (cfg.map_x_length - 1)
+    pos_out = []
+
+    def _projection_constraint(pos):
+        B, N, _ = pos.shape
+
+        for b in range(B):
+            x0 = pos[b].numpy(force=True).flatten()  # [N * 2]
+
+            # Minimize distance to original position
+            def objective(x):
+                return np.sum((x - x0) ** 2)
+
+            # Subject to bounding box and minimum distance constraints
+            def dist_constraint(i, j):
+                def constr(x):
+                    xi = x[2 * i : 2 * i + 2]
+                    xj = x[2 * j : 2 * j + 2]
+                    return np.linalg.norm(xi - xj) - min_d
+
+                return constr
+
+            constraints = [
+                {"type": "ineq", "fun": dist_constraint(i, j)}
+                # ineq is GEQ 0 constraint
+                for i in range(N)
+                for j in range(i + 1, N)
+            ]
+
+            bounds = [(-1, 1)] * (2 * N)
+
+            res = minimize(
+                objective, x0=x0, method="SLSQP", constraints=constraints, bounds=bounds
+            )
+
+            if not res.success:
+                warnings.warn(
+                    "Projection constraint failed. Using original position. Suggestion: increase map bounds."
+                )
+            else:
+                pos_proj = torch.tensor(
+                    res.x, dtype=pos.dtype, device=pos.device
+                ).reshape(N, 2)
+            pos_out.append(pos_proj)
+
+        pos_proj = torch.stack(pos_out, dim=0)
+        assert pos_proj.shape == pos.shape
+        return pos_proj
+
+    return _projection_constraint
+
+
+class Generator(BaseGenerator):
+    def __init__(
+        self,
+        generator_model_path: str,
+        scenario: ScenarioConfig,
+        batch_size: int = 32,
+        rng: torch.Generator | None = None,
+        guidance_wt: float = 50.0,
+        device: torch.device = torch.device("cpu"),
+    ):
+        self.model, self.diffusion = diffusion_setup(scenario)
+        super().__init__(
+            generator_model_path=generator_model_path,
+            model=self.model,
+            diffusion=self.diffusion,
+            batch_size=batch_size,
+            rng=rng,
+            guidance_wt=guidance_wt,
+            device=device,
+        )
+
+        self.scenario = scenario
+
+    def generate_batch(
+        self,
+        batch_size: int | None = None,
+        value: nn.Module | None = None,
+        use_operation: bool = False,
+        operation_override: OptimizerDetails | None = None,
+    ):
+        sample = super().generate_batch(
+            batch_size=batch_size,
+            value=value,
+            use_operation=use_operation,
+            operation_override=operation_override,
+        )
+
+        # Storage
+        sample = train_to_eval(env=sample, cfg=self.scenario)
+
+        return sample.numpy(force=True)
+
+    def shape(self, batch_size: int | None = None):
+        B = batch_size or self.batch_size
+        return (B, self.scenario.n_turbines, 2)

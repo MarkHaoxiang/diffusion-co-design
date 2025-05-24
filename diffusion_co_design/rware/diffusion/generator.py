@@ -8,9 +8,6 @@ from diffusion_co_design.rware.model.diffusion import diffusion_setup
 from diffusion_co_design.rware.diffusion.transform import train_to_eval
 
 
-# Using Universal Guided Diffusion
-
-
 class Generator(BaseGenerator):
     def __init__(
         self,
