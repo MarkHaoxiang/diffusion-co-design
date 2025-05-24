@@ -1,9 +1,5 @@
-import warnings
-
 import torch
 from torch import nn
-import numpy as np
-from scipy.optimize import minimize
 
 from diffusion_co_design.common.design import OptimizerDetails, BaseGenerator
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
@@ -16,55 +12,40 @@ def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig):
     return env
 
 
+def soft_penalty(pos: torch.Tensor, min_d: float, original_pos: torch.Tensor):
+    _, N, _ = pos.shape
+    dist = torch.cdist(pos, pos, p=2)  # [B, N, N]
+    mask = torch.triu(torch.ones(N, N, device=pos.device), diagonal=1).bool()
+    violation = (min_d - dist).clamp(min=0.0)
+    penalty = violation[:, mask].sum(dim=-1)  # [B]
+
+    # For original position, add a penalty for deviation
+    original_diff = pos - original_pos
+    original_dist = original_diff.norm(dim=-1)  # [B, N]
+    penalty += original_dist.sum(dim=-1) * 0.05
+    return penalty
+
+
 def projection_constraint(cfg: ScenarioConfig):
     min_d = 2 * cfg.min_distance_between_turbines / (cfg.map_x_length - 1)
-    pos_out = []
 
     def _projection_constraint(pos):
         B, N, _ = pos.shape
+        pos_0 = pos.clone()
 
-        for b in range(B):
-            x0 = pos[b].numpy(force=True).flatten()  # [N * 2]
+        # Apply soft penalty
+        with torch.enable_grad():
+            pos.requires_grad_(True)
+            optim = torch.optim.SGD([pos], lr=0.02)
+            for _ in range(20):
+                optim.zero_grad()
+                penalty = soft_penalty(pos, min_d, pos_0).sum()
+                penalty.backward()
+                optim.step()
+                pos.data = pos.data.clamp(-1, 1)
+            pos = pos.detach()
 
-            # Minimize distance to original position
-            def objective(x):
-                return np.sum((x - x0) ** 2)
-
-            # Subject to bounding box and minimum distance constraints
-            def dist_constraint(i, j):
-                def constr(x):
-                    xi = x[2 * i : 2 * i + 2]
-                    xj = x[2 * j : 2 * j + 2]
-                    return np.linalg.norm(xi - xj) - min_d
-
-                return constr
-
-            constraints = [
-                {"type": "ineq", "fun": dist_constraint(i, j)}
-                # ineq is GEQ 0 constraint
-                for i in range(N)
-                for j in range(i + 1, N)
-            ]
-
-            bounds = [(-1, 1)] * (2 * N)
-
-            res = minimize(
-                objective, x0=x0, method="SLSQP", constraints=constraints, bounds=bounds
-            )
-
-            if not res.success:
-                warnings.warn(
-                    "Projection constraint failed. Using original position. Suggestion: increase map bounds."
-                )
-            else:
-                pos_proj = torch.tensor(
-                    res.x, dtype=pos.dtype, device=pos.device
-                ).reshape(N, 2)
-            pos_out.append(pos_proj)
-
-        pos_proj = torch.stack(pos_out, dim=0)
-        assert pos_proj.shape == pos.shape
-        return pos_proj
+        return pos
 
     return _projection_constraint
 
@@ -114,3 +95,57 @@ class Generator(BaseGenerator):
     def shape(self, batch_size: int | None = None):
         B = batch_size or self.batch_size
         return (B, self.scenario.n_turbines, 2)
+
+
+# Deprecated: projection using scipy.optimise
+# pos = pos.numpy(force=True)
+# pos_out = []
+
+# for b in range(B):
+#     x0 = pos[b].flatten()
+
+#     # Minimize distance to original position
+#     def objective(x):
+#         return np.sum((x - x0) ** 2)
+
+#     # Subject to bounding box and minimum distance constraints
+#     def dist_constraint(i, j):
+#         def constr(x):
+#             xi = x[2 * i : 2 * i + 2]
+#             xj = x[2 * j : 2 * j + 2]
+#             return np.linalg.norm(xi - xj) - min_d
+
+#         return constr
+
+#     constraints = [
+#         {"type": "ineq", "fun": dist_constraint(i, j)}
+#         # ineq is GEQ 0 constraint
+#         for i in range(N)
+#         for j in range(i + 1, N)
+#     ]
+
+#     bounds = [(-1, 1)] * (2 * N)
+
+#     res = minimize(
+#         objective,
+#         x0=x0,
+#         method="SLSQP",
+#         constraints=constraints,
+#         bounds=bounds,
+#         options={"disp": False, "ftol": 1e-2, "maxiter": 40},
+#     )
+
+#     if not res.success:
+#         warnings.warn(
+#             "Projection constraint failed. Using original position. Suggestion: increase map bounds."
+#         )
+#         pos_out.append(torch.tensor(pos[b], dtype=dtype, device=device))
+#     else:
+#         pos_proj = torch.tensor(res.x, dtype=dtype, device=device).reshape(N, 2)
+#         pos_out.append(pos_proj)
+
+# pos_proj = torch.stack(pos_out, dim=0)
+# assert pos_proj.shape == pos.shape, (
+#     f"Expected {pos.shape}, got {pos_proj.shape}"
+# )
+# return pos_proj
