@@ -83,7 +83,7 @@ def train(cfg: TrainingConfig):
 
     if isinstance(master_designer, DiskDesigner):
         core = master_designer.master_designer
-        if isinstance(core, design.DiffusionDesigner):
+        if isinstance(core, design.ValueDesigner):
             core.critic = critic
             core.ref_env = create_env(
                 cfg.scenario, designer=None, is_eval=False, device=device.env_device
