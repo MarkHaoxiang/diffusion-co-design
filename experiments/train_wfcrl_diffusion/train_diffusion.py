@@ -33,7 +33,7 @@ def main():
     scenario = ScenarioConfig.from_file(
         os.path.join("conf", f"{args.experiment_name}.yaml")
     )
-    data_dir = os.path.join(OUTPUT_DIR, "rware", "scenario", args.experiment_name)
+    data_dir = os.path.join(OUTPUT_DIR, "wfcrl", "scenario", args.experiment_name)
     if os.path.exists(data_dir):
         shutil.rmtree(path=data_dir)
     os.makedirs(data_dir)

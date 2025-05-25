@@ -1,5 +1,8 @@
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import pickle as pkl
+from typing import Literal
 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
@@ -9,6 +12,7 @@ from torchrl.data import ReplayBuffer
 from guided_diffusion import dist_util
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
+from diffusion_co_design.common.pydra import Config
 
 
 class BaseDesigner(nn.Module, ABC):
@@ -58,6 +62,89 @@ class BaseDesigner(nn.Module, ABC):
         return None
 
 
+class BaseDiskDesigner(BaseDesigner):
+    """Hack for parallel execution"""
+
+    # So this is hacky
+    # For some reason, normal mp queues break across multiple environments
+    # So we just read the shared environment generation buffer from disk instead
+
+    def __init__(
+        self,
+        lock,
+        artifact_dir,
+        environment_repeats: int = 1,
+        master_designer=None,
+    ):
+        super().__init__(environment_repeats=environment_repeats)
+        self.is_master = master_designer is not None
+        self.master_designer = master_designer
+        self.lock = lock
+        self.buffer_path = os.path.join(artifact_dir, "designer_buffer.pkl")
+
+    def force_regenerate(
+        self, batch_size: int, mode: Literal["train", "eval"] = "train"
+    ):
+        assert self.master_designer
+
+        def regenerate():
+            with self.lock:
+                batch = self.master_designer.reset_env_buffer(batch_size)
+                with open(self.buffer_path, "wb") as f:
+                    pkl.dump(batch, f)
+
+        match mode:
+            case "train":
+                with open(self.buffer_path, "rb") as f:
+                    batch_len = len(pkl.load(f))
+                if batch_len < batch_size:
+                    regenerate()
+            case "eval":
+                regenerate()
+            case _:
+                raise ValueError(f"Unknown mode {mode}")
+
+    def forward(self, objective):
+        return self.generate_environment_weights(objective)
+
+    def update(self, sampling_td):
+        super().update(sampling_td)
+        if self.is_master:
+            self.master_designer.update(sampling_td)
+
+    def reset(self, batch_size: int | None = None, **kwargs):  # type: ignore
+        super().reset(**kwargs)
+        if self.is_master:
+            self.master_designer.reset()  # type: ignore
+            if batch_size is not None:
+                self.force_regenerate(batch_size=batch_size, mode="eval")
+                self.environment_repeat_counter = 1
+
+    def _generate_environment_weights(self, objective):
+        with self.lock:
+            with open(self.buffer_path, "rb") as f:
+                batch = pkl.load(f)
+                # print(len(batch), "items in buffer")
+            if len(batch) <= 0 and self.is_master:
+                batch = self.master_designer.reset_env_buffer()
+            elif len(batch) <= 0 and not self.is_master:
+                assert False, "Hack failed"
+            res = batch.pop()
+            with open(self.buffer_path, "wb") as f:
+                pkl.dump(batch, f)
+        return res
+
+    def get_logs(self):
+        if self.is_master:
+            return self.master_designer.get_logs()
+        return super().get_logs()
+
+    def get_model(self):
+        if self.is_master:
+            return self.master_designer.get_model()
+        return super().get_model()
+
+
 @dataclass
 class OptimizerDetails:
     def __init__(self):
@@ -85,6 +172,13 @@ class OptimizerDetails:
         self.loss_save = None
         self.operated_image = None
         self.projection_constraint = None  # Projection constraint after on z_(t-1)
+
+
+class DiffusionOperation(Config):
+    num_recurrences: int = 4
+    backward_lr: float = 0.01
+    backward_steps: int = 0
+    forward_guidance_wt: float = 5.0
 
 
 class BaseGenerator(ABC):

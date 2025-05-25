@@ -1,5 +1,5 @@
 import os
-from os.path import join
+import copy
 import time
 import warnings
 
@@ -26,7 +26,7 @@ from diffusion_co_design.common import (
 )
 from diffusion_co_design.common.ppo import make_optimiser_and_lr_scheduler
 from diffusion_co_design.wfcrl.schema import TrainingConfig
-from diffusion_co_design.wfcrl.design import FixedDesigner, RandomDesigner
+import diffusion_co_design.wfcrl.design as design
 from diffusion_co_design.wfcrl.env import create_batched_env, create_env
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models
 
@@ -40,31 +40,53 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
-    designer = RandomDesigner(cfg.scenario)
-    # designer = FixedDesigner(cfg.scenario, seed=0)
+    master_designer, env_designer = design.DesignerRegistry.get(
+        designer=cfg.designer,
+        scenario=cfg.scenario,
+        ppo_cfg=cfg.ppo,
+        artifact_dir=output_dir,
+        device=device.train_device,
+    )
+    environment_reset_num = n_train_envs + cfg.logging.evaluation_episodes + 2
+    if cfg.designer.environment_repeats == 1:
+        environment_reset_num += n_train_envs  # Collector construction reset
+    master_designer.reset(batch_size=environment_reset_num)
 
     reference_env = create_env(
         mode="reference",
         scenario=cfg.scenario,
-        designer=designer,
+        designer=env_designer,
         device=device.env_device,
     )
     train_env = create_batched_env(
         mode="train",
-        designer=designer,
+        designer=env_designer,
         num_environments=n_train_envs,
         scenario=cfg.scenario,
         device=device.env_device,
     )
+    env_designer = copy.copy(env_designer)
+    env_designer.environment_repeats = 1
     eval_env = create_batched_env(
         mode="eval",
-        designer=designer,
+        designer=env_designer,
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
         device=device.env_device,
     )
 
     policy, critic = wfcrl_models(reference_env, cfg.policy, device=device.train_device)
+
+    if isinstance(master_designer, design.DiskDesigner):
+        core = master_designer.master_designer
+        if isinstance(core, design.ValueDesigner):
+            core.critic = critic
+            core.ref_env = create_env(
+                mode="reference",
+                scenario=cfg.scenario,
+                designer=design.FixedDesigner(cfg.scenario),
+                device=device.env_device,
+            )
 
     collector = SyncDataCollector(
         train_env,
@@ -74,8 +96,8 @@ def train(cfg: TrainingConfig):
         frames_per_batch=cfg.ppo.frames_per_batch,
         total_frames=cfg.ppo.total_frames,
         exploration_type=ExplorationType.RANDOM,
-        reset_at_each_iter=True,
     )
+
     if cfg.normalize_reward:
         reward_normalizer = RewardNormalizer(reward_key=reference_env.reward_key)
 
@@ -121,7 +143,7 @@ def train(cfg: TrainingConfig):
         experiment_name=cfg.experiment_name,
         project_name="diffusion-co-design-wfcrl",
         group_name=group_name,
-        config=cfg.model_dump(),
+        config=cfg.dump(),
         mode=cfg.logging.mode,
     )
 
@@ -133,6 +155,7 @@ def train(cfg: TrainingConfig):
         ],
     )
 
+    master_designer.reset(batch_size=n_train_envs)
     try:
         logger.begin()
         total_time, total_frames = 0.0, 0
@@ -206,17 +229,27 @@ def train(cfg: TrainingConfig):
             policy.eval()
             critic.eval()
 
+            design_start = time.time()
+            master_designer.update(sampling_td)
+            design_time = time.time() - design_start
+
             training_time = time.time() - training_start
             total_time += sampling_time + training_time
 
             # Logging
-            logger.collect_times(sampling_time, training_time, 0, total_time)
+            logger.collect_times(sampling_time, training_time, design_time, total_time)
+            logger.log(master_designer.get_logs())
 
             if (
                 cfg.logging.evaluation_episodes > 0
                 and iteration % cfg.logging.evaluation_interval == 0
             ):
                 evaluation_start = time.time()
+                if isinstance(master_designer, design.DiskDesigner):
+                    master_designer.force_regenerate(
+                        batch_size=cfg.logging.evaluation_episodes * 2,
+                        mode="eval",
+                    )
                 with (
                     torch.no_grad(),
                     set_exploration_type(ExplorationType.RANDOM),
@@ -242,21 +275,23 @@ def train(cfg: TrainingConfig):
             logger.log({"lr_actor": lr[0], "lr_critic": lr[1]})
             logger.commit(total_frames, current_frames)
 
-            if iteration % cfg.logging.checkpoint_interval == 0:
-                checkpoint_dir = join(output_dir, "checkpoints")
-                if not os.path.exists(checkpoint_dir):
-                    os.makedirs(checkpoint_dir)
-                torch.save(
-                    policy.state_dict(),
-                    join(checkpoint_dir, f"policy_{iteration}.pt"),
-                )
-                torch.save(
-                    critic.state_dict(),
-                    join(checkpoint_dir, f"critic_{iteration}.pt"),
-                )
+            is_final_iteration = iteration == cfg.ppo.n_iters - 1
+            if iteration % cfg.logging.checkpoint_interval == 0 or is_final_iteration:
+                logger.checkpoint_state_dict(policy, f"policy_{iteration}")
+                logger.checkpoint_state_dict(critic, f"critic_{iteration}")
+                model = master_designer.get_model()
+                buffer = master_designer.get_training_buffer()
+                if model is not None:
+                    logger.checkpoint_state_dict(model, f"designer_{iteration}")
+                if buffer is not None:
+                    buffer.dumps(
+                        os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")
+                    )
 
             pbar.update()
             sampling_start = time.time()
+            if isinstance(master_designer, design.DiskDesigner):
+                master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
     finally:
         # Cleaup
         logger.close()
@@ -266,7 +301,7 @@ def train(cfg: TrainingConfig):
                 env.close()
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="default")
+@hydra.main(version_base=None, config_path="conf", config_name="random")
 def run(config: DictConfig):
     print(f"Running job {HydraConfig.get().job.name}")
     train(TrainingConfig.from_raw(config))

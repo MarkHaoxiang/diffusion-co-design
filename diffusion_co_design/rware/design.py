@@ -1,8 +1,6 @@
 from abc import abstractmethod, ABC
 import math
 import os
-import pickle as pkl
-from typing import Literal
 
 import numpy as np
 import torch
@@ -25,7 +23,7 @@ from diffusion_co_design.rware.diffusion.transform import (
 )
 from diffusion_co_design.rware.diffusion.generate import generate, get_position
 from diffusion_co_design.rware.diffusion.generator import Generator, OptimizerDetails
-from diffusion_co_design.common.design import BaseDesigner
+from diffusion_co_design.common.design import BaseDesigner, BaseDiskDesigner
 from diffusion_co_design.rware.schema import (
     ScenarioConfig,
     DesignerConfig,
@@ -731,7 +729,7 @@ class DiffusionDesigner(ValueDesigner):
         )
 
 
-class DiskDesigner(Designer):
+class DiskDesigner(BaseDiskDesigner):
     """Hack for parallel execution"""
 
     # So this is hacky
@@ -748,75 +746,20 @@ class DiskDesigner(Designer):
         master_designer: CentralisedDesigner | None = None,
     ):
         super().__init__(
-            scenario,
+            lock=lock,
+            artifact_dir=artifact_dir,
             environment_repeats=environment_repeats,
-            representation=representation,
+            master_designer=master_designer,
         )
-        self.is_master = master_designer is not None
-        self.master_designer = master_designer
-        self.lock = lock
-        self.buffer_path = os.path.join(artifact_dir, "designer_buffer.pkl")
+        self.scenario = scenario
+        self.representation = representation
 
-    def force_regenerate(
-        self, batch_size: int, mode: Literal["train", "eval"] = "train"
-    ):
-        assert self.master_designer
-
-        def regenerate():
-            with self.lock:
-                batch = self.master_designer.reset_env_buffer(batch_size)
-                with open(self.buffer_path, "wb") as f:
-                    pkl.dump(batch, f)
-
-        match mode:
-            case "train":
-                with open(self.buffer_path, "rb") as f:
-                    batch_len = len(pkl.load(f))
-                if batch_len < batch_size:
-                    regenerate()
-            case "eval":
-                regenerate()
-            case _:
-                raise ValueError(f"Unknown mode {mode}")
-
-    def forward(self, objective):
-        return self.generate_environment_weights(objective)
-
-    def update(self, sampling_td):
-        super().update(sampling_td)
-        if self.is_master:
-            self.master_designer.update(sampling_td)
-
-    def reset(self, batch_size: int | None = None, **kwargs):  # type: ignore
-        super().reset(**kwargs)
-        if self.is_master:
-            self.master_designer.reset()  # type: ignore
-            if batch_size is not None:
-                self.force_regenerate(batch_size=batch_size, mode="eval")
-                self.environment_repeat_counter = 1
-
-    def _generate_environment_weights(self, objective):
-        with self.lock:
-            with open(self.buffer_path, "rb") as f:
-                batch = pkl.load(f)
-            if len(batch) <= 0 and self.is_master:
-                batch = self.master_designer.reset_env_buffer()
-            elif len(batch) <= 0 and not self.is_master:
-                assert False, "Hack failed"
-            res = batch.pop()
-            with open(self.buffer_path, "wb") as f:
-                pkl.dump(batch, f)
-        return res
-
-    def get_logs(self):
-        if self.is_master:
-            return self.master_designer.get_logs()
-        return super().get_logs()
-
-    def get_model(self):
-        if self.is_master:
-            return self.master_designer.get_model()
-        return super().get_model()
+    def generate_environment(self, objective):
+        return storage_to_layout(
+            features=self.generate_environment_weights(objective),
+            config=self.scenario,
+            representation=self.representation,
+        )
 
 
 class DesignerRegistry:
@@ -931,7 +874,7 @@ class DesignerRegistry:
                     representation=master_designer.representation,
                     environment_repeats=designer.environment_repeats,
                 )
-                return master, env
+                return master, env  # type: ignore
 
             case _:
                 raise ValueError(f"Unknown designer type {designer}")

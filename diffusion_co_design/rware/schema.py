@@ -8,6 +8,7 @@ from diffusion_co_design.common import (
     DeviceConfig,
     OUTPUT_DIR,
 )
+from diffusion_co_design.common.design import DiffusionOperation
 
 
 Representation: TypeAlias = Literal["image", "flat", "graph"]
@@ -25,13 +26,6 @@ class ScenarioConfig(Config):
     goal_colors: list[int]
     n_colors: int
     max_steps: int
-
-
-class DiffusionOperation(Config):
-    num_recurrences: int = 4
-    backward_lr: float = 0.01
-    backward_steps: int = 0
-    forward_guidance_wt: float = 5.0
 
 
 class ClassifierConfig(Config):
@@ -94,3 +88,8 @@ class TrainingConfig(Config):
             )
             self._scenario_cache = ScenarioConfig.from_file(file)
         return self._scenario_cache
+
+    def dump(self) -> dict:
+        out = super().model_dump()
+        out["scenario"] = self.scenario.model_dump()
+        return out

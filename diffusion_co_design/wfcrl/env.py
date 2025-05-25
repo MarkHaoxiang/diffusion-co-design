@@ -309,7 +309,11 @@ def create_env(
     device: str | None = None,
     render: bool = False,
 ):
-    theta = designer.generate_environment_weights().numpy(force=True)
+    theta = designer.generate_environment_weights()
+    if isinstance(theta, torch.Tensor):
+        theta = theta.numpy(force=True)
+    else:
+        assert isinstance(theta, np.ndarray), "Theta must be a numpy array or tensor"
     env = _create_designable_windfarm(
         scenario=scenario,
         initial_xcoords=theta[:, 0],
@@ -336,7 +340,6 @@ def create_env(
             RemoveEmptySpecs(),
         ),
     )
-    env.reset()
     return env
 
 

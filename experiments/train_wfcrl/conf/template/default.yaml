@@ -1,19 +1,3 @@
-defaults:
-  - _self_
-  - metadata/training@_here_
-
-experiment_name: wfcrl_fixed
-device:
-  device_management: "gpu"
-  gpu_id: 0
-  max_gpu_memory: 1.0
-normalize_reward: true
-scenario:
-  n_turbines: 10
-  max_steps: 150
-  map_x_length: 500
-  map_y_length: 500
-  min_distance_between_turbines: 100
 policy:
   model_type: "gnn"
   initial_std: 0.3
@@ -28,7 +12,7 @@ policy:
   critic_edge_hidden_size: 32
   critic_gnn_depth: 3
 ppo:
-  n_iters: 2000
+  n_iters: 501
   n_epochs: 20
   minibatch_size: 150
   n_mini_batches: 10
@@ -42,8 +26,7 @@ ppo:
   max_grad_norm: 1.0
   entropy_eps: 0.0
   normalise_advantage: true
-start_from_checkpoint: null
-
+normalize_reward: true
 logging:
   # mode: disabled
   mode: online

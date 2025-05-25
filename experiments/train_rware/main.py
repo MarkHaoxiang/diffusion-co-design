@@ -145,14 +145,12 @@ def train(cfg: TrainingConfig):
 
     # Logging
     pbar = tqdm(total=cfg.ppo.n_iters)
-    log_config = cfg.model_dump()
-    log_config["scenario"] = cfg.scenario.model_dump()
     logger = RLExperimentLogger(
         directory=output_dir,
         experiment_name=cfg.experiment_name,
         project_name="diffusion-co-design-rware",
         group_name=group_name,
-        config=log_config,
+        config=cfg.dump(),
         mode=cfg.logging.mode,
     )
 
@@ -283,7 +281,6 @@ def train(cfg: TrainingConfig):
             pbar.update()
             sampling_start = time.time()
             if isinstance(master_designer, DiskDesigner):
-                # TODO: This relies on an faulty assumption of 1 episode rollout per process per iteration.
                 master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
     finally:
         # Cleaup
