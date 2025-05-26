@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -20,7 +21,7 @@ from diffusion_co_design.wfcrl.schema import (
     Random,
     Diffusion,
 )
-from diffusion_co_design.wfcrl.model.classifier import EnvironmentCritic
+from diffusion_co_design.wfcrl.model.classifier import GNNCritic
 from diffusion_co_design.wfcrl.diffusion.generate import Generate
 from diffusion_co_design.wfcrl.diffusion.generator import (
     Generator,
@@ -83,7 +84,9 @@ class FixedDesigner(Designer):
 def get_env_from_td(td, scenario: ScenarioConfig, gamma: float = 0.99):
     done = td.get(("next", "done"))
     X = td.get(("state", "layout"))[done.squeeze(-1)].to(dtype=torch.float32)
-    reward = td.get(("next", group_name, "reward")).sum(dim=-2)
+    reward = td.get(("next", group_name, "reward")).mean(
+        dim=-2
+    )  # Note: mean instead of sum
     y = reward2go(reward, done=done, gamma=gamma, time_dim=-2)
     y = y.reshape(-1, scenario.max_steps)
     y = y[:, 0]
@@ -117,20 +120,32 @@ class ValueDesigner(CentralisedDesigner, ABC):
         distill_from_critic: bool = False,
         distill_samples: int = 1,
         early_start: int | None = None,
+        clip_grad_norm: float | None = 1.0,
+        loss_criterion: Literal["mse", "huber"] = "huber",
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario, environment_repeats=environment_repeats)
-        self.model = EnvironmentCritic(
+        self.model = GNNCritic(
             cfg=scenario,
-            embedding_size=classifier.embedding_size,
-            depth=classifier.depth,
+            node_emb_dim=classifier.node_emb_size,
+            edge_emb_dim=classifier.edge_emb_size,
+            n_layers=classifier.depth,
         )
         self.model = self.model.to(device)
 
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=lr, weight_decay=weight_decay
         )
-        self.criterion = torch.nn.MSELoss()
+
+        match loss_criterion:
+            case "huber":
+                self.criterion = torch.nn.HuberLoss()
+            case "mse":
+                self.criterion = torch.nn.MSELoss()
+            case _:
+                raise ValueError(
+                    f"Unknown loss criterion: {loss_criterion}. Use 'mse' or 'huber'. "
+                )
 
         self.buffer_size = buffer_size
         self.train_batch_size = train_batch_size
@@ -158,6 +173,8 @@ class ValueDesigner(CentralisedDesigner, ABC):
             minimum_distance_between_turbines=scenario.min_distance_between_turbines,
             rng=0,
         )
+        self.clip_grad_norm = clip_grad_norm
+        self.grad_norm = 0.0
 
         # Logging
         self.ref_random_designs = torch.tensor(
@@ -227,7 +244,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
                         assert y_batch.shape == (
                             self.train_batch_size,
                             self.distill_samples,
-                            self.scenario.n_agents,
+                            self.scenario.n_turbines,
                             1,
                         ), y_batch.shape
                         y_batch = y_batch.sum(dim=-2)
@@ -238,12 +255,18 @@ class ValueDesigner(CentralisedDesigner, ABC):
                     y_batch = sample.get("episode_reward").to(
                         dtype=torch.float32, device=self.device
                     )
+
                 train_y_batch.append(y_batch)
 
                 # Timesteps
                 y_pred = self.model.predict(X_batch)
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
+                if self.clip_grad_norm is not None:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), max_norm=1.0
+                    )
+                    self.grad_norm = grad_norm.item()
                 self.running_loss += loss.item()
                 self.optim.step()
             # Logs
@@ -281,6 +304,8 @@ class ValueDesigner(CentralisedDesigner, ABC):
                     "design_y_min": self.train_y_min,
                 }
             )
+            if self.clip_grad_norm is not None:
+                logs["designer_grad_norm"] = self.grad_norm
         return logs
 
     def get_model(self):
@@ -301,11 +326,13 @@ class DiffusionDesigner(ValueDesigner):
         train_batch_size: int = 64,
         buffer_size: int = 2048,
         lr: float = 3e-5,
+        clip_grad_norm: float | None = 1.0,
         weight_decay: float = 0.0,
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
         early_start: int | None = None,
+        loss_criterion: Literal["mse", "huber"] = "huber",
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
@@ -316,11 +343,13 @@ class DiffusionDesigner(ValueDesigner):
             train_batch_size=train_batch_size,
             buffer_size=buffer_size,
             lr=lr,
+            clip_grad_norm=clip_grad_norm,
             weight_decay=weight_decay,
             environment_repeats=environment_repeats,
             distill_from_critic=distill_from_critic,
             distill_samples=distill_samples,
             early_start=early_start,
+            loss_criterion=loss_criterion,
             device=device,
         )
 
@@ -395,11 +424,13 @@ class DesignerRegistry:
                     train_batch_size=designer.batch_size,
                     buffer_size=designer.buffer_size,
                     lr=designer.lr,
+                    clip_grad_norm=designer.clip_grad_norm,
                     weight_decay=designer.weight_decay,
                     environment_repeats=designer.environment_repeats,
                     distill_from_critic=designer.distill_enable,
                     distill_samples=designer.distill_samples,
                     early_start=designer.early_start,
+                    loss_criterion=designer.loss_criterion,
                     device=device,
                 )
             else:

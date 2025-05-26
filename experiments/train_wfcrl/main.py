@@ -98,8 +98,7 @@ def train(cfg: TrainingConfig):
         exploration_type=ExplorationType.RANDOM,
     )
 
-    if cfg.normalize_reward:
-        reward_normalizer = RewardNormalizer(reward_key=reference_env.reward_key)
+    reward_normalizer = RewardNormalizer(reward_key=reference_env.reward_key)
 
     replay_buffer = ReplayBuffer(
         storage=LazyTensorStorage(
@@ -165,18 +164,16 @@ def train(cfg: TrainingConfig):
             training_tds, training_start = [], time.time()
             logger.collect_sampling_td(sampling_td)
 
+            reward_normalizer.update_reward_stats(sampling_td["next"])
+            logger.log(
+                {
+                    "normalizer_mean": reward_normalizer._reward_stats["mean"].item(),
+                    "normalizer_std": reward_normalizer._reward_stats["std"].item(),
+                }
+            )
             if cfg.normalize_reward:
-                reward_normalizer.update_reward_stats(sampling_td["next"])
                 sampling_td["next"] = reward_normalizer.normalize_reward(
                     sampling_td["next"]
-                )
-                logger.log(
-                    {
-                        "normalizer_mean": reward_normalizer._reward_stats[
-                            "mean"
-                        ].item(),
-                        "normalizer_std": reward_normalizer._reward_stats["std"].item(),
-                    }
                 )
 
             # Compute GAE

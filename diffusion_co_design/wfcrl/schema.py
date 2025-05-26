@@ -22,7 +22,8 @@ class ScenarioConfig(Config):
 
 
 class ClassifierConfig(Config):
-    embedding_size: int = 256
+    node_emb_size: int = 64
+    edge_emb_size: int = 32
     depth: int = 2
 
 
@@ -46,11 +47,13 @@ class _Value(_Designer):
     model: ClassifierConfig
     batch_size: int = 64
     buffer_size: int = 2048
-    lr: float = 3e-5
-    n_update_iterations: int = 5
+    lr: float = 3e-4
+    n_update_iterations: int = 10
+    clip_grad_norm: float | None = 1.0
     weight_decay: float = 0.0
     distill_enable: bool = False
     distill_samples: int = 5
+    loss_criterion: Literal["mse", "huber"] = "huber"
     early_start: int | None = None
 
 

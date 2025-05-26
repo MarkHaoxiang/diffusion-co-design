@@ -38,7 +38,7 @@ class Generate:
         self,
         n: int = 1,
         training_dataset: bool = False,
-        max_attempts_per_environment: int = 10,
+        max_attempts_per_environment: int = 30,
     ):
         rng = self._rng_uninitialised
         if isinstance(rng, np.random.Generator):
@@ -64,13 +64,18 @@ class Generate:
                     points.append(candidate)
                     environments[i, j] = candidate
                     j += 1
+                    attempts = 0
                 else:
                     attempts += 1
                     if attempts >= max_attempts_per_environment:
                         warnings.warn(
                             f"Could not generate a valid environment after {max_attempts_per_environment} attempts. "
                         )
-                        break
+                        # Backtrack
+                        j -= 1
+                        points.pop()
+                        attempts = 0
+
             if j == self.num_turbines:
                 i += 1
 

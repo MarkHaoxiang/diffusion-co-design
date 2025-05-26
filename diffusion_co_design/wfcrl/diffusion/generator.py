@@ -44,6 +44,9 @@ def soft_projection_constraint(cfg: ScenarioConfig):
     def _projection_constraint(pos):
         B, N, _ = pos.shape
         pos_0 = pos.clone()
+        pos = (
+            pos + torch.randn_like(pos) * 0.01
+        )  # Add some noise to avoid corners problem, where positions exactly equal from clamping
 
         # Apply soft penalty
         with torch.enable_grad():

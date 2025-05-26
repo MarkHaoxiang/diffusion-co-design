@@ -26,11 +26,11 @@ ppo:
   max_grad_norm: 1.0
   entropy_eps: 0.0
   normalise_advantage: true
-normalize_reward: true
+normalize_reward: false
 logging:
   # mode: disabled
   mode: online
   # mode: offline
   evaluation_interval: 50
-  evaluation_episodes: 5
+  evaluation_episodes: 1
   checkpoint_interval: 50

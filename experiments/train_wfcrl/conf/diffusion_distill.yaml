@@ -3,7 +3,7 @@ defaults:
   - _self_
   - metadata/training@_here_
 
-experiment_name: wfcrl_diffusion
+experiment_name: wfcrl_diffusion_distill
 device:
   device_management: "gpu"
   gpu_id: 0
@@ -11,22 +11,24 @@ device:
 scenario_name: wfcrl_10
 designer:
   type: diffusion
-  environment_repeats: 1
+  environment_repeats: 5
   model:
-    embedding_size: 256
-    depth: 2
+    node_emb_size: 64
+    edge_emb_size: 32
+    depth: 3
   buffer_size: 2048
   early_start: 256
   batch_size: 32
   weight_decay: 0
-  lr: 3e-5
+  lr: 3e-4
   distill_enable: true
-  distill_samples: 5
+  distill_samples: 3
+  loss_criterion: huber
   operation:
     num_reccurences: 4
     backward_lr: 0.01
-    backward_steps: 16
-    forward_guidance: 5.0
+    backward_steps: 0
+    forward_guidance: 3.0
 start_from_checkpoint: null
 logging:
   mode: online
