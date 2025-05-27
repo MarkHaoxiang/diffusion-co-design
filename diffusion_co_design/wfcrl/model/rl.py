@@ -9,8 +9,27 @@ from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 from torch_geometric.utils import scatter
 
-from diffusion_co_design.wfcrl.schema import ScenarioConfig, RLConfig
+from diffusion_co_design.wfcrl.schema import (
+    ScenarioConfig,
+    RLConfig,
+    NormalisationStatistics,
+)
 from diffusion_co_design.common.nn import fully_connected
+
+
+class OutputDenormaliser(nn.Module):
+    def __init__(self, mean: float = 0.0, std: float = 1.0):
+        super().__init__()
+        self.mean = mean
+        self.std = std
+
+    def forward(self, x: torch.Tensor):
+        return x * self.std + self.mean
+
+
+class ID(nn.Module):
+    def forward(self, x: torch.Tensor):
+        return x
 
 
 class EquivariantModel(nn.Module):
@@ -255,6 +274,7 @@ class MLPObservationNormalizer(nn.Module):
         )
 
         # Calculate Cartesian wind vector
+        wind_direction = torch.deg2rad(wind_direction)
         wind_x = wind_speed * torch.cos(wind_direction)
         wind_y = wind_speed * torch.sin(wind_direction)
         wind = torch.cat([wind_x, wind_y], dim=-1)  # [B, N, 2]
@@ -271,7 +291,9 @@ class MLPObservationNormalizer(nn.Module):
         return out
 
 
-def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
+def wfcrl_models_mlp(
+    env, cfg: RLConfig, normalisation: NormalisationStatistics | None, device: str
+):
     observation_keys = [
         ("turbine", "observation", x)
         for x in ["wind_direction", "wind_speed", "yaw", "layout"]
@@ -330,7 +352,7 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
         return_log_prob=True,
         log_prob_key=("turbine", "sample_log_prob"),
     )
-
+    critic_denormaliser = maybe_make_denormaliser(normalisation)
     critic_mlp = nn.Sequential(
         MultiAgentMLP(
             n_agent_inputs=5,
@@ -343,6 +365,7 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
             num_cells=cfg.mlp_hidden_size,
             activation_class=torch.nn.Tanh,
         ),
+        critic_denormaliser,
     )
 
     critic_mlp_module = TensorDictModule(
@@ -372,7 +395,19 @@ def wfcrl_models_mlp(env, cfg: RLConfig, device: str):
     return policy, critic
 
 
-def wfcrl_models_gnn(env, cfg: RLConfig, device: str):
+def maybe_make_denormaliser(normalisation: NormalisationStatistics | None):
+    print(normalisation)
+    if normalisation is not None:
+        return OutputDenormaliser(
+            mean=normalisation.episode_return_mean, std=normalisation.episode_return_std
+        )
+    else:
+        return ID()
+
+
+def wfcrl_models_gnn(
+    env, cfg: RLConfig, normalisation: NormalisationStatistics | None, device: str
+):
     observation_keys = [
         ("turbine", "observation", x)
         for x in ["wind_direction", "wind_speed", "yaw", "layout"]
@@ -452,9 +487,13 @@ def wfcrl_models_gnn(env, cfg: RLConfig, device: str):
         out_keys=critic_gnn_key,
     )
 
-    critic_head = CriticHead(
-        in_dim=cfg.critic_node_hidden_size,
+    critic_denormaliser = maybe_make_denormaliser(normalisation)
+
+    critic_head = nn.Sequential(
+        CriticHead(in_dim=cfg.critic_node_hidden_size),
+        critic_denormaliser,
     )
+
     critic_head_module = TensorDictModule(
         module=critic_head,
         in_keys=critic_gnn_key,
@@ -479,11 +518,13 @@ def wfcrl_models_gnn(env, cfg: RLConfig, device: str):
     return policy, critic
 
 
-def wfcrl_models(env, cfg: RLConfig, device: str):
+def wfcrl_models(
+    env, cfg: RLConfig, normalisation: NormalisationStatistics | None, device: str
+):
     match cfg.model_type:
         case "mlp":
-            return wfcrl_models_mlp(env, cfg, device)
+            return wfcrl_models_mlp(env, cfg, normalisation, device)
         case "gnn":
-            return wfcrl_models_gnn(env, cfg, device)
+            return wfcrl_models_gnn(env, cfg, normalisation, device)
         case _:
             raise ValueError(f"Unknown model type: {cfg.model_type}")

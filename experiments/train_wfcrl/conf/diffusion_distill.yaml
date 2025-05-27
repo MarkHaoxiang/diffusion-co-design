@@ -16,19 +16,19 @@ designer:
     node_emb_size: 64
     edge_emb_size: 32
     depth: 3
-  buffer_size: 2048
+  buffer_size: 8096
   early_start: 256
   batch_size: 32
   weight_decay: 0
   lr: 3e-4
   distill_enable: true
-  distill_samples: 3
-  loss_criterion: huber
+  distill_samples: 1
+  loss_criterion: mse
   operation:
     num_reccurences: 4
     backward_lr: 0.01
-    backward_steps: 0
-    forward_guidance: 3.0
+    backward_steps: 8
+    forward_guidance: 2.0
 start_from_checkpoint: null
 logging:
   mode: online

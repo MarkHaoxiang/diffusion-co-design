@@ -7,7 +7,6 @@ import hydra.core
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
-from torchrl.trainers import RewardNormalizer
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
@@ -44,6 +43,7 @@ def train(cfg: TrainingConfig):
         designer=cfg.designer,
         scenario=cfg.scenario,
         ppo_cfg=cfg.ppo,
+        normalisation_statistics=cfg.normalisation,
         artifact_dir=output_dir,
         device=device.train_device,
     )
@@ -75,7 +75,12 @@ def train(cfg: TrainingConfig):
         device=device.env_device,
     )
 
-    policy, critic = wfcrl_models(reference_env, cfg.policy, device=device.train_device)
+    policy, critic = wfcrl_models(
+        reference_env,
+        cfg.policy,
+        cfg.normalisation,
+        device=device.train_device,
+    )
 
     if isinstance(master_designer, design.DiskDesigner):
         core = master_designer.master_designer
@@ -97,8 +102,6 @@ def train(cfg: TrainingConfig):
         total_frames=cfg.ppo.total_frames,
         exploration_type=ExplorationType.RANDOM,
     )
-
-    reward_normalizer = RewardNormalizer(reward_key=reference_env.reward_key)
 
     replay_buffer = ReplayBuffer(
         storage=LazyTensorStorage(
@@ -163,18 +166,6 @@ def train(cfg: TrainingConfig):
             sampling_time = time.time() - sampling_start
             training_tds, training_start = [], time.time()
             logger.collect_sampling_td(sampling_td)
-
-            reward_normalizer.update_reward_stats(sampling_td["next"])
-            logger.log(
-                {
-                    "normalizer_mean": reward_normalizer._reward_stats["mean"].item(),
-                    "normalizer_std": reward_normalizer._reward_stats["std"].item(),
-                }
-            )
-            if cfg.normalize_reward:
-                sampling_td["next"] = reward_normalizer.normalize_reward(
-                    sampling_td["next"]
-                )
 
             # Compute GAE
             loss_module.to(device=device.storage_device)

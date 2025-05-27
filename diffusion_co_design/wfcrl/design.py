@@ -12,6 +12,7 @@ from tensordict.nn import TensorDictModule
 
 from diffusion_co_design.common.design import BaseDesigner, BaseDiskDesigner
 from diffusion_co_design.wfcrl.schema import (
+    NormalisationStatistics,
     ScenarioConfig,
     DesignerConfig,
     ClassifierConfig,
@@ -22,6 +23,7 @@ from diffusion_co_design.wfcrl.schema import (
     Diffusion,
 )
 from diffusion_co_design.wfcrl.model.classifier import GNNCritic
+from diffusion_co_design.wfcrl.model.rl import maybe_make_denormaliser
 from diffusion_co_design.wfcrl.diffusion.generate import Generate
 from diffusion_co_design.wfcrl.diffusion.generator import (
     Generator,
@@ -110,6 +112,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
         self,
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
+        normalisation_statistics: NormalisationStatistics | None = None,
         gamma: float = 0.99,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
@@ -125,12 +128,16 @@ class ValueDesigner(CentralisedDesigner, ABC):
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(scenario, environment_repeats=environment_repeats)
-        self.model = GNNCritic(
-            cfg=scenario,
-            node_emb_dim=classifier.node_emb_size,
-            edge_emb_dim=classifier.edge_emb_size,
-            n_layers=classifier.depth,
+        self.model = torch.nn.Sequential(
+            GNNCritic(
+                cfg=scenario,
+                node_emb_dim=classifier.node_emb_size,
+                edge_emb_dim=classifier.edge_emb_size,
+                n_layers=classifier.depth,
+            ),
+            maybe_make_denormaliser(normalisation_statistics),
         )
+
         self.model = self.model.to(device)
 
         self.optim = torch.optim.Adam(
@@ -247,7 +254,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
                             self.scenario.n_turbines,
                             1,
                         ), y_batch.shape
-                        y_batch = y_batch.sum(dim=-2)
+                        y_batch = y_batch.mean(dim=-2)  # Mean instead of sum
                         y_batch = y_batch.mean(dim=-2)
                         y_batch = y_batch.squeeze(-1)
                         assert y_batch.shape == (self.train_batch_size,)
@@ -259,7 +266,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
                 train_y_batch.append(y_batch)
 
                 # Timesteps
-                y_pred = self.model.predict(X_batch)
+                y_pred = self.model(X_batch)
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 if self.clip_grad_norm is not None:
@@ -276,7 +283,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
             self.train_y_max = train_y_batch.max().item()
             self.train_y_min = train_y_batch.min().item()
 
-        classifier_prediction = self.model.predict(X_post)
+        classifier_prediction = self.model(X_post)
         self.classifier_prediction_mean = classifier_prediction.mean().item()
         self.classifier_prediction_max = classifier_prediction.max().item()
         self.classifier_prediction_min = classifier_prediction.min().item()
@@ -321,6 +328,7 @@ class DiffusionDesigner(ValueDesigner):
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
         diffusion: DiffusionOperation,
+        normalisation_statistics: NormalisationStatistics | None = None,
         gamma: float = 0.99,
         n_update_iterations: int = 5,
         train_batch_size: int = 64,
@@ -336,8 +344,9 @@ class DiffusionDesigner(ValueDesigner):
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
-            scenario,
-            classifier,
+            scenario=scenario,
+            classifier=classifier,
+            normalisation_statistics=normalisation_statistics,
             gamma=gamma,
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
@@ -400,6 +409,7 @@ class DesignerRegistry:
         designer: DesignerConfig,
         scenario: ScenarioConfig,
         ppo_cfg: PPOConfig,
+        normalisation_statistics: NormalisationStatistics | None,
         artifact_dir: str,
         device: torch.device,
     ) -> tuple[Designer, Designer]:
@@ -419,6 +429,7 @@ class DesignerRegistry:
                     scenario=scenario,
                     classifier=designer.model,
                     diffusion=designer.diffusion,
+                    normalisation_statistics=normalisation_statistics,
                     gamma=ppo_cfg.gamma,
                     n_update_iterations=designer.n_update_iterations,
                     train_batch_size=designer.batch_size,

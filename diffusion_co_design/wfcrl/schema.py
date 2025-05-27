@@ -21,6 +21,13 @@ class ScenarioConfig(Config):
     min_distance_between_turbines: int
 
 
+class NormalisationStatistics(Config):
+    episode_return_mean: float
+    episode_return_std: float
+    reward_mean: float
+    reward_std: float
+
+
 class ClassifierConfig(Config):
     node_emb_size: int = 64
     edge_emb_size: int = 32
@@ -94,7 +101,6 @@ class RLConfig(Config):
 class TrainingConfig(Config):
     experiment_name: str
     device: DeviceConfig = DeviceConfig()
-    normalize_reward: bool
     scenario_name: str
     policy: RLConfig
     ppo: PPOConfig
@@ -111,7 +117,24 @@ class TrainingConfig(Config):
             self._scenario_cache = ScenarioConfig.from_file(file)
         return self._scenario_cache
 
+    @property
+    def normalisation(self) -> NormalisationStatistics | None:
+        if not hasattr(self, "_normalisation_cache"):
+            file = os.path.join(
+                OUTPUT_DIR,
+                "wfcrl",
+                "scenario",
+                self.scenario_name,
+                "normalisation_statistics.yaml",
+            )
+            self._normalisation_cache = NormalisationStatistics.from_file(file)
+        return self._normalisation_cache
+
     def dump(self) -> dict:
         out = super().model_dump()
         out["scenario"] = self.scenario.model_dump()
+        if self.normalisation is not None:
+            out["normalisation_statistics"] = self.normalisation.model_dump()
+        else:
+            out["normalisation_statistics"] = None
         return out

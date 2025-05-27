@@ -26,9 +26,6 @@ class MLPCritic(nn.Module):
             nn.Linear(embedding_size, 1),
         )
 
-    def predict(self, x: torch.Tensor):
-        return self.forward(x)
-
     def forward(self, x: torch.Tensor):
         # x: [B, N, 2]
         x = x.flatten(start_dim=1)  # [B, N*2]
@@ -155,6 +152,3 @@ class GNNCritic(nn.Module):
             h = h.squeeze(0)
 
         return h.squeeze(-1)  # [*B]
-
-    def predict(self, x: torch.Tensor):
-        return self.forward(x)
