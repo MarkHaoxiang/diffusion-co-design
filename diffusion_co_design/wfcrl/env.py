@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import Literal
 import math
 import copy
@@ -98,6 +99,7 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             if isinstance(self.mdp.interface, FlorisInterface):
                 # Remove cached file
                 os.remove(self.mdp.interface.simul_file)
+                shutil.rmtree(os.path.dirname(self.mdp.interface.simul_file))
 
             # Override MDP
             self.mdp = WindFarmMDP(
