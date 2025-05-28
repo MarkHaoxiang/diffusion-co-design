@@ -522,8 +522,8 @@ class SamplingDesigner(ValueDesigner):
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
-            scenario,
-            classifier,
+            scenario=scenario,
+            classifier=classifier,
             gamma=gamma,
             n_update_iterations=n_update_iterations,
             train_batch_size=train_batch_size,
@@ -557,6 +557,7 @@ class SamplingDesigner(ValueDesigner):
 
         y = y.reshape(B, self.n_sample)
         X_numpy = X_numpy.reshape((B, self.n_sample, *X_numpy.shape[1:]))
+        X_numpy = (X_numpy + 1) / 2
         indices = y.argmax(dim=1).numpy(force=True)
         batch = list(X_numpy[np.arange(B), indices])
 

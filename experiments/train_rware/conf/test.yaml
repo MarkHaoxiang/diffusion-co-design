@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: diffusion_test
+  - designer: sampling
 
 experiment_name: rware_test
 scenario_name: rware_16_50_5_4_corners

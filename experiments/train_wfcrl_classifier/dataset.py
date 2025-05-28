@@ -3,21 +3,19 @@ import os
 from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data._utils.collate import default_collate
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from tensordict import TensorDict
 
 from diffusion_co_design.common import get_latest_model
 from diffusion_co_design.common.constants import EXPERIMENT_DIR
-from diffusion_co_design.rware.model.classifier import image_to_pos_colors
-from diffusion_co_design.rware.model.rl import rware_models
-from diffusion_co_design.rware.model.graph import WarehouseGNNBase
-from diffusion_co_design.rware.design import ScenarioConfig
-from diffusion_co_design.rware.env import create_env, create_batched_env
-from diffusion_co_design.rware.schema import TrainingConfig, DesignerConfig
-from diffusion_co_design.rware.design import DesignerRegistry
+from diffusion_co_design.wfcrl.model.rl import wfcrl_models
+from diffusion_co_design.wfcrl.diffusion.generator import eval_to_train
+from diffusion_co_design.wfcrl.design import ScenarioConfig, Random
+from diffusion_co_design.wfcrl.env import create_env, create_batched_env
+from diffusion_co_design.wfcrl.schema import TrainingConfig
+from diffusion_co_design.wfcrl.design import DesignerRegistry
 
-working_dir = os.path.join(EXPERIMENT_DIR, "train_rware_classifier")
+working_dir = os.path.join(EXPERIMENT_DIR, "train_wfcrl_classifier")
 if not os.path.exists(working_dir):
     os.makedirs(working_dir)
 
@@ -40,14 +38,15 @@ class EnvReturnsDataset(Dataset):
         return X, y, y_pred
 
 
-def rware_policy_return_dataset(
+def wfcrl_policy_return_dataset(
     scenario: ScenarioConfig,
     training_dir: str,
     dataset_size: int,
     num_parallel_collection: int,
-    device: str,
+    device: torch.device,
 ):
     # Create policy
+
     checkpoint_dir = os.path.join(training_dir, "checkpoints")
     latest_policy = get_latest_model(checkpoint_dir, "policy_")
     latest_critic = get_latest_model(checkpoint_dir, "critic_")
@@ -57,26 +56,37 @@ def rware_policy_return_dataset(
     gamma = training_cfg.ppo.gamma
 
     _, env_designer = DesignerRegistry.get(
-        designer=DesignerConfig(type="random"),
+        designer=Random(type="random"),
         scenario=scenario,
-        ppo_cfg=training_cfg.ppo,
         artifact_dir=working_dir,
+        ppo_cfg=training_cfg.ppo,
+        normalisation_statistics=training_cfg.normalisation,
         device=device,
     )
-
-    ref_env = create_env(scenario, env_designer, render=True, device=device)
-    policy, critic = rware_models(ref_env, training_cfg.policy, device=device)
+    ref_env = create_env(
+        mode="reference",
+        scenario=scenario,
+        designer=env_designer,
+        render=False,
+        device=device,
+    )
+    policy, critic = wfcrl_models(
+        env=ref_env,
+        cfg=training_cfg.policy,
+        normalisation=training_cfg.normalisation,
+        device=device,
+    )
     policy.load_state_dict(torch.load(latest_policy))
     critic.load_state_dict(torch.load(latest_critic))
     ref_env.close()
 
     # Collection
     collection_env = create_batched_env(
+        mode="train",
         num_environments=num_parallel_collection,
         scenario=scenario,
         designer=env_designer,
-        is_eval=False,
-        device="cpu",
+        device=device,
     )
 
     env_returns = ReplayBuffer(
@@ -84,22 +94,23 @@ def rware_policy_return_dataset(
         sampler=SamplerWithoutReplacement(),
         batch_size=1,
     )
+    n = training_cfg.scenario.max_steps
 
-    discount = (gamma ** torch.linspace(0, 499, 500)).view(1, 500, 1, 1)
+    discount = (gamma ** torch.linspace(0, n - 1, n)).view(1, n, 1, 1)
     with torch.no_grad():
         for _ in tqdm(range(dataset_size // num_parallel_collection)):
             rollout = collection_env.rollout(
                 max_steps=scenario.max_steps, policy=policy, auto_cast_to_device=True
             )
-            X = rollout.get("state")[:, 0, : scenario.n_colors]
-            ep_reward = rollout.get(("next", "agents", "reward"))
+            X = rollout.get(("state", "layout"))[:, 0].cpu()
+            ep_reward = rollout.get(("next", "turbine", "reward")).cpu()
             ep_reward = ep_reward * discount
             ep_reward = ep_reward.sum(dim=(1, 2, 3))
 
             first_obs = rollout[:, 0]
             expected_reward = (
-                critic(first_obs)["agents", "state_value"].sum(dim=-2).squeeze()
-            )
+                critic(first_obs)["turbine", "state_value"].sum(dim=-2).squeeze()
+            ).cpu()
             data = TensorDict(
                 {
                     "env": X,
@@ -108,11 +119,6 @@ def rware_policy_return_dataset(
                 },
                 batch_size=len(ep_reward),
             )
-
-            # done = rollout.get(("next", "done"))
-            # X = rollout.get("state")[done.squeeze()]
-            # y = rollout.get(("next", "agents", "episode_reward")).mean(-2)[done]
-            # data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
 
             env_returns.extend(data)
     collection_env.close()
@@ -139,7 +145,7 @@ def load_dataset(
         )
         env_returns.loads(dataset_file)
     else:
-        env_returns = rware_policy_return_dataset(
+        env_returns = wfcrl_policy_return_dataset(
             scenario=scenario,
             training_dir=training_dir,
             dataset_size=dataset_size,
@@ -158,73 +164,32 @@ def load_dataset(
 
 
 class CollateFn:
-    def __init__(self, cfg, device):
-        self.n_shelves = cfg.n_shelves
-        self.size = cfg.size
+    def __init__(self, cfg: ScenarioConfig, device):
         self.device = device
+        self.cfg = cfg
 
     def __call__(self, batch):
-        images = torch.stack([x[0] for x in batch])
+        layout = torch.stack([x[0] for x in batch])
         labels_1 = torch.stack([x[1] for x in batch])
         labels_2 = torch.stack([x[2] for x in batch])
 
-        pos, colors = image_to_pos_colors(images, self.n_shelves)
-        pos = (pos / (self.size - 1)) * 2 - 1
+        layout = eval_to_train(layout, self.cfg)
 
         return (
-            (
-                pos.to(dtype=torch.float32, device=self.device),
-                colors.to(dtype=torch.float32, device=self.device),
-            ),
+            layout.to(dtype=torch.float32, device=self.device),
             labels_1.to(dtype=torch.float32, device=self.device),
             labels_2.to(dtype=torch.float32, device=self.device),
         )
-
-
-class CollateFnWarehouseGraph:
-    def __init__(self, cfg, device):
-        super().__init__()
-        self._collate_fn = CollateFn(cfg, device)
-        self._gnn = WarehouseGNNBase(scenario=cfg, include_color_features=True)
-
-    def __call__(self, batch):
-        data, labels = self._collate_fn(batch)
-        graph = self._gnn.make_graph_batch_from_data(pos=data[0], color=data[1])[0]
-        return graph, labels
-
-
-class ImageCollateFn:
-    def __init__(self, cfg, device):
-        self.n_shelves = cfg.n_shelves
-        self.size = cfg.size
-        self.device = device
-
-    def __call__(self, batch):
-        X, y_1, y_2 = default_collate(batch)
-
-        X = X.to(dtype=torch.float32, device=self.device)
-        y_1 = y_1.to(dtype=torch.float32, device=self.device)
-        y_2 = y_2.to(dtype=torch.float32, device=self.device)
-
-        X = X * 2 - 1
-
-        return X, y_1, y_2
 
 
 def make_dataloader(
     dataset,
     scenario: ScenarioConfig,
     batch_size: int,
-    representation: str,
     device: str,
     **kwargs,
 ):
-    if representation == "image":
-        cf = ImageCollateFn(cfg=scenario, device=device, **kwargs)
-    elif representation == "graph":
-        cf = CollateFn(cfg=scenario, device=device, **kwargs)  # type: ignore
-    elif representation == "graph_warehouse":
-        cf = CollateFnWarehouseGraph(cfg=scenario, device=device, **kwargs)  # type: ignore
+    cf = CollateFn(cfg=scenario, device=device, **kwargs)  # type: ignore
 
     return DataLoader(
         dataset,

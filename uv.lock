@@ -16,6 +16,7 @@ members = [
     "train-rware",
     "train-rware-classifier",
     "train-rware-diffusion",
+    "train-wfcrl-classifier",
     "train-wfcrl-diffusion",
     "wfcrl",
     "wfcrl-playground",
@@ -2913,6 +2914,17 @@ requires-dist = [{ name = "diffusion-co-design", editable = "." }]
 name = "train-rware-diffusion"
 version = "0.1.0"
 source = { virtual = "experiments/train_rware_diffusion" }
+
+[[package]]
+name = "train-wfcrl-classifier"
+version = "0.1.0"
+source = { virtual = "experiments/train_wfcrl_classifier" }
+dependencies = [
+    { name = "diffusion-co-design" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "diffusion-co-design", editable = "." }]
 
 [[package]]
 name = "train-wfcrl-diffusion"
