@@ -18,4 +18,4 @@ if __name__ == "__main__":
             checkpoint_dir = os.path.join(experiment, "checkpoints")
 
             if os.path.exists(os.path.join(checkpoint_dir, "policy_3999.pt")):
-                print(experiment_name, checkpoint_dir)
+                print(f"({repr(experiment_name)}, {repr(checkpoint_dir)}),")
