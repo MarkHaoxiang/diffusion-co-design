@@ -64,7 +64,10 @@ def soft_projection_constraint(cfg: ScenarioConfig):
                 penalty = soft_penalty(pos, min_d, pos_0).sum()
                 penalty.backward()
                 optim.step()
-                pos.data = pos.data.clamp(-1, 1)
+                pos.data[..., 0] = pos.data[..., 0].clamp(min=-1, max=1)
+                pos.data[..., 1] = pos.data[..., 1].clamp(
+                    min=-y_mult_factor, max=y_mult_factor
+                )
             pos = pos.detach()
 
         pos[:, :, 1] = pos[:, :, 1] / y_mult_factor
@@ -74,7 +77,7 @@ def soft_projection_constraint(cfg: ScenarioConfig):
 
 
 def slsqp_projection_constraint(cfg: ScenarioConfig):
-    min_d = 2 * cfg.min_distance_between_turbines / (cfg.map_x_length - 1)
+    min_d = 2 * cfg.min_distance_between_turbines / cfg.map_x_length
 
     def dist_constraint(i, j):
         def constr(x):
@@ -107,7 +110,7 @@ def slsqp_projection_constraint(cfg: ScenarioConfig):
                 for j in range(i + 1, N)
             ]
 
-            bounds = [(-1, 1)] * (2 * N)
+            bounds = [(-1, 1), (-y_mult_factor, y_mult_factor)] * N
 
             res = minimize(
                 objective,
