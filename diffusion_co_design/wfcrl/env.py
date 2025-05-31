@@ -127,7 +127,19 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         assert self.render_mode == "rgb_array"
 
         state = self.state()
-        fig, ax = plt.subplots(figsize=(5, 5))
+
+        xcoords = self.mdp.farm_case.xcoords
+        ycoords = self.mdp.farm_case.ycoords
+        if self.scenario is not None:
+            map_width = self.scenario.map_x_length
+            map_height = self.scenario.map_y_length
+        else:
+            map_width = max(xcoords)
+            map_height = max(ycoords)
+
+        y_mult = max(1, map_height / map_height)
+        x_mult = max(1, map_width / map_height)
+        fig, ax = plt.subplots(figsize=(5 * x_mult, 5 * y_mult))
         canvas = FigureCanvas(fig)
 
         # Turbines
@@ -135,10 +147,10 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
             radius = self.scenario.min_distance_between_turbines / 2
         else:
             radius = 50
-        xcoords = self.mdp.farm_case.xcoords
-        ycoords = self.mdp.farm_case.ycoords
+
         coords = np.stack([xcoords, ycoords], axis=-1)
         ax.scatter(coords[:, 0], coords[:, 1], alpha=0.7, edgecolors="k", zorder=2)
+
         for x, y in coords:
             circle = Circle(
                 (x, y),
@@ -165,13 +177,6 @@ class DesignableMAWindFarmEnv(MAWindFarmEnv):
         dx = radius * np.sin(yaw) * -1
         dy = radius * np.cos(yaw) * -1
         ax.quiver(coords[:, 0], coords[:, 1], dx, dy, color="red", width=0.005)
-
-        if self.scenario is not None:
-            map_width = self.scenario.map_x_length
-            map_height = self.scenario.map_y_length
-        else:
-            map_width = max(xcoords)
-            map_height = max(ycoords)
 
         ax.grid(True)
         ax.set_xlim(0, map_width)
@@ -278,7 +283,10 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
 
 
 def _create_designable_windfarm(
-    scenario: ScenarioConfig, initial_xcoords, initial_ycoords, render: bool = False
+    scenario: ScenarioConfig,
+    initial_xcoords,
+    initial_ycoords,
+    render: bool = False,
 ):
     if isinstance(initial_xcoords, np.ndarray):
         initial_xcoords = initial_xcoords.tolist()
@@ -367,3 +375,17 @@ def create_batched_env(
         create_env_kwargs=eval_kwargs if mode == "eval" else {},
         device=device,
     )
+
+
+def render_layout(x, scenario):
+    env = _create_designable_windfarm(
+        scenario=scenario,
+        initial_xcoords=x[:, 0].tolist(),
+        initial_ycoords=x[:, 1].tolist(),
+        render=True,
+    )
+
+    env.reset()
+    im = env.render()
+    env.close()
+    return im

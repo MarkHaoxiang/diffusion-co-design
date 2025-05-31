@@ -49,7 +49,7 @@ def train(cfg: TrainingConfig):
     )
     environment_reset_num = n_train_envs + cfg.logging.evaluation_episodes + 2
     if cfg.designer.environment_repeats == 1:
-        environment_reset_num += n_train_envs  # Collector construction reset
+        environment_reset_num += n_train_envs + 1
     master_designer.reset(batch_size=environment_reset_num)
 
     reference_env = create_env(
@@ -194,7 +194,6 @@ def train(cfg: TrainingConfig):
                     if cfg.ppo.entropy_eps > 0:
                         loss_value += loss_vals["loss_entropy"]
 
-                    # NaN check
                     if torch.isnan(loss_value) or torch.isinf(loss_value):
                         warnings.warn("NaN or Inf detected in loss value")
                         torch.save(sampling_td, "nan_inf_sampling_td.pt")
@@ -213,6 +212,13 @@ def train(cfg: TrainingConfig):
 
             collector.update_policy_weights_()
             logger.collect_training_td(training_log_td)
+            logger.log(
+                {
+                    "state_value_mean": sampling_td.get(("turbine", "state_value"))
+                    .mean()
+                    .item()
+                }
+            )
 
             policy.eval()
             critic.eval()

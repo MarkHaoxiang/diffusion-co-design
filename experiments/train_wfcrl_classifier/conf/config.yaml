@@ -2,14 +2,14 @@ defaults:
   - _self_
   - metadata/training@_here_
 
-training_dir: "/home/markhaoxiang/.diffusion_co_design/experiments/train_wfcrl/2025-05-26/18-09-08"
-batch_size: 128
+training_dir: /home/markhaoxiang/.diffusion_co_design/experiments/train_wfcrl/2025-05-28/13-55-27
+batch_size: 64
 train_epochs: 100
-lr: 3e-4
-train_target: sampling
+lr: 1e-4
+train_target: critic
 weight_decay: 0.0
-logging_mode: disabled
+logging_mode: online
 model:
   node_emb_size: 64
   edge_emb_size: 32
-  depth: 3
+  depth: 2

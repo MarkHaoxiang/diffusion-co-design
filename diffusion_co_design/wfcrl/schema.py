@@ -61,14 +61,13 @@ class _Value(_Designer):
     distill_enable: bool = False
     distill_samples: int = 5
     loss_criterion: Literal["mse", "huber"] = "huber"
-    early_start: int | None = None
+    diffusion_early_start: int | None = None
+    train_early_start: int = 0
 
 
 class Diffusion(_Value):
     type: Literal["diffusion"]
-    diffusion: DiffusionOperation = DiffusionOperation(
-        num_recurrences=8, backward_lr=0.01, backward_steps=16, forward_guidance_wt=5.0
-    )
+    diffusion: DiffusionOperation
 
 
 DesignerConfig = Annotated[

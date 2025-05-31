@@ -164,7 +164,7 @@ class OptimizerDetails:
         self.print_every = None  # Ignore
         self.folder = None  # Ignore
         self.use_forward = True  # Set true to use forward.
-        self.forward_guidance_wt = 5.0
+        self.forward_guidance_wt = None
         self.other_guidance_func = None
         self.other_criterion = None
         self.original_guidance = False
@@ -179,6 +179,7 @@ class DiffusionOperation(Config):
     backward_lr: float = 0.01
     backward_steps: int = 0
     forward_guidance_wt: float = 5.0
+    forward_guidance_annealing: bool = False
 
 
 class BaseGenerator(ABC):
@@ -189,7 +190,7 @@ class BaseGenerator(ABC):
         diffusion: SpacedDiffusion,
         batch_size: int = 32,
         rng: torch.Generator | None = None,
-        guidance_wt: float = 50.0,
+        default_guidance_wt: float = 50.0,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
@@ -197,7 +198,7 @@ class BaseGenerator(ABC):
         self.batch_size = batch_size
         self.clip_denoised = True
 
-        self.guidance_weight = guidance_wt
+        self.guidance_weight = default_guidance_wt
 
         if rng is None:
             self.rng = torch.Generator(device)
@@ -262,7 +263,9 @@ class BaseGenerator(ABC):
             operation = (
                 OptimizerDetails() if operation_override is None else operation_override
             )
-            operation.forward_guidance_wt = self.guidance_weight
+
+            if operation.forward_guidance_wt is None:
+                operation.forward_guidance_wt = self.guidance_weight
 
             def criterion(x: torch.Tensor, additional: torch.Tensor | None = None):
                 # if additional is not None:

@@ -12,6 +12,7 @@ from diffusion_co_design.common import (
 
 from dataset import load_dataset, make_dataloader
 from diffusion_co_design.wfcrl.model.classifier import GNNCritic
+from diffusion_co_design.wfcrl.model.rl import maybe_make_denormaliser
 
 from conf.schema import Config
 
@@ -45,17 +46,22 @@ def main(cfg):
     eval_dataloader = make_dataloader_fn(eval_dataset)
 
     # Load model
-    model = GNNCritic(
-        cfg=training_cfg.scenario,
-        node_emb_dim=cfg.model.node_emb_size,
-        edge_emb_dim=cfg.model.edge_emb_size,
-        n_layers=cfg.model.depth,
+    model = torch.nn.Sequential(
+        GNNCritic(
+            cfg=training_cfg.scenario,
+            node_emb_dim=cfg.model.node_emb_size,
+            edge_emb_dim=cfg.model.edge_emb_size,
+            n_layers=cfg.model.depth,
+        ),
+        maybe_make_denormaliser(training_cfg.normalisation),
     ).to(device=device)
+
+    print(f"Num parameters: {sum([p.numel() for p in model.parameters()])}")
 
     optim = torch.optim.Adam(
         model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
     )
-    criterion = torch.nn.MSELoss()
+    criterion = torch.nn.HuberLoss()
 
     train_losses = []
     eval_losses = []
@@ -63,7 +69,7 @@ def main(cfg):
     with (
         ExperimentLogger(
             directory=output_dir,
-            experiment_name="wfcrl_env_critic",
+            experiment_name="wfcrl_env_critic_" + cfg.train_target,
             config=cfg.model_dump(),
             project_name="diffusion-co-design-wfcrl-classifier",
             mode=cfg.logging_mode,
@@ -85,6 +91,7 @@ def main(cfg):
                 y_pred = model(x)
                 loss = criterion(y_pred, y_target)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optim.step()
                 running_train_loss += loss.item()
             running_train_loss = running_train_loss / len(train_dataloader)

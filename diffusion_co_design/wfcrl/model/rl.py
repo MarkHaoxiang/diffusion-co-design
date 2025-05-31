@@ -44,6 +44,9 @@ class EquivariantModel(nn.Module):
         aggr: Literal["add", "mean", "max"] = "add",
     ):
         super().__init__()
+
+        self.edge_features_n = 5
+
         self.scenario = scenario
         self.wind_speed_low = wind_speed_low
         self.wind_speed_high = wind_speed_high
@@ -54,8 +57,8 @@ class EquivariantModel(nn.Module):
         self.edge_index = edge_index[:, edge_index[0] != edge_index[1]]
 
         self.node_emb_dim = node_emb_dim
-        self.node_in = nn.Linear(1 + 5, node_emb_dim)
-        self.edge_in = nn.Linear(5, edge_emb_dim)
+        self.node_in = nn.Linear(1 + self.edge_features_n, node_emb_dim)
+        self.edge_in = nn.Linear(self.edge_features_n, edge_emb_dim)
 
         self.message_mlp_list = nn.ModuleList()
         self.upd_mlp_list = nn.ModuleList()
@@ -155,7 +158,7 @@ class EquivariantModel(nn.Module):
         edge_features = torch.cat(
             [radial, wind_speed[:, src], wind_dot, wind_cross, yaw[:, src]], dim=-1
         )  # [B, E, 5]
-        assert edge_features.shape == (B, E, 5), edge_features.shape
+        assert edge_features.shape == (B, E, self.edge_features_n), edge_features.shape
         e = self.edge_in(edge_features)  # [B, E, edge_emb_dim]
         node_features = torch.cat(
             [
@@ -164,7 +167,9 @@ class EquivariantModel(nn.Module):
             ],
             dim=-1,
         )  # [B, N, 1 + 5]
-        assert node_features.shape == (B, N, 6), node_features.shape
+        assert node_features.shape == (B, N, 1 + self.edge_features_n), (
+            node_features.shape
+        )
         h = self.node_in(node_features)  # [B, N, node_emb_dim]
 
         # Message passing
@@ -396,7 +401,6 @@ def wfcrl_models_mlp(
 
 
 def maybe_make_denormaliser(normalisation: NormalisationStatistics | None):
-    print(normalisation)
     if normalisation is not None:
         return OutputDenormaliser(
             mean=normalisation.episode_return_mean, std=normalisation.episode_return_std

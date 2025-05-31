@@ -11,16 +11,18 @@ from diffusion_co_design.wfcrl.model.diffusion import diffusion_setup
 
 
 def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig, constraint_fn=None):
+    env = env.clone()
     if constraint_fn:
         env = constraint_fn(env)
-    env[:, :, 0] = (env[:, :, 0] + 1) / 2 * (cfg.map_x_length - 1)
-    env[:, :, 1] = (env[:, :, 1] + 1) / 2 * (cfg.map_y_length - 1)
+    env[:, :, 0] = (env[:, :, 0] + 1) / 2 * cfg.map_x_length
+    env[:, :, 1] = (env[:, :, 1] + 1) / 2 * cfg.map_y_length
     return env
 
 
 def eval_to_train(env: torch.Tensor, cfg: ScenarioConfig):
-    env[:, :, 0] = env[:, :, 0] / (cfg.map_x_length - 1) * 2 - 1
-    env[:, :, 1] = env[:, :, 1] / (cfg.map_y_length - 1) * 2 - 1
+    env = env.clone()
+    env[:, :, 0] = env[:, :, 0] / cfg.map_x_length * 2 - 1
+    env[:, :, 1] = env[:, :, 1] / cfg.map_y_length * 2 - 1
     return env
 
 
@@ -39,11 +41,16 @@ def soft_penalty(pos: torch.Tensor, min_d: float, original_pos: torch.Tensor):
 
 
 def soft_projection_constraint(cfg: ScenarioConfig):
-    min_d = 2 * cfg.min_distance_between_turbines / (cfg.map_x_length - 1)
+    min_d = 2 * cfg.min_distance_between_turbines / cfg.map_x_length
 
     def _projection_constraint(pos):
         B, N, _ = pos.shape
         pos_0 = pos.clone()
+
+        y_mult_factor = cfg.map_y_length / cfg.map_x_length
+        pos_0[:, :, 1] = pos_0[:, :, 1] * y_mult_factor
+        pos = pos_0.clone()
+
         pos = (
             pos + torch.randn_like(pos) * 0.01
         )  # Add some noise to avoid corners problem, where positions exactly equal from clamping
@@ -60,6 +67,7 @@ def soft_projection_constraint(cfg: ScenarioConfig):
                 pos.data = pos.data.clamp(-1, 1)
             pos = pos.detach()
 
+        pos[:, :, 1] = pos[:, :, 1] / y_mult_factor
         return pos
 
     return _projection_constraint
@@ -68,6 +76,14 @@ def soft_projection_constraint(cfg: ScenarioConfig):
 def slsqp_projection_constraint(cfg: ScenarioConfig):
     min_d = 2 * cfg.min_distance_between_turbines / (cfg.map_x_length - 1)
 
+    def dist_constraint(i, j):
+        def constr(x):
+            xi = x[2 * i : 2 * i + 2]
+            xj = x[2 * j : 2 * j + 2]
+            return np.linalg.norm(xi - xj) - min_d
+
+        return constr
+
     def _projection_constraint(pos):
         B, N, _ = pos.shape
         dtype = pos.dtype
@@ -75,21 +91,14 @@ def slsqp_projection_constraint(cfg: ScenarioConfig):
         pos = pos.numpy(force=True)
         pos_out = []
 
+        y_mult_factor = cfg.map_y_length / cfg.map_x_length
+        pos[:, :, 1] = pos[:, :, 1] * y_mult_factor
+
         for b in range(B):
             x0 = pos[b].flatten()
 
-            # Minimize distance to original position
             def objective(x):
                 return np.sum((x - x0) ** 2)
-
-            # Subject to bounding box and minimum distance constraints
-            def dist_constraint(i, j):
-                def constr(x):
-                    xi = x[2 * i : 2 * i + 2]
-                    xj = x[2 * j : 2 * j + 2]
-                    return np.linalg.norm(xi - xj) - min_d
-
-                return constr
 
             constraints = [
                 {"type": "ineq", "fun": dist_constraint(i, j)}
@@ -119,6 +128,8 @@ def slsqp_projection_constraint(cfg: ScenarioConfig):
                 pos_out.append(pos_proj)
 
         pos_proj = torch.stack(pos_out, dim=0)
+        pos_proj[:, :, 1] = pos_proj[:, :, 1] / y_mult_factor
+
         assert pos_proj.shape == pos.shape, (
             f"Expected {pos.shape}, got {pos_proj.shape}"
         )
@@ -134,7 +145,7 @@ class Generator(BaseGenerator):
         scenario: ScenarioConfig,
         batch_size: int = 32,
         rng: torch.Generator | None = None,
-        guidance_wt: float = 50.0,
+        default_guidance_wt: float = 50.0,
         device: torch.device = torch.device("cpu"),
     ):
         self.model, self.diffusion = diffusion_setup(scenario)
@@ -144,7 +155,7 @@ class Generator(BaseGenerator):
             diffusion=self.diffusion,
             batch_size=batch_size,
             rng=rng,
-            guidance_wt=guidance_wt,
+            default_guidance_wt=default_guidance_wt,
             device=device,
         )
 

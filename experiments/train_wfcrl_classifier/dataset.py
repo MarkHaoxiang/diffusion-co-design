@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from tqdm import tqdm
 import torch
@@ -46,7 +47,6 @@ def wfcrl_policy_return_dataset(
     device: torch.device,
 ):
     # Create policy
-
     checkpoint_dir = os.path.join(training_dir, "checkpoints")
     latest_policy = get_latest_model(checkpoint_dir, "policy_")
     latest_critic = get_latest_model(checkpoint_dir, "critic_")
@@ -97,31 +97,39 @@ def wfcrl_policy_return_dataset(
     n = training_cfg.scenario.max_steps
 
     discount = (gamma ** torch.linspace(0, n - 1, n)).view(1, n, 1, 1)
-    with torch.no_grad():
-        for _ in tqdm(range(dataset_size // num_parallel_collection)):
-            rollout = collection_env.rollout(
-                max_steps=scenario.max_steps, policy=policy, auto_cast_to_device=True
-            )
-            X = rollout.get(("state", "layout"))[:, 0].cpu()
-            ep_reward = rollout.get(("next", "turbine", "reward")).cpu()
-            ep_reward = ep_reward * discount
-            ep_reward = ep_reward.sum(dim=(1, 2, 3))
+    try:
+        with torch.no_grad():
+            for _ in tqdm(range(dataset_size // num_parallel_collection)):
+                rollout = collection_env.rollout(
+                    max_steps=scenario.max_steps,
+                    policy=policy,
+                    auto_cast_to_device=True,
+                )
+                X = rollout.get(("state", "layout"))[:, 0].cpu()
+                ep_reward = rollout.get(("next", "turbine", "reward")).cpu()
+                ep_reward = ep_reward * discount
+                ep_reward = ep_reward.sum(dim=(1, 2, 3))
+                ep_reward = ep_reward / scenario.n_turbines
 
-            first_obs = rollout[:, 0]
-            expected_reward = (
-                critic(first_obs)["turbine", "state_value"].sum(dim=-2).squeeze()
-            ).cpu()
-            data = TensorDict(
-                {
-                    "env": X,
-                    "episode_reward": ep_reward,
-                    "expected_reward": expected_reward,
-                },
-                batch_size=len(ep_reward),
-            )
+                first_obs = rollout[:, 0]
+                expected_reward = (
+                    critic(first_obs)["turbine", "state_value"].mean(dim=-2).squeeze()
+                ).cpu()
 
-            env_returns.extend(data)
-    collection_env.close()
+                data = TensorDict(
+                    {
+                        "env": X,
+                        "episode_reward": ep_reward,
+                        "expected_reward": expected_reward,
+                    },
+                    batch_size=len(ep_reward),
+                )
+
+                env_returns.extend(data)
+    finally:
+        collection_env.close()
+        if os.path.isdir("__simul__"):
+            shutil.rmtree("__simul__")
 
     return env_returns
 

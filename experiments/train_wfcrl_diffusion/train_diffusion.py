@@ -34,13 +34,7 @@ def main():
         os.path.join("conf", f"{args.experiment_name}.yaml")
     )
     data_dir = os.path.join(OUTPUT_DIR, "wfcrl", "scenario", args.experiment_name)
-    if os.path.exists(data_dir):
-        shutil.rmtree(path=data_dir)
-    os.makedirs(data_dir)
-    with open(os.path.join(data_dir, "config.yaml"), "w") as f:
-        out = scenario.model_dump()
-        yaml = OmegaConf.create(out)
-        OmegaConf.save(yaml, f)
+    scenario = scenario.from_file(os.path.join(data_dir, "config.yaml"))
 
     log_dir = os.path.join(OUTPUT_DIR, "wfcrl", "diffusion", args.experiment_name)
 
@@ -55,20 +49,13 @@ def main():
 
     logger.log("creating data loader...")
 
-    # Training on the true underlying distribution
-    # By generation samples on the fly
-    generate = Generate(
-        num_turbines=scenario.n_turbines,
-        map_x_length=scenario.map_x_length,
-        map_y_length=scenario.map_y_length,
-        minimum_distance_between_turbines=scenario.min_distance_between_turbines,
-    )
+    dataset = np.load(os.path.join(data_dir, "dataset.npy"))
+    print(f"Load dataset with shape {dataset.shape}")
 
     def data_iterator():
         while True:
-            batch = torch.from_numpy(
-                np.stack(generate(n=args.batch_size, training_dataset=True))
-            )
+            idxs = np.random.choice(dataset.shape[0], args.batch_size, replace=True)
+            batch = torch.from_numpy(np.stack(dataset[idxs]))
             yield batch, {}
 
     # data = data_iterator(data)
@@ -108,7 +95,7 @@ def create_argparser():
         log_interval=10,
         use_fp16=False,
         fp16_scale_growth=1e-3,
-        save_interval=10000,
+        save_interval=50000,
         resume_checkpoint="",
         gpu_idx="0",
     )

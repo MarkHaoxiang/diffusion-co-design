@@ -12,10 +12,10 @@ policy:
   critic_edge_hidden_size: 32
   critic_gnn_depth: 3
 ppo:
-  n_iters: 501
-  n_epochs: 20
+  n_iters: 301
+  n_epochs: 8
   minibatch_size: 150
-  n_mini_batches: 10
+  n_mini_batches: 20
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.95
@@ -30,6 +30,6 @@ logging:
   # mode: disabled
   mode: online
   # mode: offline
-  evaluation_interval: 50
+  evaluation_interval: 20
   evaluation_episodes: 1
   checkpoint_interval: 50

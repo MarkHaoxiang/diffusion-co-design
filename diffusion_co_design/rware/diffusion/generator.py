@@ -26,7 +26,7 @@ class Generator(BaseGenerator):
             diffusion=self.diffusion,
             batch_size=batch_size,
             rng=rng,
-            guidance_wt=guidance_wt,
+            default_guidance_wt=guidance_wt,
             device=device,
         )
 

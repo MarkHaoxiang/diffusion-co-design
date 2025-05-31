@@ -1,5 +1,5 @@
 import numpy as np
-import warnings
+from tqdm import tqdm
 
 
 class Generate:
@@ -38,7 +38,9 @@ class Generate:
         self,
         n: int = 1,
         training_dataset: bool = False,
-        max_attempts_per_environment: int = 30,
+        max_attempts_per_environment: int = 100,
+        max_backtrack_attempts: int = 1,
+        disable_tqdm: bool = True,
     ):
         rng = self._rng_uninitialised
         if isinstance(rng, np.random.Generator):
@@ -48,13 +50,15 @@ class Generate:
         self._reset_random_number_queue()  # Batched for speed
 
         environments = np.zeros((n, self.num_turbines, 2), dtype=np.float32)
-        i = 0
-        while i < n:
+        for i in tqdm(range(n), disable=disable_tqdm):
             attempts = 0
+            backtrack_attempts = 0
             points = []
             j = 0
             while j < self.num_turbines:
-                candidate = self._get_random_point() * self.w
+                candidate = self._get_random_point()
+                candidate[0] = candidate[0] * self.w
+                candidate[1] = candidate[1] * self.h
                 if (
                     len(points) == 0
                     or (
@@ -68,20 +72,19 @@ class Generate:
                 else:
                     attempts += 1
                     if attempts >= max_attempts_per_environment:
-                        warnings.warn(
-                            f"Could not generate a valid environment after {max_attempts_per_environment} attempts. "
-                        )
-                        # Backtrack
-                        j -= 1
-                        points.pop()
+                        if backtrack_attempts < max_backtrack_attempts:
+                            j -= 1
+                            backtrack_attempts += 1
+                            points.pop()
+                        else:
+                            j = 0
+                            backtrack_attempts = 0
+                            points = []
                         attempts = 0
-
-            if j == self.num_turbines:
-                i += 1
 
         if training_dataset:
             # Normalise to [-1, 1]
-            environments[:, :, 0] = (environments[:, :, 0] / (self.w - 1)) * 2 - 1
-            environments[:, :, 1] = (environments[:, :, 1] / (self.h - 1)) * 2 - 1
+            environments[:, :, 0] = environments[:, :, 0] / self.w * 2 - 1
+            environments[:, :, 1] = environments[:, :, 1] / self.h * 2 - 1
 
         return environments

@@ -122,7 +122,8 @@ class ValueDesigner(CentralisedDesigner, ABC):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
-        early_start: int | None = None,
+        diffusion_early_start: int | None = None,
+        train_early_start: int = 0,
         clip_grad_norm: float | None = 1.0,
         loss_criterion: Literal["mse", "huber"] = "huber",
         device: torch.device = torch.device("cpu"),
@@ -189,15 +190,18 @@ class ValueDesigner(CentralisedDesigner, ABC):
             dtype=torch.float32,
             device=self.device,
         )
-
-        self.early_start = early_start
+        self.train_early_start = train_early_start
+        self.diffusion_early_start = diffusion_early_start
 
     @abstractmethod
     def _reset_env_buffer(self, batch_size):
         raise NotImplementedError()
 
     def reset_env_buffer(self, batch_size):
-        if self.early_start and len(self.env_buffer) < self.early_start:
+        if (
+            self.diffusion_early_start
+            and len(self.env_buffer) < self.diffusion_early_start
+        ):
             return list(self.generate(n=batch_size))
         else:
             return self._reset_env_buffer(batch_size)
@@ -220,7 +224,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
             self.ref_env._env._reset_policy = self.manual_designer.to_td_module()
 
         # Train
-        if len(self.env_buffer) >= self.train_batch_size:
+        if len(self.env_buffer) >= max((self.train_batch_size, self.train_early_start)):
             self.running_loss = 0
             train_y_batch = []
             self.model.train()
@@ -302,7 +306,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
             "classifier_prediction_rand_max": self.classifier_prediction_rand_max,
             "classifier_prediction_rand_min": self.classifier_prediction_rand_min,
         }
-        if len(self.env_buffer) >= self.train_batch_size:
+        if len(self.env_buffer) >= max((self.train_batch_size, self.train_early_start)):
             logs.update(
                 {
                     "designer_loss": self.running_loss,
@@ -328,6 +332,7 @@ class DiffusionDesigner(ValueDesigner):
         scenario: ScenarioConfig,
         classifier: ClassifierConfig,
         diffusion: DiffusionOperation,
+        total_training_iterations: int,
         normalisation_statistics: NormalisationStatistics | None = None,
         gamma: float = 0.99,
         n_update_iterations: int = 5,
@@ -339,7 +344,8 @@ class DiffusionDesigner(ValueDesigner):
         environment_repeats: int = 1,
         distill_from_critic: bool = False,
         distill_samples: int = 1,
-        early_start: int | None = None,
+        diffusion_early_start: int | None = None,
+        train_early_start: int = 0,
         loss_criterion: Literal["mse", "huber"] = "huber",
         device: torch.device = torch.device("cpu"),
     ):
@@ -357,7 +363,8 @@ class DiffusionDesigner(ValueDesigner):
             environment_repeats=environment_repeats,
             distill_from_critic=distill_from_critic,
             distill_samples=distill_samples,
-            early_start=early_start,
+            diffusion_early_start=diffusion_early_start,
+            train_early_start=train_early_start,
             loss_criterion=loss_criterion,
             device=device,
         )
@@ -368,15 +375,25 @@ class DiffusionDesigner(ValueDesigner):
         self.generator = Generator(
             generator_model_path=latest_checkpoint,
             scenario=scenario,
-            guidance_wt=diffusion.forward_guidance_wt,
+            default_guidance_wt=diffusion.forward_guidance_wt,
             device=device,
         )
 
         self.diffusion = diffusion
+        self.total_ppo_iters = total_training_iterations
+        self.forward_guidance_weight = 0.0
 
     def _reset_env_buffer(self, batch_size: int):
         forward_enable = self.diffusion.forward_guidance_wt > 0
         operation = OptimizerDetails()
+        if self.diffusion.forward_guidance_annealing:
+            mult = self.update_counter / self.total_ppo_iters
+            wt = self.diffusion.forward_guidance_wt * mult
+            self.forward_guidance_weight = wt
+            operation.forward_guidance_wt = wt
+        else:
+            self.forward_guidance_weight = self.diffusion.forward_guidance_wt
+            operation.forward_guidance_wt = self.diffusion.forward_guidance_wt
         operation.num_recurrences = self.diffusion.num_recurrences
         operation.lr = self.diffusion.backward_lr
         operation.backward_steps = self.diffusion.backward_steps
@@ -393,6 +410,11 @@ class DiffusionDesigner(ValueDesigner):
                 batch_size=batch_size,
             )
         )
+
+    def get_logs(self):
+        logs = super().get_logs()
+        logs["forward_guidance_wt"] = self.forward_guidance_weight
+        return logs
 
 
 class DiskDesigner(BaseDiskDesigner):
@@ -429,6 +451,7 @@ class DesignerRegistry:
                     scenario=scenario,
                     classifier=designer.model,
                     diffusion=designer.diffusion,
+                    total_training_iterations=ppo_cfg.n_iters,
                     normalisation_statistics=normalisation_statistics,
                     gamma=ppo_cfg.gamma,
                     n_update_iterations=designer.n_update_iterations,
@@ -440,7 +463,8 @@ class DesignerRegistry:
                     environment_repeats=designer.environment_repeats,
                     distill_from_critic=designer.distill_enable,
                     distill_samples=designer.distill_samples,
-                    early_start=designer.early_start,
+                    diffusion_early_start=designer.diffusion_early_start,
+                    train_early_start=designer.train_early_start,
                     loss_criterion=designer.loss_criterion,
                     device=device,
                 )

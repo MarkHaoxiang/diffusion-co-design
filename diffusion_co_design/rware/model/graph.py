@@ -30,8 +30,8 @@ def visualize_warehouse_graph(
     include_color_features: bool = True,
 ):
     graph = to_networkx(data, to_undirected=True)
-    pos = data.pos.numpy(force=True)  # Positions
-    h = data.h.numpy(force=True)  # Node features
+    pos = data.pos.numpy(force=True)
+    h = data.h.numpy(force=True)
 
     goal_shape, shelf_shape = "o", "s"
     node_colors = []
@@ -53,7 +53,6 @@ def visualize_warehouse_graph(
         else:
             raise ValueError("Unknown object")
 
-    # Initialize plot
     ax.set_title("Warehouse Graph Representation")
     ax.set_aspect("equal")
     ax.axis("off")

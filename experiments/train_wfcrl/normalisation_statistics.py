@@ -5,7 +5,10 @@ from omegaconf import OmegaConf
 import torch
 from tensordict.nn import TensorDictModule
 
-from diffusion_co_design.wfcrl.schema import ScenarioConfig, NormalisationStatistics
+from diffusion_co_design.wfcrl.schema import (
+    ScenarioConfig,
+    NormalisationStatistics,
+)
 from diffusion_co_design.wfcrl.design import RandomDesigner, get_env_from_td
 from diffusion_co_design.wfcrl.env import create_env
 from diffusion_co_design.common import OUTPUT_DIR

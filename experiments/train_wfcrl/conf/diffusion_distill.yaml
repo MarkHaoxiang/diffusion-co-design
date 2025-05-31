@@ -11,24 +11,26 @@ device:
 scenario_name: wfcrl_10
 designer:
   type: diffusion
-  environment_repeats: 5
+  environment_repeats: 1
   model:
     node_emb_size: 64
     edge_emb_size: 32
-    depth: 3
+    depth: 2
   buffer_size: 8096
-  early_start: 256
+  diffusion_early_start: 400
+  train_early_start: 400
   batch_size: 32
   weight_decay: 0
-  lr: 3e-4
+  lr: 1e-4
   distill_enable: true
   distill_samples: 1
-  loss_criterion: mse
-  operation:
-    num_reccurences: 4
+  loss_criterion: huber
+  diffusion:
+    num_recurrences: 4
     backward_lr: 0.01
-    backward_steps: 8
-    forward_guidance: 2.0
+    backward_steps: 0
+    forward_guidance_wt: 3.0
+    forward_guidance_annealing: True
 start_from_checkpoint: null
 logging:
   mode: online

@@ -2,7 +2,7 @@ defaults:
   - _self_
   - metadata/training@_here_
 
-experiment_name: wfcrl_random
+experiment_name: wfcrl_test
 device:
   device_management: "gpu"
   gpu_id: 0
@@ -23,8 +23,8 @@ policy:
 ppo:
   n_iters: 5
   n_epochs: 4
-  minibatch_size: 100
-  n_mini_batches: 3
+  minibatch_size: 150
+  n_mini_batches: 2
   clip_epsilon: 0.2
   gamma: 0.99
   lmbda: 0.95
@@ -34,6 +34,26 @@ ppo:
   max_grad_norm: 1.0
   entropy_eps: 1e-4
   normalise_advantage: true
+designer:
+  type: diffusion
+  environment_repeats: 1
+  model:
+    node_emb_size: 32
+    edge_emb_size: 16
+    depth: 1
+  buffer_size: 1024
+  diffusion_early_start: 1
+  train_early_start: 0
+  batch_size: 32
+  weight_decay: 0
+  lr: 1e-4
+  distill_enable: false
+  loss_criterion: huber
+  operation:
+    num_reccurences: 1
+    backward_lr: 0.01
+    backward_steps: 0
+    forward_guidance: 2.0
 
 logging:
   mode: disabled

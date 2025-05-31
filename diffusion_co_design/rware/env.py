@@ -12,7 +12,11 @@ from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
 from diffusion_co_design.rware.diffusion.transform import storage_to_layout
-from diffusion_co_design.rware.design import ScenarioConfig, Designer, FixedDesigner
+from diffusion_co_design.rware.design import (
+    ScenarioConfig,
+    Designer,
+    FixedDesigner,
+)
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
