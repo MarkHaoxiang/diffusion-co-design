@@ -1,3 +1,6 @@
 hydra:
   run:
     dir: ${oc.env:DIFFUSION_CO_DESIGN_WDIR,${oc.env:HOME}/.diffusion_co_design}/experiments/train_wfcrl/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  
+  sweep:
+    dir: ${oc.env:DIFFUSION_CO_DESIGN_WDIR,${oc.env:HOME}/.diffusion_co_design}/experiments/train_wfcrl/${now:%Y-%m-%d}/${now:%H-%M-%S}
