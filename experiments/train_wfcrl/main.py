@@ -271,12 +271,32 @@ def train(cfg: TrainingConfig):
 
             is_final_iteration = iteration == cfg.ppo.n_iters - 1
             if iteration % cfg.logging.checkpoint_interval == 0 or is_final_iteration:
-                logger.checkpoint_state_dict(policy, f"policy_{iteration}")
-                logger.checkpoint_state_dict(critic, f"critic_{iteration}")
+                policy_model_path = logger.checkpoint_state_dict(
+                    policy, f"policy_{iteration}"
+                )
+
+                critic_model_path = logger.checkpoint_state_dict(
+                    critic, f"critic_{iteration}"
+                )
+                if is_final_iteration:
+                    logger.upload_model(
+                        model_path=policy_model_path, name="policy_final"
+                    )
+                    logger.upload_model(
+                        model_path=critic_model_path, name="critic_final"
+                    )
+
                 model = master_designer.get_model()
                 buffer = master_designer.get_training_buffer()
                 if model is not None:
-                    logger.checkpoint_state_dict(model, f"designer_{iteration}")
+                    designer_model_path = logger.checkpoint_state_dict(
+                        model, f"designer_{iteration}"
+                    )
+                    if is_final_iteration:
+                        logger.upload_model(
+                            model_path=designer_model_path, name="designer_final"
+                        )
+
                 if buffer is not None:
                     buffer.dumps(
                         os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")

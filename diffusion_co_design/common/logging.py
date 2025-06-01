@@ -62,7 +62,9 @@ class ExperimentLogger:
         )
 
     def checkpoint_state_dict(self, model, name: str):
-        torch.save(model.state_dict(), os.path.join(self.checkpoint_dir, name + ".pt"))
+        model_path = os.path.join(self.checkpoint_dir, name + ".pt")
+        torch.save(model.state_dict(), model_path)
+        return model_path
 
     def checkpoint_torch(self, object, name: str):
         torch.save(object, os.path.join(self.checkpoint_dir, name))
@@ -193,3 +195,9 @@ class RLExperimentLogger(ExperimentLogger):
 
         wandb.log(metrics_to_log, commit=True)
         self.metrics_to_log.clear()
+
+    def upload_model(self, model_path: str, name: str):
+        artifact = wandb.Artifact(name=name, type="model")
+        artifact.add_file(model_path)
+        wandb.log_artifact(artifact, aliases=[name, "latest"])
+        wandb.run.summary[f"{name}_artifact"] = f"{name}:latest"

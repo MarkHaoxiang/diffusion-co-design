@@ -209,3 +209,11 @@ def create_batched_env(
     # return SerialEnv(
     #     num_workers=num_environments, create_env_fn=create_env_fn, device=device
     # )
+
+
+def render_env(theta, scenario, representation):
+    layout = storage_to_layout(theta, scenario, representation=representation)
+    warehouse = Warehouse(layout=layout, render_mode="rgb_array")
+    im = warehouse.render()
+    warehouse.close()
+    return im

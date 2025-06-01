@@ -1,3 +1,5 @@
 *.pt
 *.png
 *.jpg
+downloaded_checkpoints
+__simul__
