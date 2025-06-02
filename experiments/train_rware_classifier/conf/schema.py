@@ -13,3 +13,4 @@ class Config(_Config):
     weight_decay: float
     train_target: Literal["sampling", "critic"]
     logging_mode: Literal["online", "offline", "disabled"]
+    experiment_suffix: str = ""

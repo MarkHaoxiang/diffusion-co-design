@@ -61,7 +61,7 @@ def main(cfg):
     train_losses = []
     eval_losses = []
 
-    experiment_name = f"{cfg.model.name}_{cfg.model.representation}"
+    experiment_name = f"{cfg.model.name}_{cfg.model.representation}_{cfg.train_target}_{cfg.experiment_suffix}"
     with (
         ExperimentLogger(
             directory=output_dir,
