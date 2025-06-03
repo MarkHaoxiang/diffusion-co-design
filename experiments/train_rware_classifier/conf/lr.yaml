@@ -5,11 +5,13 @@ defaults:
 training_dir: "/home/markhaoxiang/.diffusion_co_design/experiments/train_rware/2025-05-22/02-42-31"
 batch_size: 128
 train_epochs: 100
-lr: 0.01
-train_target: critic
+lr: 0.0003
+train_target: sampling
 weight_decay: 0.0
 logging_mode: online
-experiment_suffix: lr_001
+experiment_suffix: lr_00003
 model:
   name: cnn
   representation: image
+  model_kwargs:
+    model_channels: 64
