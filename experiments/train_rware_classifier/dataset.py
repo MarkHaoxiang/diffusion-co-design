@@ -66,8 +66,8 @@ def rware_policy_return_dataset(
 
     ref_env = create_env(scenario, env_designer, render=True, device=device)
     policy, critic = rware_models(ref_env, training_cfg.policy, device=device)
-    policy.load_state_dict(torch.load(latest_policy))
-    critic.load_state_dict(torch.load(latest_critic))
+    policy.load_state_dict(torch.load(latest_policy, map_location=device))
+    critic.load_state_dict(torch.load(latest_critic, map_location=device))
     ref_env.close()
 
     # Collection
@@ -97,17 +97,19 @@ def rware_policy_return_dataset(
             ep_reward = ep_reward.sum(dim=(1, 2, 3))
 
             first_obs = rollout[:, 0]
-            expected_reward = (
-                critic(first_obs)["agents", "state_value"].sum(dim=-2).squeeze()
-            )
-            data = TensorDict(
-                {
-                    "env": X,
-                    "episode_reward": ep_reward,
-                    "expected_reward": expected_reward,
-                },
-                batch_size=len(ep_reward),
-            )
+            critic_out = critic(first_obs.to(device=device))
+            expected_reward = critic_out["agents", "state_value"].sum(dim=-2).squeeze()
+            distillation_hint = critic_out.get(("agents", "distillation_hint"), None)
+
+            data_dict = {
+                "env": X,
+                "episode_reward": ep_reward.detach().cpu(),
+                "expected_reward": expected_reward.detach().cpu(),
+            }
+            if distillation_hint is not None:
+                data_dict["distillation_hint"] = distillation_hint.detach().cpu()
+
+            data = TensorDict(data_dict, batch_size=len(ep_reward))
 
             # done = rollout.get(("next", "done"))
             # X = rollout.get("state")[done.squeeze()]

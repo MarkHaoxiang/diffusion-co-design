@@ -231,9 +231,9 @@ def rware_models_v2(
                 ("agents", "observation", "features"),
                 ("agents", "observation", "position"),
             ],
-            out_keys=[("agents", "state_value")],
+            out_keys=[("agents", "state_value"), ("agents", "distillation_hint")],
         ),
-        selected_out_keys=[("agents", "state_value")],
+        selected_out_keys=[("agents", "state_value"), ("agents", "distillation_hint")],
     )
 
     # Initialise

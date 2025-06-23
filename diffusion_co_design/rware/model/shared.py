@@ -116,14 +116,27 @@ class RLCritic(EncoderUNetModel):
 
         for module in self.input_blocks:
             h = module(h, emb)
+
         h = self.middle_block(h, emb)
+        distillation_hint = h  # Use this as the hints
+        distillation_hint_shape = (
+            N,
+            distillation_hint.shape[-3],
+            distillation_hint.shape[-2],
+            distillation_hint.shape[-1],
+        )
         cnn_out = self.out(h)
         result = self.out_mlp(cnn_out)
 
         result = result.view(B, N, 1)
+        distillation_hint = distillation_hint.view(B, *distillation_hint_shape)
         if not has_batch_dim:
             result = result.squeeze(0)
+            distillation_hint = distillation_hint.squeeze(0)
         else:
             result = result.view(*B_dims, N, 1)
+            distillation_hint = distillation_hint.view(
+                *B_dims, *distillation_hint_shape
+            )
 
-        return result
+        return result, distillation_hint

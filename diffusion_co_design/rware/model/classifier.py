@@ -269,6 +269,23 @@ class CustomCNNClassifier(ImageClassifier):
         return self.out(h).squeeze(-1)
 
 
+class CNNRegressorLoss(nn.Module):
+    def __init__(self, hint_channels: int, student_channels: int):
+        super().__init__()
+        # Assume image dimensions are otherwise the same
+        self.hint_channels = hint_channels
+        self.student_channels = student_channels
+
+        self.conv = nn.Conv2d(
+            in_channels=student_channels, out_channels=hint_channels, kernel_size=1
+        )
+
+    def forward(self, hint, student_feature):
+        hint = hint.mean(dim=-4)  # [B, C1, H, W], mean over all agents
+        regressor_projection = self.conv(student_feature)  # [B, C1, H, W]
+        return nn.functional.mse_loss(hint, regressor_projection)
+
+
 class GNNCNN(GraphClassifier):
     def __init__(
         self,
