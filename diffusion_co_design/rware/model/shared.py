@@ -117,8 +117,8 @@ class RLCritic(EncoderUNetModel):
         for module in self.input_blocks:
             h = module(h, emb)
 
-        h = self.middle_block(h, emb)
         distillation_hint = h  # Use this as the hints
+        h = self.middle_block(h, emb)
         distillation_hint_shape = (
             N,
             distillation_hint.shape[-3],

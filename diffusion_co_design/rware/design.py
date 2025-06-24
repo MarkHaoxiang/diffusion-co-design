@@ -452,7 +452,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
                 # X_batch = self.generator.diffusion.q_sample(X_batch, t)
                 # y_pred = self.model(X_batch, t).squeeze()
 
-                y_pred = self.model.predict(X_batch)
+                y_pred = self.model.predict(X_batch)[0]
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 self.running_loss += loss.item()
@@ -466,7 +466,7 @@ class ValueDesigner(CentralisedDesigner, ABC):
 
         if self.representation == "graph":
             X_post = (X_post["pos"], X_post["colors"])
-        classifier_prediction = self.model.predict(X_post)
+        classifier_prediction = self.model.predict(X_post)[0]
         self.classifier_prediction_mean = classifier_prediction.mean().item()
         self.classifier_prediction_max = classifier_prediction.max().item()
         self.classifier_prediction_min = classifier_prediction.min().item()

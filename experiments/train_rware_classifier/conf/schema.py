@@ -14,3 +14,5 @@ class Config(_Config):
     train_target: Literal["sampling", "critic"]
     logging_mode: Literal["online", "offline", "disabled"]
     experiment_suffix: str = ""
+    enable_hint: bool
+    hint_loss_weight: float

@@ -11,7 +11,7 @@ from diffusion_co_design.common import (
 )
 
 from dataset import load_dataset, make_dataloader
-from diffusion_co_design.rware.model.classifier import make_model
+from diffusion_co_design.rware.model.classifier import make_model, make_hint_loss
 
 from conf.schema import Config
 
@@ -53,9 +53,20 @@ def main(cfg):
         device=device,
     )
 
-    optim = torch.optim.Adam(
-        model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
-    )
+    if cfg.enable_hint:
+        hint_loss_fn = make_hint_loss(
+            model=cfg.model.name, env_critic=model, device=device
+        )
+        optim = torch.optim.AdamW(
+            list(model.parameters()) + list(hint_loss_fn.parameters()),
+            lr=cfg.lr,
+            weight_decay=cfg.weight_decay,
+        )
+    else:
+        optim = torch.optim.Adam(
+            model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
+        )
+
     criterion = torch.nn.MSELoss()
 
     train_losses = []
@@ -74,8 +85,9 @@ def main(cfg):
     ):
         for epoch in range(cfg.train_epochs):
             running_train_loss = 0
+            running_train_hint_loss = 0
             model.train()
-            for x, y, y_critic in train_dataloader:
+            for x, y, y_critic, distillation_hint in train_dataloader:
                 optim.zero_grad()
 
                 match cfg.train_target:
@@ -84,20 +96,30 @@ def main(cfg):
                     case "critic":
                         y_target = y_critic
 
-                y_pred = model.predict(x)
-                loss = criterion(y_pred, y_target)
+                y_pred, student_features = model.predict(x)
+
+                loss = 0
+                if cfg.enable_hint:
+                    hint_loss = hint_loss_fn(distillation_hint, student_features)
+                    running_train_hint_loss += hint_loss.item()
+                    loss += hint_loss * cfg.hint_loss_weight
+
+                prediction_loss = criterion(y_pred, y_target)
+                loss += prediction_loss
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optim.step()
-                running_train_loss += loss.item()
+                running_train_loss += prediction_loss.item()
             running_train_loss = running_train_loss / len(train_dataloader)
+            running_train_hint_loss = running_train_hint_loss / len(train_dataloader)
 
             # Evaluate
             model.eval()
             running_eval_loss_sampling = 0
             running_eval_loss_critic = 0
             with torch.no_grad():
-                for x, y, y_critic in eval_dataloader:
-                    y_pred = model.predict(x)
+                for x, y, y_critic, distillation_hint in eval_dataloader:
+                    y_pred, student_features = model.predict(x)
                     loss_sampling = criterion(y_pred, y)
                     loss_critic = criterion(y_pred, y_critic)
                     running_eval_loss_sampling += loss_sampling.item()
@@ -117,6 +139,8 @@ def main(cfg):
                     "eval/loss_critic": running_eval_loss_critic,
                 },
             )
+            if cfg.enable_hint:
+                logger.log({"train/hint_loss": running_train_hint_loss})
             logger.commit()
             pbar.update()
 

@@ -73,7 +73,7 @@ class GraphClassifier(Classifier):
             .to(device=pos.device)
         )
 
-        return self.predict((pos, colors))
+        return self.predict((pos, colors))[0]
 
 
 class MLPClassifier(GraphClassifier):
@@ -98,7 +98,7 @@ class MLPClassifier(GraphClassifier):
         x = torch.cat([pos, colors], dim=-1)
         x = x.view(x.shape[0], -1)
         x = self.net(x)
-        return x.squeeze(-1)
+        return x.squeeze(-1), None
 
 
 class ImageClassifier(Classifier):
@@ -125,7 +125,7 @@ class UnetCNNClassifier(ImageClassifier):
         self.model = create_classifier(**model_dict)
 
     def forward(self, image):
-        return self.model(image).squeeze(-1)
+        return self.model(image).squeeze(-1), None
 
 
 # =====
@@ -223,6 +223,8 @@ class CustomCNNClassifier(ImageClassifier):
                 ds *= 2
                 self._feature_size += ch
 
+        self.distillation_hint_channels = ch
+
         # Middle block
         self.middle_block = nn.Sequential(
             ResBlock(
@@ -264,9 +266,10 @@ class CustomCNNClassifier(ImageClassifier):
         h = x.type(torch.float32)
         for module in self.input_blocks:
             h = module(h)
+        distillation_hint = h
         h = self.middle_block(h)
         h = h.type(torch.float32)
-        return self.out(h).squeeze(-1)
+        return self.out(h).squeeze(-1), distillation_hint
 
 
 class CNNRegressorLoss(nn.Module):
@@ -381,7 +384,8 @@ class GNNCNN(GraphClassifier):
             f"Image shape {image.shape[1]} does not match expected {self.num_channels}"
         )
 
-        return self.model(image).squeeze(-1)
+        y, distillation_hint = self.model.predict(image)
+        return y.squeeze(-1), distillation_hint
 
 
 class MLPCNNClassifier(GraphClassifier):
@@ -415,7 +419,7 @@ class MLPCNNClassifier(GraphClassifier):
         image = (
             image_flat.view(B, self.cfg.size, self.cfg.size, self.cfg.n_colors)
         ).movedim(source=(-3, -2, -1), destination=(-2, -1, -3))
-        return self.model(image).squeeze(-1)
+        return self.model(image).squeeze(-1), None
 
 
 class GNN(WarehouseGNNBase):
@@ -519,7 +523,7 @@ class GNNClassifier(GraphClassifier):
             return self.gnn(graph=x)
         else:
             pos, color = x
-            return self.gnn(pos, color)
+            return self.gnn(pos, color), None
 
 
 def make_model(
@@ -546,3 +550,14 @@ def make_model(
         case _:
             raise NotImplementedError(f"Model {model.name} not implemented")
     return model.to(device=device)
+
+
+def make_hint_loss(model, env_critic, device):
+    match model:
+        case "cnn":
+            return CNNRegressorLoss(
+                hint_channels=128,
+                student_channels=env_critic.distillation_hint_channels,
+            ).to(device=device)
+        case _:
+            raise NotImplementedError(f"Hint loss for model {model} not implemented")

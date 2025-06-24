@@ -37,7 +37,14 @@ class EnvReturnsDataset(Dataset):
         y_pred = sample.get("expected_reward").to(
             dtype=torch.float32, device=self.device
         )
-        return X, y, y_pred
+        distillation_hint = sample.get("distillation_hint", None)
+        if distillation_hint is not None:
+            distillation_hint = distillation_hint.to(
+                dtype=torch.float32, device=self.device
+            )
+            return X, y, y_pred, distillation_hint
+        else:
+            return X, y, y_pred
 
 
 def rware_policy_return_dataset(
@@ -159,6 +166,12 @@ def load_dataset(
     return train_dataset, eval_dataset
 
 
+def _batch_has_distillation_hint(batch):
+    if len(batch[0]) < 4:
+        return False
+    return True
+
+
 class CollateFn:
     def __init__(self, cfg, device):
         self.n_shelves = cfg.n_shelves
@@ -169,6 +182,10 @@ class CollateFn:
         images = torch.stack([x[0] for x in batch])
         labels_1 = torch.stack([x[1] for x in batch])
         labels_2 = torch.stack([x[2] for x in batch])
+        if _batch_has_distillation_hint(batch):
+            distillation_hint = torch.stack([x[3] for x in batch])
+        else:
+            distillation_hint = None
 
         pos, colors = image_to_pos_colors(images, self.n_shelves)
         pos = (pos / (self.size - 1)) * 2 - 1
@@ -180,6 +197,9 @@ class CollateFn:
             ),
             labels_1.to(dtype=torch.float32, device=self.device),
             labels_2.to(dtype=torch.float32, device=self.device),
+            distillation_hint.to(dtype=torch.float32, device=self.device)
+            if distillation_hint
+            else None,
         )
 
 
@@ -202,7 +222,11 @@ class ImageCollateFn:
         self.device = device
 
     def __call__(self, batch):
-        X, y_1, y_2 = default_collate(batch)
+        if _batch_has_distillation_hint(batch):
+            X, y_1, y_2, distillation_hint = default_collate(batch)
+        else:
+            X, y_1, y_2 = default_collate(batch)
+            distillation_hint = None
 
         X = X.to(dtype=torch.float32, device=self.device)
         y_1 = y_1.to(dtype=torch.float32, device=self.device)
@@ -210,7 +234,7 @@ class ImageCollateFn:
 
         X = X * 2 - 1
 
-        return X, y_1, y_2
+        return X, y_1, y_2, distillation_hint
 
 
 def make_dataloader(
