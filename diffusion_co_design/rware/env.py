@@ -136,7 +136,12 @@ def create_env(
         "agent_positions": torch.tensor(scenario.agent_idxs),
         "goal_idxs": torch.tensor(scenario.goal_idxs),
     }
-    initial_layout = designer.generate_environment(scenario_objective)
+    initial_layout = storage_to_layout(
+        features=designer.generate_environment_weights(scenario_objective),
+        config=scenario,
+        representation=designer.representation,
+    )
+
     design_policy = designer.to_td_module()
 
     env = RwarePZW(

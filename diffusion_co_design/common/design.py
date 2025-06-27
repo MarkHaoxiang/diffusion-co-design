@@ -2,7 +2,7 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import pickle as pkl
-from typing import Literal
+from typing import Literal, Generic, TypeVar
 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
@@ -15,9 +15,13 @@ from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
 from diffusion_co_design.common.pydra import Config
 
 
-class BaseDesigner(nn.Module, ABC):
-    def __init__(self, environment_repeats: int = 1):
+SC = TypeVar("SC", bound=Config)
+
+
+class BaseDesigner(nn.Module, Generic[SC], ABC):
+    def __init__(self, scenario: SC, environment_repeats: int = 1):
         super().__init__()
+        self.scenario = scenario
         self.update_counter = 0
         self.environment_repeats = environment_repeats
         self.environment_repeat_counter = 0
@@ -60,6 +64,35 @@ class BaseDesigner(nn.Module, ABC):
 
     def get_training_buffer(self) -> None | ReplayBuffer:
         return None
+
+
+class BaseRandomDesigner(BaseDesigner[SC]):
+    @abstractmethod
+    def _generate_random_environment(self, objective):
+        raise NotImplementedError()
+
+    def forward(self, objective):
+        env = self._generate_random_environment(objective)
+        return env
+
+    def _generate_environment_weights(self, objective):
+        return self.forward(objective)
+
+
+class ValueLearner:
+    pass
+
+
+class BaseValueDesigner(BaseDesigner[SC]):
+    pass
+
+
+class BaseSamplingDesigner(BaseValueDesigner[SC]):
+    pass
+
+
+class BaseDicodeDesigner(BaseValueDesigner[SC]):
+    pass
 
 
 class BaseDiskDesigner(BaseDesigner):
