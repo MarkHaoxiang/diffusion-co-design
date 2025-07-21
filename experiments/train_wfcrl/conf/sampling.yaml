@@ -1,0 +1,30 @@
+defaults:
+  - template/default@_here_
+  - _self_
+  - metadata/training@_here_
+
+experiment_name: wfcrl
+device:
+  device_management: "gpu"
+  gpu_id: 0
+  max_gpu_memory: 1.0
+scenario_name: wfcrl_10
+designer:
+  type: sampling
+  environment_repeats: 1
+  model:
+    node_emb_size: 64
+    edge_emb_size: 32
+    depth: 2
+  buffer_size: 8096
+  diffusion_early_start: 0
+  train_early_start: 0 
+  batch_size: 32
+  weight_decay: 0
+  lr: 1e-4
+  distill_enable: false
+  loss_criterion: huber
+  n_samples: 16
+start_from_checkpoint: null
+logging:
+  mode: disabled

@@ -1,19 +1,15 @@
 import os
-from typing import Literal
-from abc import ABC, abstractmethod
+from typing import Callable
+from pathlib import Path
 
-import numpy as np
 import torch
-from torchrl.envs import EnvBase
-from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
-from torchrl.objectives.value.functional import reward2go
-from tensordict import TensorDict
-from tensordict.nn import TensorDictModule
 
-from diffusion_co_design.common.design import BaseDesigner, BaseDiskDesigner
+from diffusion_co_design.common import design
+
+from diffusion_co_design.wfcrl.static import GROUP_NAME
 from diffusion_co_design.wfcrl.schema import (
     NormalisationStatistics,
-    ScenarioConfig,
+    ScenarioConfig as SC,
     DesignerConfig,
     ClassifierConfig,
     PPOConfig,
@@ -21,468 +17,234 @@ from diffusion_co_design.wfcrl.schema import (
     Fixed,
     Random,
     Diffusion,
+    Sampling,
 )
 from diffusion_co_design.wfcrl.model.classifier import GNNCritic
 from diffusion_co_design.wfcrl.model.rl import maybe_make_denormaliser
 from diffusion_co_design.wfcrl.diffusion.generate import Generate
 from diffusion_co_design.wfcrl.diffusion.generator import (
     Generator,
-    OptimizerDetails,
     eval_to_train,
     soft_projection_constraint,
 )
 from diffusion_co_design.common import DiffusionOperation, OUTPUT_DIR, get_latest_model
 
 
-group_name = "turbine"
+def make_generate_fn(scenario: SC, seed: int | None = None):
+    return Generate(
+        num_turbines=scenario.n_turbines,
+        map_x_length=scenario.map_x_length,
+        map_y_length=scenario.map_y_length,
+        minimum_distance_between_turbines=scenario.min_distance_between_turbines,
+        rng=seed,
+    )
 
 
-class Designer(BaseDesigner):
-    def __init__(self, scenario: ScenarioConfig, environment_repeats: int = 1):
-        super().__init__(environment_repeats=environment_repeats)
-        self.scenario = scenario
-
-
-class RandomDesigner(Designer):
+class RandomDesigner(design.RandomDesigner[SC]):
     def __init__(
         self,
-        scenario: ScenarioConfig,
-        environment_repeats: int = 1,
+        designer_setting: design.DesignerParams[SC],
         seed: int | None = None,
     ):
-        super().__init__(scenario=scenario, environment_repeats=environment_repeats)
+        super().__init__(designer_setting=designer_setting)
+        self.generate = make_generate_fn(self.scenario, seed)
 
-        self.generate = Generate(
-            num_turbines=scenario.n_turbines,
-            map_x_length=scenario.map_x_length,
-            map_y_length=scenario.map_y_length,
-            minimum_distance_between_turbines=scenario.min_distance_between_turbines,
-            rng=seed,
-        )
-
-    def forward(self, objective=None):
-        theta = torch.tensor(self.generate(n=1, training_dataset=False)).squeeze(0)
-        return theta
-
-    def _generate_environment_weights(self, objective):
-        return self.forward(objective)
+    def generate_random_layouts(self, batch_size):
+        return [
+            torch.tensor(x) for x in self.generate(n=batch_size, training_dataset=False)
+        ]
 
 
-class FixedDesigner(Designer):
-    def __init__(self, scenario: ScenarioConfig, seed: int | None = None):
-        super().__init__(scenario)
-        self.layout_image = torch.nn.Parameter(
-            RandomDesigner(scenario, seed=seed)._generate_environment_weights(None),
-            requires_grad=False,
-        )
-
-    def forward(self, objective):
-        return self.layout_image.data
-
-    def _generate_environment_weights(self, objective):
-        return self.layout_image
-
-
-def get_env_from_td(td, scenario: ScenarioConfig, gamma: float = 0.99):
-    done = td.get(("next", "done"))
-    X = td.get(("state", "layout"))[done.squeeze(-1)].to(dtype=torch.float32)
-    reward = td.get(("next", group_name, "reward")).mean(
-        dim=-2
-    )  # Note: mean instead of sum
-    y = reward2go(reward, done=done, gamma=gamma, time_dim=-2)
-    y = y.reshape(-1, scenario.max_steps)
-    y = y[:, 0]
-    return X, y
-
-
-class CentralisedDesigner(Designer):
-    @abstractmethod
-    def reset_env_buffer(self, batch_size: int) -> list:
-        raise NotImplementedError
-
-    def forward(self, objective):
-        raise NotImplementedError("Use with disk designer")
-
-    def _generate_environment_weights(self, objective):
-        raise NotImplementedError("Use with disk designer")
-
-
-class ValueDesigner(CentralisedDesigner, ABC):
+class FixedDesigner(design.FixedDesigner[SC]):
     def __init__(
-        self,
-        scenario: ScenarioConfig,
-        classifier: ClassifierConfig,
-        normalisation_statistics: NormalisationStatistics | None = None,
-        gamma: float = 0.99,
-        n_update_iterations: int = 5,
-        train_batch_size: int = 64,
-        buffer_size: int = 2048,
-        lr: float = 3e-5,
-        weight_decay: float = 0.0,
-        environment_repeats: int = 1,
-        distill_from_critic: bool = False,
-        distill_samples: int = 1,
-        diffusion_early_start: int | None = None,
-        train_early_start: int = 0,
-        clip_grad_norm: float | None = 1.0,
-        loss_criterion: Literal["mse", "huber"] = "huber",
-        device: torch.device = torch.device("cpu"),
-    ):
-        super().__init__(scenario, environment_repeats=environment_repeats)
-        self.model = torch.nn.Sequential(
-            GNNCritic(
-                cfg=scenario,
-                node_emb_dim=classifier.node_emb_size,
-                edge_emb_dim=classifier.edge_emb_size,
-                n_layers=classifier.depth,
-            ),
-            maybe_make_denormaliser(normalisation_statistics),
-        )
-
-        self.model = self.model.to(device)
-
-        self.optim = torch.optim.Adam(
-            self.model.parameters(), lr=lr, weight_decay=weight_decay
-        )
-
-        match loss_criterion:
-            case "huber":
-                self.criterion = torch.nn.HuberLoss()
-            case "mse":
-                self.criterion = torch.nn.MSELoss()
-            case _:
-                raise ValueError(
-                    f"Unknown loss criterion: {loss_criterion}. Use 'mse' or 'huber'. "
-                )
-
-        self.buffer_size = buffer_size
-        self.train_batch_size = train_batch_size
-        self.env_buffer = ReplayBuffer(
-            storage=LazyTensorStorage(max_size=buffer_size),
-            sampler=SamplerWithoutReplacement(drop_last=True),
-            batch_size=self.train_batch_size,
-        )
-
-        self.n_update_iterations = n_update_iterations
-        self.device = device
-        self.gamma = gamma
-
-        self.distill_from_critic = distill_from_critic
-        self.distill_samples = distill_samples
-        self.critic: TensorDictModule | None = None
-        self.ref_env: EnvBase | None = None
-        if self.distill_from_critic:
-            self.manual_designer = FixedDesigner(scenario=scenario)
-
-        self.generate = Generate(
-            num_turbines=scenario.n_turbines,
-            map_x_length=scenario.map_x_length,
-            map_y_length=scenario.map_y_length,
-            minimum_distance_between_turbines=scenario.min_distance_between_turbines,
-            rng=0,
-        )
-        self.clip_grad_norm = clip_grad_norm
-        self.grad_norm = 0.0
-
-        # Logging
-        self.ref_random_designs = torch.tensor(
-            np.array(self.generate(n=64, training_dataset=True)),
-            dtype=torch.float32,
-            device=self.device,
-        )
-        self.train_early_start = train_early_start
-        self.diffusion_early_start = diffusion_early_start
-
-    @abstractmethod
-    def _reset_env_buffer(self, batch_size):
-        raise NotImplementedError()
-
-    def reset_env_buffer(self, batch_size):
-        if (
-            self.diffusion_early_start
-            and len(self.env_buffer) < self.diffusion_early_start
-        ):
-            return list(self.generate(n=batch_size))
-        else:
-            return self._reset_env_buffer(batch_size)
-
-    def update(self, sampling_td):
-        super().update(sampling_td)
-
-        # Update replay buffer
-        X, y = get_env_from_td(sampling_td, self.scenario, gamma=self.gamma)
-        X_post = eval_to_train(X, self.scenario)
-
-        data = TensorDict(
-            {"env": X, "env_post": X_post, "episode_reward": y}, batch_size=len(y)
-        )
-        self.env_buffer.extend(data)
-
-        if self.distill_from_critic:
-            assert self.critic is not None
-            assert self.ref_env is not None
-            self.ref_env._env._reset_policy = self.manual_designer.to_td_module()
-
-        # Train
-        if len(self.env_buffer) >= max((self.train_batch_size, self.train_early_start)):
-            self.running_loss = 0
-            train_y_batch = []
-            self.model.train()
-            for _ in range(self.n_update_iterations):
-                self.optim.zero_grad()
-                sample = self.env_buffer.sample(batch_size=self.train_batch_size)
-                X_batch = sample.get("env_post").to(
-                    dtype=torch.float32, device=self.device
-                )
-
-                if self.distill_from_critic:
-                    assert self.critic is not None
-                    assert self.ref_env is not None
-                    X_img = sample.get("env")
-                    observations_tds = []
-                    for env_image in X_img:
-                        observations_tds.append([])
-                        self.manual_designer.layout_image.data.copy_(env_image)
-                        for _ in range(self.distill_samples):
-                            observations_tds[-1].append(self.ref_env.reset())
-                        observations_tds[-1] = torch.stack(observations_tds[-1])
-                    observations_tds = torch.stack(observations_tds)
-                    self.critic.eval()
-                    with torch.no_grad():
-                        y_batch = self.critic(observations_tds).get(
-                            (group_name, "state_value")
-                        )
-                        assert y_batch.shape == (
-                            self.train_batch_size,
-                            self.distill_samples,
-                            self.scenario.n_turbines,
-                            1,
-                        ), y_batch.shape
-                        y_batch = y_batch.mean(dim=-2)  # Mean instead of sum
-                        y_batch = y_batch.mean(dim=-2)
-                        y_batch = y_batch.squeeze(-1)
-                        assert y_batch.shape == (self.train_batch_size,)
-                else:
-                    y_batch = sample.get("episode_reward").to(
-                        dtype=torch.float32, device=self.device
-                    )
-
-                train_y_batch.append(y_batch)
-
-                # Timesteps
-                y_pred = self.model(X_batch)
-                loss = self.criterion(y_pred, y_batch)
-                loss.backward()
-                if self.clip_grad_norm is not None:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), max_norm=1.0
-                    )
-                    self.grad_norm = grad_norm.item()
-                self.running_loss += loss.item()
-                self.optim.step()
-            # Logs
-            self.running_loss = self.running_loss / self.n_update_iterations
-            train_y_batch = torch.cat(train_y_batch)
-            self.train_y_mean = train_y_batch.mean().item()
-            self.train_y_max = train_y_batch.max().item()
-            self.train_y_min = train_y_batch.min().item()
-
-        classifier_prediction = self.model(X_post)
-        self.classifier_prediction_mean = classifier_prediction.mean().item()
-        self.classifier_prediction_max = classifier_prediction.max().item()
-        self.classifier_prediction_min = classifier_prediction.min().item()
-
-        classifier_prediction_rand = self.model(self.ref_random_designs)
-        self.classifier_prediction_rand_mean = classifier_prediction_rand.mean().item()
-        self.classifier_prediction_rand_max = classifier_prediction_rand.max().item()
-        self.classifier_prediction_rand_min = classifier_prediction_rand.min().item()
-
-    def get_logs(self):
-        logs = {
-            "classifier_prediction_mean": self.classifier_prediction_mean,
-            "classifier_prediction_max": self.classifier_prediction_max,
-            "classifier_prediction_min": self.classifier_prediction_min,
-            "classifier_prediction_rand_mean": self.classifier_prediction_rand_mean,
-            "classifier_prediction_rand_max": self.classifier_prediction_rand_max,
-            "classifier_prediction_rand_min": self.classifier_prediction_rand_min,
-        }
-        if len(self.env_buffer) >= max((self.train_batch_size, self.train_early_start)):
-            logs.update(
-                {
-                    "designer_loss": self.running_loss,
-                    "design_y_mean": self.train_y_mean,
-                    "design_y_max": self.train_y_max,
-                    "design_y_min": self.train_y_min,
-                }
-            )
-            if self.clip_grad_norm is not None:
-                logs["designer_grad_norm"] = self.grad_norm
-        return logs
-
-    def get_model(self):
-        return self.model
-
-    def get_training_buffer(self):
-        return self.env_buffer
-
-
-class DiffusionDesigner(ValueDesigner):
-    def __init__(
-        self,
-        scenario: ScenarioConfig,
-        classifier: ClassifierConfig,
-        diffusion: DiffusionOperation,
-        total_training_iterations: int,
-        normalisation_statistics: NormalisationStatistics | None = None,
-        gamma: float = 0.99,
-        n_update_iterations: int = 5,
-        train_batch_size: int = 64,
-        buffer_size: int = 2048,
-        lr: float = 3e-5,
-        clip_grad_norm: float | None = 1.0,
-        weight_decay: float = 0.0,
-        environment_repeats: int = 1,
-        distill_from_critic: bool = False,
-        distill_samples: int = 1,
-        diffusion_early_start: int | None = None,
-        train_early_start: int = 0,
-        loss_criterion: Literal["mse", "huber"] = "huber",
-        device: torch.device = torch.device("cpu"),
+        self, designer_setting: design.DesignerParams, seed: int | None = None
     ):
         super().__init__(
-            scenario=scenario,
-            classifier=classifier,
-            normalisation_statistics=normalisation_statistics,
-            gamma=gamma,
-            n_update_iterations=n_update_iterations,
-            train_batch_size=train_batch_size,
-            buffer_size=buffer_size,
-            lr=lr,
-            clip_grad_norm=clip_grad_norm,
-            weight_decay=weight_decay,
-            environment_repeats=environment_repeats,
-            distill_from_critic=distill_from_critic,
-            distill_samples=distill_samples,
-            diffusion_early_start=diffusion_early_start,
-            train_early_start=train_early_start,
-            loss_criterion=loss_criterion,
-            device=device,
+            designer_setting=designer_setting,
+            layout=torch.tensor(make_generate_fn(self.scenario, seed)(n=1)).squeeze(0),
         )
 
-        pretrain_dir = os.path.join(OUTPUT_DIR, "wfcrl", "diffusion", scenario.name)
-        latest_checkpoint = get_latest_model(pretrain_dir, "model")
 
-        self.generator = Generator(
-            generator_model_path=latest_checkpoint,
-            scenario=scenario,
-            default_guidance_wt=diffusion.forward_guidance_wt,
-            device=device,
-        )
-
-        self.diffusion = diffusion
-        self.total_ppo_iters = total_training_iterations
-        self.forward_guidance_weight = 0.0
-
-    def _reset_env_buffer(self, batch_size: int):
-        forward_enable = self.diffusion.forward_guidance_wt > 0
-        operation = OptimizerDetails()
-        if self.diffusion.forward_guidance_annealing:
-            mult = self.update_counter / self.total_ppo_iters
-            wt = self.diffusion.forward_guidance_wt * mult
-            self.forward_guidance_weight = wt
-            operation.forward_guidance_wt = wt
-        else:
-            self.forward_guidance_weight = self.diffusion.forward_guidance_wt
-            operation.forward_guidance_wt = self.diffusion.forward_guidance_wt
-        operation.num_recurrences = self.diffusion.num_recurrences
-        operation.lr = self.diffusion.backward_lr
-        operation.backward_steps = self.diffusion.backward_steps
-        operation.use_forward = forward_enable
-        operation.projection_constraint = soft_projection_constraint(self.scenario)
-
-        self.model.eval()
-
-        return list(
-            self.generator.generate_batch(
-                value=self.model,
-                use_operation=True,
-                operation_override=operation,
-                batch_size=batch_size,
-            )
-        )
-
-    def get_logs(self):
-        logs = super().get_logs()
-        logs["forward_guidance_wt"] = self.forward_guidance_weight
-        return logs
+default_value_learner_hyperparameters = design.ValueLearnerHyperparameters(
+    lr=3e-5,
+    train_batch_size=64,
+    buffer_size=2048,
+    n_update_iterations=10,
+    clip_grad_norm=1.0,
+    distill_from_critic=False,
+    distill_samples=1,
+    loss_criterion="huber",
+)
 
 
-class DiskDesigner(BaseDiskDesigner):
+class ValueLearner(design.ValueLearner):
     def __init__(
-        self, scenario, lock, artifact_dir, environment_repeats=1, master_designer=None
+        self,
+        scenario: SC,
+        classifier: ClassifierConfig,
+        normalisation_statistics: NormalisationStatistics | None = None,
+        hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        gamma: float = 0.99,
+        device="cpu",
     ):
-        super().__init__(lock, artifact_dir, environment_repeats, master_designer)
         self.scenario = scenario
+        super().__init__(
+            model=torch.nn.Sequential(
+                GNNCritic(
+                    cfg=scenario,
+                    node_emb_dim=classifier.node_emb_size,
+                    edge_emb_dim=classifier.edge_emb_size,
+                    n_layers=classifier.depth,
+                ),
+                maybe_make_denormaliser(normalisation_statistics),
+            ),
+            group_name=GROUP_NAME,
+            episode_steps=scenario.max_steps,
+            hyperparameters=hyperparameters,
+            gamma=gamma,
+            group_aggregation="mean",
+            device=device,
+        )
+
+    def _eval_to_train(self, theta):
+        return eval_to_train(theta, self.scenario)
 
 
-class DesignerRegistry:
-    @staticmethod
-    def get(
-        designer: DesignerConfig,
-        scenario: ScenarioConfig,
-        ppo_cfg: PPOConfig,
-        normalisation_statistics: NormalisationStatistics | None,
-        artifact_dir: str,
-        device: torch.device,
-    ) -> tuple[Designer, Designer]:
-        if isinstance(designer, Fixed):
-            fixed = FixedDesigner(scenario)
-            return fixed, fixed
-        elif isinstance(designer, Random):
-            random = RandomDesigner(
-                scenario, environment_repeats=designer.environment_repeats
+class SamplingDesigner(design.SamplingDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        classifier: ClassifierConfig,
+        normalisation_statistics: NormalisationStatistics | None = None,
+        value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        gamma: float = 0.99,
+        device="cpu",
+        n_samples: int = 16,
+    ):
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=ValueLearner(
+                scenario=designer_setting.scenario,
+                classifier=classifier,
+                normalisation_statistics=normalisation_statistics,
+                hyperparameters=value_learner_hyperparameters,
+                gamma=gamma,
+                device=device,
+            ),
+            n_samples=n_samples,
+        )
+        self.generate = make_generate_fn(self.scenario)
+
+    def generate_random_layouts(self, batch_size):
+        layouts = torch.tensor(
+            self.generate(
+                n=batch_size,
+                training_dataset=False,
+            ),
+            dtype=torch.float32,
+            device=self.value_learner.device,
+        )
+        return layouts
+
+
+class DicodeDesigner(design.DicodeDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        classifier: ClassifierConfig,
+        diffusion: DiffusionOperation,
+        normalisation_statistics: NormalisationStatistics | None = None,
+        value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        gamma: float = 0.99,
+        total_annealing_iters: int = 1000,
+        device="cpu",
+    ):
+        sc = designer_setting.scenario
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=ValueLearner(
+                scenario=designer_setting.scenario,
+                classifier=classifier,
+                normalisation_statistics=normalisation_statistics,
+                hyperparameters=value_learner_hyperparameters,
+                gamma=gamma,
+                device=device,
+            ),
+            diffusion_setting=diffusion,
+            diffusion_generator=Generator(
+                generator_model_path=get_latest_model(
+                    os.path.join(OUTPUT_DIR, "wfcrl", "diffusion", sc.name), "model"
+                ),
+                scenario=sc,
+                default_guidance_wt=diffusion.forward_guidance_wt,
+                device=device,
+            ),
+            total_annealing_iters=total_annealing_iters,
+        )
+        self.pc = soft_projection_constraint(self.scenario)
+
+    def projection_constraint(self, x):
+        return self.pc(x)
+
+
+def create_designer(
+    scenario: SC,
+    designer: DesignerConfig,
+    ppo_cfg: PPOConfig,
+    normalisation_statistics: NormalisationStatistics | None,
+    artifact_dir: str,
+    device: torch.device,
+) -> tuple[design.Designer[SC], Callable[[], design.DesignConsumer]]:
+    lock = torch.multiprocessing.Lock()
+    artifact_dir_path = Path(artifact_dir)
+    designer_setting = design.DesignerParams(
+        scenario=scenario,
+        artifact_dir=artifact_dir_path,
+        lock=lock,
+        environment_repeats=designer.environment_repeats,
+    )
+
+    def design_consumer_fn():
+        return design.DesignConsumer(artifact_dir_path, lock)
+
+    if isinstance(designer, Fixed):
+        designer_producer: design.Designer[SC] = FixedDesigner(designer_setting)
+    elif isinstance(designer, Random):
+        designer_producer = RandomDesigner(designer_setting)
+    elif isinstance(designer, _Value):
+        value_hyperparameters = design.ValueLearnerHyperparameters(
+            lr=designer.lr,
+            train_batch_size=designer.batch_size,
+            buffer_size=designer.buffer_size,
+            n_update_iterations=designer.n_update_iterations,
+            clip_grad_norm=designer.clip_grad_norm,
+            weight_decay=0.0,
+            distill_from_critic=designer.distill_enable,
+            distill_samples=designer.distill_samples,
+            loss_criterion=designer.loss_criterion,
+            train_early_start=designer.train_early_start,
+        )
+
+        if isinstance(designer, Sampling):
+            designer_producer = SamplingDesigner(
+                designer_setting=designer_setting,
+                classifier=designer.model,
+                normalisation_statistics=normalisation_statistics,
+                value_learner_hyperparameters=value_hyperparameters,
+                gamma=ppo_cfg.gamma,
+                n_samples=designer.n_samples,
+                device=device,
             )
-            return random, random
-        elif isinstance(designer, _Value):
-            lock = torch.multiprocessing.Lock()
-            master_designer: CentralisedDesigner = None  # type: ignore
-            if isinstance(designer, Diffusion):
-                master_designer = DiffusionDesigner(
-                    scenario=scenario,
-                    classifier=designer.model,
-                    diffusion=designer.diffusion,
-                    total_training_iterations=ppo_cfg.n_iters,
-                    normalisation_statistics=normalisation_statistics,
-                    gamma=ppo_cfg.gamma,
-                    n_update_iterations=designer.n_update_iterations,
-                    train_batch_size=designer.batch_size,
-                    buffer_size=designer.buffer_size,
-                    lr=designer.lr,
-                    clip_grad_norm=designer.clip_grad_norm,
-                    weight_decay=designer.weight_decay,
-                    environment_repeats=designer.environment_repeats,
-                    distill_from_critic=designer.distill_enable,
-                    distill_samples=designer.distill_samples,
-                    diffusion_early_start=designer.diffusion_early_start,
-                    train_early_start=designer.train_early_start,
-                    loss_criterion=designer.loss_criterion,
-                    device=device,
-                )
-            else:
-                raise ValueError(f"Unknown designer type: {designer.type}. ")
-            master = DiskDesigner(
-                scenario=scenario,
-                lock=lock,
-                artifact_dir=artifact_dir,
-                environment_repeats=designer.environment_repeats,
-                master_designer=master_designer,
+        elif isinstance(designer, Diffusion):
+            designer_producer = DicodeDesigner(
+                diffusion=designer.diffusion,
+                classifier=designer.model,
+                designer_setting=designer_setting,
+                normalisation_statistics=normalisation_statistics,
+                value_learner_hyperparameters=value_hyperparameters,
+                gamma=ppo_cfg.gamma,
+                total_annealing_iters=ppo_cfg.n_iters,
+                device=device,
             )
-            env = DiskDesigner(
-                scenario=scenario,
-                lock=lock,
-                artifact_dir=artifact_dir,
-                environment_repeats=designer.environment_repeats,
-            )
-            return master, env  # type: ignore
-        else:
-            raise ValueError(f"Unknown designer type: {designer.type}. ")
+
+    return designer_producer, design_consumer_fn

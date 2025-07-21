@@ -11,7 +11,7 @@ from diffusion_co_design.common import get_latest_model
 from diffusion_co_design.common.constants import EXPERIMENT_DIR
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models
 from diffusion_co_design.wfcrl.diffusion.generator import eval_to_train
-from diffusion_co_design.wfcrl.design import ScenarioConfig, Random
+from diffusion_co_design.wfcrl.design import SC, Random
 from diffusion_co_design.wfcrl.env import create_env, create_batched_env
 from diffusion_co_design.wfcrl.schema import TrainingConfig
 from diffusion_co_design.wfcrl.design import DesignerRegistry
@@ -40,7 +40,7 @@ class EnvReturnsDataset(Dataset):
 
 
 def wfcrl_policy_return_dataset(
-    scenario: ScenarioConfig,
+    scenario: SC,
     training_dir: str,
     dataset_size: int,
     num_parallel_collection: int,
@@ -135,7 +135,7 @@ def wfcrl_policy_return_dataset(
 
 
 def load_dataset(
-    scenario: ScenarioConfig,
+    scenario: SC,
     training_dir: str,
     dataset_size: int,
     num_workers: int,
@@ -172,7 +172,7 @@ def load_dataset(
 
 
 class CollateFn:
-    def __init__(self, cfg: ScenarioConfig, device):
+    def __init__(self, cfg: SC, device):
         self.device = device
         self.cfg = cfg
 
@@ -192,7 +192,7 @@ class CollateFn:
 
 def make_dataloader(
     dataset,
-    scenario: ScenarioConfig,
+    scenario: SC,
     batch_size: int,
     device: str,
     **kwargs,

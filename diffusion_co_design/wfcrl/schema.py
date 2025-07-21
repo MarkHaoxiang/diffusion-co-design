@@ -65,13 +65,18 @@ class _Value(_Designer):
     train_early_start: int = 0
 
 
+class Sampling(_Value):
+    type: Literal["sampling"]
+    n_samples: int = 16
+
+
 class Diffusion(_Value):
     type: Literal["diffusion"]
     diffusion: DiffusionOperation
 
 
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion,
+    Random | Fixed | Diffusion | Sampling,
     Field(
         discriminator="type",
     ),

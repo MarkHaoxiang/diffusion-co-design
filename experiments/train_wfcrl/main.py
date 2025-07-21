@@ -1,5 +1,4 @@
 import os
-import copy
 import time
 import warnings
 
@@ -39,37 +38,36 @@ def train(cfg: TrainingConfig):
     assert cfg.ppo.frames_per_batch % n_train_envs == 0
     assert (cfg.ppo.frames_per_batch // n_train_envs) % cfg.scenario.max_steps == 0
 
-    master_designer, env_designer = design.DesignerRegistry.get(
-        designer=cfg.designer,
+    design_producer, make_design_consumer = design.create_designer(
         scenario=cfg.scenario,
+        designer=cfg.designer,
         ppo_cfg=cfg.ppo,
         normalisation_statistics=cfg.normalisation,
         artifact_dir=output_dir,
         device=device.train_device,
     )
+
     environment_reset_num = n_train_envs + cfg.logging.evaluation_episodes + 2
     if cfg.designer.environment_repeats == 1:
         environment_reset_num += n_train_envs + 1
-    master_designer.reset(batch_size=environment_reset_num)
+    design_producer.replenish_layout_buffer(batch_size=environment_reset_num)
 
     reference_env = create_env(
         mode="reference",
         scenario=cfg.scenario,
-        designer=env_designer,
+        designer=make_design_consumer(),
         device=device.env_device,
     )
     train_env = create_batched_env(
         mode="train",
-        designer=env_designer,
+        designer=make_design_consumer(),
         num_environments=n_train_envs,
         scenario=cfg.scenario,
         device=device.env_device,
     )
-    env_designer = copy.copy(env_designer)
-    env_designer.environment_repeats = 1
     eval_env = create_batched_env(
         mode="eval",
-        designer=env_designer,
+        designer=make_design_consumer(),
         num_environments=cfg.logging.evaluation_episodes,
         scenario=cfg.scenario,
         device=device.env_device,
@@ -82,16 +80,16 @@ def train(cfg: TrainingConfig):
         device=device.train_device,
     )
 
-    if isinstance(master_designer, design.DiskDesigner):
-        core = master_designer.master_designer
-        if isinstance(core, design.ValueDesigner):
-            core.critic = critic
-            core.ref_env = create_env(
-                mode="reference",
-                scenario=cfg.scenario,
-                designer=design.FixedDesigner(cfg.scenario),
-                device=device.env_device,
-            )
+    # if isinstance(master_designer, design.DiskDesigner):
+    #     core = master_designer.master_designer
+    #     if isinstance(core, design.ValueDesigner):
+    #         core.critic = critic
+    #         core.ref_env = create_env(
+    #             mode="reference",
+    #             scenario=cfg.scenario,
+    #             designer=design.FixedDesigner(cfg.scenario),
+    #             device=device.env_device,
+    #         )
 
     collector = SyncDataCollector(
         train_env,
@@ -157,7 +155,8 @@ def train(cfg: TrainingConfig):
         ],
     )
 
-    master_designer.reset(batch_size=n_train_envs)
+    design_producer.reset()
+    design_producer.replenish_layout_buffer(n_train_envs)
     try:
         logger.begin()
         total_time, total_frames = 0.0, 0
@@ -224,7 +223,7 @@ def train(cfg: TrainingConfig):
             critic.eval()
 
             design_start = time.time()
-            master_designer.update(sampling_td)
+            design_producer.update(sampling_td)
             design_time = time.time() - design_start
 
             training_time = time.time() - training_start
@@ -232,18 +231,17 @@ def train(cfg: TrainingConfig):
 
             # Logging
             logger.collect_times(sampling_time, training_time, design_time, total_time)
-            logger.log(master_designer.get_logs())
+            logger.log(design_producer.get_logs())
 
             if (
                 cfg.logging.evaluation_episodes > 0
                 and iteration % cfg.logging.evaluation_interval == 0
             ):
                 evaluation_start = time.time()
-                if isinstance(master_designer, design.DiskDesigner):
-                    master_designer.force_regenerate(
-                        batch_size=cfg.logging.evaluation_episodes * 2,
-                        mode="eval",
-                    )
+                design_producer.replenish_layout_buffer(
+                    batch_size=cfg.logging.evaluation_episodes * 2
+                )
+                design_producer.set_environment_repeats(1)
                 with (
                     torch.no_grad(),
                     set_exploration_type(ExplorationType.RANDOM),
@@ -264,6 +262,9 @@ def train(cfg: TrainingConfig):
                     evaluation_time = time.time() - evaluation_start
 
                     logger.collect_evaluation_td(rollouts, evaluation_time, frames)
+                design_producer.set_environment_repeats(
+                    cfg.designer.environment_repeats
+                )
 
             lr = scheduler_step()
             logger.log({"lr_actor": lr[0], "lr_critic": lr[1]})
@@ -285,27 +286,24 @@ def train(cfg: TrainingConfig):
                     logger.upload_model(
                         model_path=critic_model_path, name="critic_final"
                     )
-
-                model = master_designer.get_model()
-                buffer = master_designer.get_training_buffer()
-                if model is not None:
+                designer_state = design_producer.get_state()
+                if "model" in designer_state:
                     designer_model_path = logger.checkpoint_state_dict(
-                        model, f"designer_{iteration}"
+                        designer_state.get("model"), f"designer_{iteration}"
                     )
                     if is_final_iteration:
                         logger.upload_model(
                             model_path=designer_model_path, name="designer_final"
                         )
 
-                if buffer is not None:
-                    buffer.dumps(
+                if "buffer" in designer_state:
+                    designer_model_path.get("buffer").dumps(
                         os.path.join(logger.checkpoint_dir, f"env-buffer_{iteration}")
                     )
 
             pbar.update()
             sampling_start = time.time()
-            if isinstance(master_designer, design.DiskDesigner):
-                master_designer.force_regenerate(batch_size=n_train_envs, mode="train")
+            design_producer.replenish_layout_buffer(batch_size=n_train_envs)
     finally:
         # Cleaup
         logger.close()

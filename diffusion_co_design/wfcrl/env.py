@@ -29,7 +29,8 @@ from wfcrl.multiagent_env import MAWindFarmEnv
 from wfcrl.rewards import DoNothingReward
 from wfcrl.mdp import WindFarmMDP
 
-from diffusion_co_design.wfcrl.design import Designer
+from diffusion_co_design.common.design import DesignConsumer
+from diffusion_co_design.wfcrl.design import make_generate_fn
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
 
 
@@ -258,7 +259,6 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
                     td = TensorDict({}, device=self.device)
             reset_policy_output = self._env._reset_policy(td)
             td.update(reset_policy_output, keys_to_update=reset_policy_output.keys())
-
             theta = reset_policy_output.get(
                 ("environment_design", "layout_weights")
             ).numpy(force=True)
@@ -315,15 +315,12 @@ def _create_designable_windfarm(
 def create_env(
     mode: Literal["train", "eval", "reference"],
     scenario: ScenarioConfig,
-    designer: Designer,
+    designer: DesignConsumer,
     device: str | None = None,
     render: bool = False,
 ):
-    theta = designer.generate_environment_weights()
-    if isinstance(theta, torch.Tensor):
-        theta = theta.numpy(force=True)
-    else:
-        assert isinstance(theta, np.ndarray), "Theta must be a numpy array or tensor"
+    theta = make_generate_fn(scenario)()[0]  # Placeholder initial environment
+    assert isinstance(theta, np.ndarray)
     env = _create_designable_windfarm(
         scenario=scenario,
         initial_xcoords=theta[:, 0],
@@ -356,7 +353,7 @@ def create_env(
 def create_batched_env(
     num_environments: int,
     scenario: ScenarioConfig,
-    designer: Designer,
+    designer: DesignConsumer,
     mode: Literal["train", "eval", "reference"],
     device: str | None = None,
 ):
