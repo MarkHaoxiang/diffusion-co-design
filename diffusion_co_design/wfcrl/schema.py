@@ -2,23 +2,29 @@ import os
 from typing import Annotated, Literal
 from pydantic import Field
 
-from diffusion_co_design.common import (
-    Config,
-    PPOConfig,
-    LoggingConfig,
-    DeviceConfig,
-    DiffusionOperation,
-    OUTPUT_DIR,
-)
+from diffusion_co_design.common import Config, DiffusionOperation
+from diffusion_co_design.common.rl.mappo.schema import TrainingConfig as _TrainingConfig
+from diffusion_co_design.common.rl.mappo.schema import ScenarioConfig as _ScenarioConfig
+from diffusion_co_design.common.design import DesignerConfig as _Designer
+from diffusion_co_design.wfcrl.static import ENV_NAME
 
 
-class ScenarioConfig(Config):
+class ScenarioConfig(_ScenarioConfig):
     name: str
     n_turbines: int
     max_steps: int
     map_x_length: int
     map_y_length: int
     min_distance_between_turbines: int
+
+    def get_name(self) -> str:
+        return self.name
+
+    def get_episode_steps(self) -> int:
+        return self.max_steps
+
+    def get_num_agents(self) -> int:
+        return self.n_turbines
 
 
 class NormalisationStatistics(Config):
@@ -38,16 +44,12 @@ class ClassifierConfig(Config):
 # Designer registry
 
 
-class _Designer(Config):
-    environment_repeats: int = 1
-
-
 class Random(_Designer):
-    type: Literal["random"]
+    kind: Literal["random"]
 
 
 class Fixed(_Designer):
-    type: Literal["fixed"]
+    kind: Literal["fixed"]
 
 
 class _Value(_Designer):
@@ -61,31 +63,31 @@ class _Value(_Designer):
     distill_enable: bool = False
     distill_samples: int = 5
     loss_criterion: Literal["mse", "huber"] = "huber"
-    diffusion_early_start: int | None = None
+    random_generation_early_start: int = 0
     train_early_start: int = 0
 
 
 class Sampling(_Value):
-    type: Literal["sampling"]
+    kind: Literal["sampling"]
     n_samples: int = 16
 
 
 class Diffusion(_Value):
-    type: Literal["diffusion"]
+    kind: Literal["diffusion"]
     diffusion: DiffusionOperation
 
 
 DesignerConfig = Annotated[
     Random | Fixed | Diffusion | Sampling,
     Field(
-        discriminator="type",
+        discriminator="kind",
     ),
 ]
 
 # ====
 
 
-class RLConfig(Config):
+class ActorCriticConfig(Config):
     model_type: Literal["mlp", "gnn"]
     initial_std: float = 0.3
     # MLP
@@ -102,43 +104,28 @@ class RLConfig(Config):
     critic_gnn_depth: int = 3
 
 
-class TrainingConfig(Config):
-    experiment_name: str
-    device: DeviceConfig = DeviceConfig()
-    scenario_name: str
-    policy: RLConfig
-    ppo: PPOConfig
-    logging: LoggingConfig
-    designer: DesignerConfig
-    start_from_checkpoint: str | None = None
-
-    @property
-    def scenario(self) -> ScenarioConfig:
-        if not hasattr(self, "_scenario_cache"):
-            file = os.path.join(
-                OUTPUT_DIR, "wfcrl", "scenario", self.scenario_name, "config.yaml"
-            )
-            self._scenario_cache = ScenarioConfig.from_file(file)
-        return self._scenario_cache
-
+class TrainingConfig(
+    _TrainingConfig[DesignerConfig, ScenarioConfig, ActorCriticConfig]
+):
     @property
     def normalisation(self) -> NormalisationStatistics | None:
         if not hasattr(self, "_normalisation_cache"):
-            file = os.path.join(
-                OUTPUT_DIR,
-                "wfcrl",
-                "scenario",
-                self.scenario_name,
-                "normalisation_statistics.yaml",
-            )
+            file = os.path.join(self.scenario_folder, "normalisation_statistics.yaml")
             self._normalisation_cache = NormalisationStatistics.from_file(file)
         return self._normalisation_cache
 
     def dump(self) -> dict:
-        out = super().model_dump()
-        out["scenario"] = self.scenario.model_dump()
+        out = super().dump()
         if self.normalisation is not None:
             out["normalisation_statistics"] = self.normalisation.model_dump()
         else:
             out["normalisation_statistics"] = None
         return out
+
+    @property
+    def env_name(self) -> str:
+        return ENV_NAME
+
+    @property
+    def _scenario_cfg_cls(self) -> type[ScenarioConfig]:
+        return ScenarioConfig

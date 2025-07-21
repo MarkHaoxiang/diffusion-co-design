@@ -10,7 +10,7 @@ device:
   max_gpu_memory: 1.0
 scenario_name: wfcrl_10
 designer:
-  type: fixed
+  kind: fixed
   environment_repeats: 1
 start_from_checkpoint: null
 logging:

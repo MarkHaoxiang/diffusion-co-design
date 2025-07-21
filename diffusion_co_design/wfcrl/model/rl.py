@@ -11,7 +11,7 @@ from torch_geometric.utils import scatter
 
 from diffusion_co_design.wfcrl.schema import (
     ScenarioConfig,
-    RLConfig,
+    ActorCriticConfig,
     NormalisationStatistics,
 )
 from diffusion_co_design.common.nn import fully_connected
@@ -297,7 +297,10 @@ class MLPObservationNormalizer(nn.Module):
 
 
 def wfcrl_models_mlp(
-    env, cfg: RLConfig, normalisation: NormalisationStatistics | None, device: str
+    env,
+    cfg: ActorCriticConfig,
+    normalisation: NormalisationStatistics | None,
+    device: str,
 ):
     observation_keys = [
         ("turbine", "observation", x)
@@ -410,7 +413,10 @@ def maybe_make_denormaliser(normalisation: NormalisationStatistics | None):
 
 
 def wfcrl_models_gnn(
-    env, cfg: RLConfig, normalisation: NormalisationStatistics | None, device: str
+    env,
+    cfg: ActorCriticConfig,
+    normalisation: NormalisationStatistics | None,
+    device: str,
 ):
     observation_keys = [
         ("turbine", "observation", x)
@@ -523,7 +529,10 @@ def wfcrl_models_gnn(
 
 
 def wfcrl_models(
-    env, cfg: RLConfig, normalisation: NormalisationStatistics | None, device: str
+    env,
+    cfg: ActorCriticConfig,
+    normalisation: NormalisationStatistics | None,
+    device: str,
 ):
     match cfg.model_type:
         case "mlp":

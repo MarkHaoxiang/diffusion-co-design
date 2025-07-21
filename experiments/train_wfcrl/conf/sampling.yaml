@@ -10,7 +10,7 @@ device:
   max_gpu_memory: 1.0
 scenario_name: wfcrl_10
 designer:
-  type: sampling
+  kind: sampling
   environment_repeats: 1
   model:
     node_emb_size: 64

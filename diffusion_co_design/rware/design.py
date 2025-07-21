@@ -29,9 +29,9 @@ from diffusion_co_design.rware.schema import (
     DesignerConfig,
     ClassifierConfig,
     DiffusionOperation,
-    PPOConfig,
     Representation,
 )
+from diffusion_co_design.common.rl.mappo.schema import PPOConfig
 
 
 class Designer(BaseDesigner):

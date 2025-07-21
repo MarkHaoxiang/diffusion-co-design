@@ -2,7 +2,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from multiprocessing.synchronize import Lock
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
@@ -20,6 +20,12 @@ from diffusion_co_design.common.design.diffusion import (
     DiffusionOperation,
     BaseGenerator,
 )
+from diffusion_co_design.common.pydra import Config
+
+
+class DesignerConfig(Config):
+    kind: str  # type: ignore
+    environment_repeats: int = 1
 
 
 @dataclass
@@ -169,7 +175,7 @@ class ValueLearner:
                     X = sample.get("env")
                     observations_tds_list: list[torch.Tensor] = []
                     for theta in X:
-                        self.ref_env._reset_policy = TensorDictModule(
+                        self.ref_env._env._reset_policy = TensorDictModule(
                             module=lambda: theta,
                             in_keys=[],
                             out_keys=[ENVIRONMENT_DESIGN_KEY],
@@ -258,11 +264,15 @@ class ValueLearner:
 
 class ValueDesigner[SC](Designer[SC]):
     def __init__(
-        self, designer_setting: DesignerParams[SC], value_learner: ValueLearner
+        self,
+        designer_setting: DesignerParams[SC],
+        value_learner: ValueLearner,
+        random_generation_early_start: int = 0,
     ):
         super().__init__(designer_setting)
         self.value_learner = value_learner
 
+        self.random_generation_early_start = random_generation_early_start
         self.ref_layouts = self._make_reference_layouts()
 
     def update(self, sampling_td):
@@ -301,7 +311,7 @@ class ValueDesigner[SC](Designer[SC]):
                     "train_y_mean": self.value_learner.train_y_mean,
                     "train_y_max": self.value_learner.train_y_max,
                     "train_y_min": self.value_learner.train_y_min,
-                    "running_loss": self.value_learner.running_loss,
+                    "designer_loss": self.value_learner.running_loss,
                 }
             )
             if self.value_learner.clip_grad_norm is not None:
@@ -316,18 +326,36 @@ class ValueDesigner[SC](Designer[SC]):
     def _make_reference_layouts(self):
         return None
 
+    def generate_layout_batch(self, batch_size: int):
+        if len(self.value_learner.env_buffer) < self.random_generation_early_start:
+            return self._generate_random_layout_batch(batch_size)
+        else:
+            return self._generate_layout_batch(batch_size)
+
+    @abstractmethod
+    def _generate_layout_batch(self, batch_size: int):
+        raise NotImplementedError()
+
+    def _generate_random_layout_batch(self, batch_size: int):
+        raise NotImplementedError()
+
 
 class SamplingDesigner[SC](ValueDesigner[SC]):
     def __init__(
         self,
         designer_setting: DesignerParams[SC],
         value_learner: ValueLearner,
+        random_generation_early_start: int = 0,
         n_samples: int = 5,
     ):
-        super().__init__(designer_setting, value_learner)
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=value_learner,
+            random_generation_early_start=random_generation_early_start,
+        )
         self.n_samples = n_samples
 
-    def generate_layout_batch(self, batch_size):
+    def _generate_layout_batch(self, batch_size):
         self.model.eval()
         X = self.generate_random_layouts(batch_size * self.n_samples)
         X_post = self.value_learner._eval_to_train(X)
@@ -348,15 +376,20 @@ class DicodeDesigner[SC](ValueDesigner[SC]):
         value_learner: ValueLearner,
         diffusion_generator: BaseGenerator,
         diffusion_setting: DiffusionOperation,
+        random_generation_early_start: int = 0,
         total_annealing_iters: int = 1000,
     ):
-        super().__init__(designer_setting=designer_setting, value_learner=value_learner)
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=value_learner,
+            random_generation_early_start=random_generation_early_start,
+        )
         self.generator = diffusion_generator
         self.diffusion = diffusion_setting
         self.total_iters = total_annealing_iters
         self.forward_guidance_weight = self.diffusion.forward_guidance_wt
 
-    def generate_layout_batch(self, batch_size: int):
+    def _generate_layout_batch(self, batch_size: int):
         forward_enable = self.diffusion.forward_guidance_wt > 0
 
         operation = OptimizerDetails()

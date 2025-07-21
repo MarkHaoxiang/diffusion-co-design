@@ -2,17 +2,17 @@ import os
 from typing import Callable
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from diffusion_co_design.common import design
-
+from diffusion_co_design.common.rl.mappo.schema import PPOConfig
 from diffusion_co_design.wfcrl.static import GROUP_NAME
 from diffusion_co_design.wfcrl.schema import (
     NormalisationStatistics,
     ScenarioConfig as SC,
     DesignerConfig,
     ClassifierConfig,
-    PPOConfig,
     _Value,
     Fixed,
     Random,
@@ -61,7 +61,9 @@ class FixedDesigner(design.FixedDesigner[SC]):
     ):
         super().__init__(
             designer_setting=designer_setting,
-            layout=torch.tensor(make_generate_fn(self.scenario, seed)(n=1)).squeeze(0),
+            layout=torch.tensor(
+                make_generate_fn(designer_setting.scenario, seed)(n=1)
+            ).squeeze(0),
         )
 
 
@@ -110,6 +112,15 @@ class ValueLearner(design.ValueLearner):
         return eval_to_train(theta, self.scenario)
 
 
+def make_reference_layouts(scenario: SC, device):
+    generate = make_generate_fn(scenario, seed=0)
+    return torch.tensor(
+        np.array(generate(n=64, training_dataset=True)),
+        dtype=torch.float32,
+        device=device,
+    )
+
+
 class SamplingDesigner(design.SamplingDesigner[SC]):
     def __init__(
         self,
@@ -117,6 +128,7 @@ class SamplingDesigner(design.SamplingDesigner[SC]):
         classifier: ClassifierConfig,
         normalisation_statistics: NormalisationStatistics | None = None,
         value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        random_generation_early_start: int = 0,
         gamma: float = 0.99,
         device="cpu",
         n_samples: int = 16,
@@ -131,6 +143,7 @@ class SamplingDesigner(design.SamplingDesigner[SC]):
                 gamma=gamma,
                 device=device,
             ),
+            random_generation_early_start=random_generation_early_start,
             n_samples=n_samples,
         )
         self.generate = make_generate_fn(self.scenario)
@@ -146,6 +159,12 @@ class SamplingDesigner(design.SamplingDesigner[SC]):
         )
         return layouts
 
+    def _make_reference_layouts(self):
+        return make_reference_layouts(self.scenario, self.value_learner.device)
+
+    def _generate_random_layout_batch(self, batch_size: int):
+        return list(self.generate_random_layouts(batch_size))
+
 
 class DicodeDesigner(design.DicodeDesigner[SC]):
     def __init__(
@@ -155,6 +174,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
         diffusion: DiffusionOperation,
         normalisation_statistics: NormalisationStatistics | None = None,
         value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        random_generation_early_start: int = 0,
         gamma: float = 0.99,
         total_annealing_iters: int = 1000,
         device="cpu",
@@ -179,12 +199,20 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
                 default_guidance_wt=diffusion.forward_guidance_wt,
                 device=device,
             ),
+            random_generation_early_start=random_generation_early_start,
             total_annealing_iters=total_annealing_iters,
         )
         self.pc = soft_projection_constraint(self.scenario)
+        self.generate = RandomDesigner(designer_setting)
 
     def projection_constraint(self, x):
         return self.pc(x)
+
+    def _make_reference_layouts(self):
+        return make_reference_layouts(self.scenario, self.value_learner.device)
+
+    def _generate_random_layout_batch(self, batch_size: int):
+        return self.generate.generate_random_layouts(batch_size)
 
 
 def create_designer(
@@ -192,11 +220,14 @@ def create_designer(
     designer: DesignerConfig,
     ppo_cfg: PPOConfig,
     normalisation_statistics: NormalisationStatistics | None,
-    artifact_dir: str,
+    artifact_dir: str | Path,
     device: torch.device,
 ) -> tuple[design.Designer[SC], Callable[[], design.DesignConsumer]]:
     lock = torch.multiprocessing.Lock()
-    artifact_dir_path = Path(artifact_dir)
+    if isinstance(artifact_dir, str):
+        artifact_dir_path = Path(artifact_dir)
+    else:
+        artifact_dir_path = artifact_dir
     designer_setting = design.DesignerParams(
         scenario=scenario,
         artifact_dir=artifact_dir_path,
@@ -231,6 +262,7 @@ def create_designer(
                 classifier=designer.model,
                 normalisation_statistics=normalisation_statistics,
                 value_learner_hyperparameters=value_hyperparameters,
+                random_generation_early_start=designer.random_generation_early_start,
                 gamma=ppo_cfg.gamma,
                 n_samples=designer.n_samples,
                 device=device,
@@ -242,6 +274,7 @@ def create_designer(
                 designer_setting=designer_setting,
                 normalisation_statistics=normalisation_statistics,
                 value_learner_hyperparameters=value_hyperparameters,
+                random_generation_early_start=designer.random_generation_early_start,
                 gamma=ppo_cfg.gamma,
                 total_annealing_iters=ppo_cfg.n_iters,
                 device=device,
