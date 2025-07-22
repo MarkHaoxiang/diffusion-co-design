@@ -12,7 +12,7 @@ from diffusion_co_design.wfcrl.schema import (
     NormalisationStatistics,
     ScenarioConfig as SC,
     DesignerConfig,
-    ClassifierConfig,
+    EnvCriticConfig,
     _Value,
     Fixed,
     Random,
@@ -27,7 +27,12 @@ from diffusion_co_design.wfcrl.diffusion.generator import (
     eval_to_train,
     soft_projection_constraint,
 )
-from diffusion_co_design.common import DiffusionOperation, OUTPUT_DIR, get_latest_model
+from diffusion_co_design.common import (
+    DiffusionOperation,
+    OUTPUT_DIR,
+    get_latest_model,
+    np_list_to_tensor_list,
+)
 
 
 def make_generate_fn(scenario: SC, seed: int | None = None):
@@ -50,9 +55,9 @@ class RandomDesigner(design.RandomDesigner[SC]):
         self.generate = make_generate_fn(self.scenario, seed)
 
     def generate_random_layouts(self, batch_size):
-        return [
-            torch.tensor(x) for x in self.generate(n=batch_size, training_dataset=False)
-        ]
+        return np_list_to_tensor_list(
+            self.generate(n=batch_size, training_dataset=False)
+        )
 
 
 class FixedDesigner(design.FixedDesigner[SC]):
@@ -83,7 +88,7 @@ class ValueLearner(design.ValueLearner):
     def __init__(
         self,
         scenario: SC,
-        classifier: ClassifierConfig,
+        classifier: EnvCriticConfig,
         normalisation_statistics: NormalisationStatistics | None = None,
         hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
         gamma: float = 0.99,
@@ -125,7 +130,7 @@ class SamplingDesigner(design.SamplingDesigner[SC]):
     def __init__(
         self,
         designer_setting: design.DesignerParams[SC],
-        classifier: ClassifierConfig,
+        classifier: EnvCriticConfig,
         normalisation_statistics: NormalisationStatistics | None = None,
         value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
         random_generation_early_start: int = 0,
@@ -170,7 +175,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
     def __init__(
         self,
         designer_setting: design.DesignerParams[SC],
-        classifier: ClassifierConfig,
+        classifier: EnvCriticConfig,
         diffusion: DiffusionOperation,
         normalisation_statistics: NormalisationStatistics | None = None,
         value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,

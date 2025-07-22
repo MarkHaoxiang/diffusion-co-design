@@ -27,3 +27,7 @@ def start_from_checkpoint(
         checkpoint = get_latest_model(training_dir, name)
         state_dict = torch.load(checkpoint)
         model.load_state_dict(state_dict)
+
+
+def np_list_to_tensor_list(np_list: list) -> list[torch.Tensor]:
+    return [torch.tensor(x) for x in np_list]

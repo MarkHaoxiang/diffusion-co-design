@@ -1,3 +1,5 @@
+from typing import Literal
+
 import torch
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
@@ -6,17 +8,14 @@ from torchrl.envs import (
     MarlGroupMapType,
     TransformedEnv,
     RewardSum,
-    ParallelEnv,
 )
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
+from diffusion_co_design.common.design import DesignConsumer
+from diffusion_co_design.rware.diffusion.generate import generate
 from diffusion_co_design.rware.diffusion.transform import storage_to_layout
-from diffusion_co_design.rware.design import (
-    ScenarioConfig,
-    Designer,
-    FixedDesigner,
-)
+from diffusion_co_design.rware.schema import ScenarioConfig
 
 
 class RwareCoDesignWrapper(PettingZooWrapper):
@@ -24,9 +23,8 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         self,
         env=None,
         reset_policy: TensorDictModule | None = None,
-        scenario_cfg=None,
+        scenario_cfg: ScenarioConfig | None = None,
         representation=None,
-        environment_objective=None,
         return_state=False,
         group_map=None,
         use_mask=False,
@@ -48,7 +46,6 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         # Hack: TorchRL messes with object attributes, so need to set in inner environment
         # Also, it's difficult to rewrite sync
         self._env._reset_policy = reset_policy
-        self._env._environment_objective = environment_objective
         self._env.representation = representation
         assert scenario_cfg is not None
         self._env._scenario_cfg = scenario_cfg
@@ -67,29 +64,14 @@ class RwareCoDesignWrapper(PettingZooWrapper):
 
         elif self._env._reset_policy is not None:
             # Should recompute layout
+            td = (
+                tensordict
+                if tensordict is not None
+                else TensorDict({}, device=self.device)
+            )
+            reset_policy_output = self._env._reset_policy(td)
+            td.update(reset_policy_output, keys_to_update=reset_policy_output.keys())
 
-            if tensordict is not None:
-                if self._env._environment_objective is not None:
-                    tensordict[("environment_design", "objective")] = (
-                        self._env._environment_objective
-                    )
-                reset_policy_output = self._env._reset_policy(tensordict)
-                tensordict.update(
-                    reset_policy_output, keys_to_update=reset_policy_output.keys()
-                )
-            else:
-                if self._env._environment_objective is not None:
-                    td = TensorDict(
-                        {
-                            (
-                                "environment_design",
-                                "objective",
-                            ): self._env._environment_objective
-                        }
-                    )
-                else:
-                    td = TensorDict({}, device=self.device)
-                reset_policy_output = self._env._reset_policy(td)
             layout = storage_to_layout(
                 features=reset_policy_output.get(
                     ("environment_design", "layout_weights")
@@ -116,33 +98,25 @@ class RwareCoDesignWrapper(PettingZooWrapper):
 
 
 def create_env(
+    mode: Literal["train", "eval", "reference"],
     scenario: ScenarioConfig,
-    designer: Designer | None,
-    is_eval: bool = False,
+    designer: DesignConsumer,
+    representation: Literal["image", "graph"] = "image",
     render: bool = False,
-    device: str | None = None,
+    device: torch.device = torch.device("cpu"),
 ):
-    is_train = not is_eval
-    # Define environment design policy
-    # TODO: We probably want feature engineering.
-    # Or does this even matter if everything is fixed for initial experiments?
-    # if is_eval:  # Temp generalisation_experiment
-    # design_policy = FixedDesigner(scenario)
-
-    if designer is None:
-        designer = FixedDesigner(scenario)
-
-    scenario_objective = {
-        "agent_positions": torch.tensor(scenario.agent_idxs),
-        "goal_idxs": torch.tensor(scenario.goal_idxs),
-    }
     initial_layout = storage_to_layout(
-        features=designer.generate_environment_weights(scenario_objective),
+        generate(
+            size=scenario.size,
+            n_shelves=scenario.n_shelves,
+            goal_idxs=scenario.goal_idxs,
+            n_colors=scenario.n_colors,
+            training_dataset=False,
+            representation=representation,
+        )[0],
         config=scenario,
-        representation=designer.representation,
+        representation=representation,
     )
-
-    design_policy = designer.to_td_module()
 
     env = RwarePZW(
         Warehouse(
@@ -154,9 +128,6 @@ def create_env(
             max_inactivity_steps=None,
             reward_type=RewardRegistry.SHAPED,
             observation_type=ObservationRegistry.SHAPED,
-            # image_observation_layers=[
-            # ImageLayer.STORAGE,
-            # ],
             image_observation_layers=[
                 ImageLayer.STORAGE,
                 ImageLayer.GOALS_COLOR_ONE_HOT,
@@ -170,15 +141,14 @@ def create_env(
     env.reset()
     env = RwareCoDesignWrapper(
         env,
-        reset_policy=design_policy,
-        environment_objective=scenario_objective,
-        representation=designer.representation,
+        reset_policy=designer.to_td_module(),
+        representation=representation,
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
         scenario_cfg=scenario,
         return_state=True,
         device=device,
     )
-    if is_train:
+    if mode == "train":
         env = TransformedEnv(
             env,
             RewardSum(
@@ -187,33 +157,6 @@ def create_env(
             ),
         )
     return env
-
-
-def create_batched_env(
-    num_environments: int,
-    scenario: ScenarioConfig,
-    designer: Designer,
-    is_eval: bool = False,
-    device=None,
-):
-    def create_env_fn(render: bool = False):
-        return create_env(
-            scenario, designer, is_eval=is_eval, render=render, device="cpu"
-        )
-
-    eval_kwargs = [{"render": True}]
-    for _ in range(num_environments - 1):
-        eval_kwargs.append({})
-
-    return ParallelEnv(
-        num_workers=num_environments,
-        create_env_fn=create_env_fn,
-        create_env_kwargs=eval_kwargs if is_eval else {},
-        device=device,
-    )
-    # return SerialEnv(
-    #     num_workers=num_environments, create_env_fn=create_env_fn, device=device
-    # )
 
 
 def render_env(theta, scenario, representation):

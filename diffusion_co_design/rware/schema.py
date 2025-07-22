@@ -1,20 +1,19 @@
-import os
+from typing import Any, Annotated, TypeAlias, Literal, Sequence
 
-from typing import Any, TypeAlias, Literal, Sequence
-from diffusion_co_design.common import (
-    Config,
-    LoggingConfig,
-    PPOConfig,
-    DeviceConfig,
-    OUTPUT_DIR,
+from pydantic import Field, model_validator
+
+from diffusion_co_design.common import Config, DiffusionOperation
+from diffusion_co_design.common.rl.mappo.schema import (
+    TrainingConfig as _TrainingConfig,
+    ScenarioConfig as _ScenarioConfig,
 )
-from diffusion_co_design.common.design import DiffusionOperation
-
+from diffusion_co_design.common.design import DesignerConfig as __Designer
+from diffusion_co_design.rware.static import ENV_NAME
 
 Representation: TypeAlias = Literal["image", "flat", "graph"]
 
 
-class ScenarioConfig(Config):
+class ScenarioConfig(_ScenarioConfig):
     name: str
     size: int
     n_agents: int
@@ -27,69 +26,125 @@ class ScenarioConfig(Config):
     n_colors: int
     max_steps: int
 
+    def get_name(self) -> str:
+        return self.name
 
-class ClassifierConfig(Config):
+    def get_episode_steps(self) -> int:
+        return self.max_steps
+
+    def get_num_agents(self) -> int:
+        return self.n_agents
+
+
+class EnvCriticConfig(Config):
     name: str
     representation: Literal["graph", "image", "graph_warehouse"]
     model_kwargs: dict[str, Any] = {}
 
 
-class RLConfig(Config):
-    version: Literal["v1", "v2"] = "v1"
-    # V1
+# ====
+# Actor critic registry
+
+
+class ActorCriticConfigV1(Config):
+    version: Literal["v1"] = "v1"
     kernel_sizes: int | Sequence[int] = 3
     num_cells: int | Sequence[int] = [16, 32, 64]
     strides: Sequence[int] | int = 1
     hidden_size: int = 128
     depth: int = 2
     share_params: bool = True
-    # V2
+
+
+class ActorCRiticConfigV2(Config):
+    version: Literal["v2"] = "v2"
+    kernel_sizes: int | Sequence[int] = 3
+    num_cells: int | Sequence[int] = [16, 32, 64]
+    strides: Sequence[int] | int = 1
+    hidden_size: int = 128
+    depth: int = 2
+    share_params: bool = True
     critic_kwargs: dict | None = None
 
 
-class DesignerConfig(Config):
-    type: str
-    environment_repeats: int = 1
-    value_model: ClassifierConfig | None = None
-    value_early_start: int | None = None
-    value_n_update_iterations: int = 5
-    value_train_batch_size: int = 64
-    value_buffer_size: int = 4096
-    value_weight_decay: float = 0.05
-    value_lr: float = 3e-5
-    value_n_sample: int = 5
-    value_distill_enable: bool = False
-    value_distill_samples: int = 1
+ActorCriticConfig = Annotated[
+    ActorCriticConfigV1 | ActorCRiticConfigV2,
+    Field(
+        discriminator="version",
+    ),
+]
+
+# ====
+# Designer registry
+
+
+class _Designer(__Designer):
+    representation: Representation
+
+
+class Random(_Designer):
+    kind: Literal["random"]
+    representation: Representation = "image"
+
+    @model_validator(mode="after")
+    def validate_representation(cls, values):
+        assert values.representation == "image"
+        return values
+
+
+class Fixed(_Designer):
+    kind: Literal["fixed"]
+    representation: Representation = "image"
+
+    @model_validator(mode="after")
+    def validate_representation(cls, values):
+        assert values.representation == "image"
+        return values
+
+
+class _Value(_Designer):
+    model: EnvCriticConfig
+    n_update_iterations: int = 5
+    train_batch_size: int = 64
+    buffer_size: int = 4096
+    weight_decay: float = 0.0
+    lr: float = 3e-5
+    distill_enable: bool = False
+    distill_samples: int = 5
+    random_generation_early_start: int = 0
+    loss_criterion: Literal["mse", "huber"] = "mse"
+    train_early_start: int = 0
+
+
+class Sampling(_Value):
+    kind: Literal["sampling"]
+    n_samples: int = 16
+
+
+class Diffusion(_Value):
+    kind: Literal["diffusion"]
+    diffusion: DiffusionOperation
+
+
+class Descent(_Value):
+    kind: Literal["descent"]
     gradient_epochs: int = 20
     gradient_iterations: int = 10
     gradient_lr: float = 0.03
-    diffusion: DiffusionOperation = DiffusionOperation()
 
 
-class TrainingConfig(Config):
-    # Problem definition: Built with diffusion.datasets.rware.generate
-    device: DeviceConfig = DeviceConfig()
-    experiment_name: str
-    designer: DesignerConfig
-    scenario_name: str
-    # Training
-    ppo: PPOConfig
-    # Policy
-    policy: RLConfig = RLConfig()
-    # Logging
-    logging: LoggingConfig = LoggingConfig()
-    start_from_checkpoint: str | None = None
+DesignerConfig = Annotated[
+    Random | Fixed | Diffusion | Sampling | Descent, Field(discriminator="kind")
+]
+
+
+class TrainingConfig(
+    _TrainingConfig[DesignerConfig, ScenarioConfig, ActorCriticConfig]
+):
+    @property
+    def env_name(self) -> str:
+        return ENV_NAME
 
     @property
-    def scenario(self) -> ScenarioConfig:
-        if not hasattr(self, "_scenario_cache"):
-            file = os.path.join(
-                OUTPUT_DIR, "rware", "scenario", self.scenario_name, "config.yaml"
-            )
-            self._scenario_cache = ScenarioConfig.from_file(file)
-        return self._scenario_cache
-
-    def dump(self) -> dict:
-        out = super().model_dump()
-        out["scenario"] = self.scenario.model_dump()
-        return out
+    def _scenario_cfg_cls(self) -> type[ScenarioConfig]:
+        return ScenarioConfig

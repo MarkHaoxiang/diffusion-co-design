@@ -34,7 +34,7 @@ class NormalisationStatistics(Config):
     reward_std: float
 
 
-class ClassifierConfig(Config):
+class EnvCriticConfig(Config):
     node_emb_size: int = 64
     edge_emb_size: int = 32
     depth: int = 2
@@ -53,7 +53,7 @@ class Fixed(_Designer):
 
 
 class _Value(_Designer):
-    model: ClassifierConfig
+    model: EnvCriticConfig
     batch_size: int = 64
     buffer_size: int = 2048
     lr: float = 3e-4
@@ -78,10 +78,7 @@ class Diffusion(_Value):
 
 
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion | Sampling,
-    Field(
-        discriminator="kind",
-    ),
+    Random | Fixed | Diffusion | Sampling, Field(discriminator="kind")
 ]
 
 # ====

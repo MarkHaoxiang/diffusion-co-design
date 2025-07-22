@@ -1,8 +1,9 @@
 defaults:
   - _self_
   - metadata/training@_here_
-  - designer: sampling
 
+designer:
+  kind: fixed
 experiment_name: rware_test
 scenario_name: rware_16_50_5_4_corners
 device:

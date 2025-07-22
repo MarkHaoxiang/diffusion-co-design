@@ -14,11 +14,15 @@ from torchrl.envs import DTypeCastTransform
 
 
 from diffusion_co_design.rware.env import RwareCoDesignWrapper
-from diffusion_co_design.rware.schema import RLConfig
+from diffusion_co_design.rware.schema import (
+    ActorCriticConfig,
+    ActorCriticConfigV1,
+    ActorCRiticConfigV2,
+)
 
 
 def rware_models_v1(
-    env: RwareCoDesignWrapper, cfg: RLConfig, device: DEVICE_TYPING | None
+    env: RwareCoDesignWrapper, cfg: ActorCriticConfigV1, device: DEVICE_TYPING | None
 ):
     dtype_cast = TensorDictModule(
         DTypeCastTransform(
@@ -145,7 +149,7 @@ def rware_models_v1(
 
 
 def rware_models_v2(
-    env: RwareCoDesignWrapper, cfg: RLConfig, device: DEVICE_TYPING | None
+    env: RwareCoDesignWrapper, cfg: ActorCRiticConfigV2, device: DEVICE_TYPING | None
 ):
     dtype_cast = TensorDictModule(
         DTypeCastTransform(
@@ -246,12 +250,12 @@ def rware_models_v2(
 
 
 def rware_models(
-    env: RwareCoDesignWrapper, cfg: RLConfig, device: DEVICE_TYPING | None
+    env: RwareCoDesignWrapper,
+    cfg: ActorCriticConfig,
+    device: torch.device = torch.device("cpu"),
 ):
-    match cfg.version:
-        case "v1":
-            return rware_models_v1(env, cfg, device)
-        case "v2":
-            return rware_models_v2(env, cfg, device)
-        case _:
-            assert False
+    if isinstance(cfg, ActorCriticConfigV1):
+        return rware_models_v1(env, cfg, device)
+    elif isinstance(cfg, ActorCRiticConfigV2):
+        return rware_models_v2(env, cfg, device)
+    assert False

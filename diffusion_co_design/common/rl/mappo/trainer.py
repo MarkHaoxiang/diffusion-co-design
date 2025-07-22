@@ -75,14 +75,14 @@ class MAPPOCoDesign[
             mode="train",
             designer=make_design_consumer(),
             num_environments=n_train_envs,
-            scenario=cfg.scenario,
+            scenario=self.cfg.scenario,
             device=device.env_device,
         )
         eval_env = self.create_batched_env(
             mode="eval",
             designer=make_design_consumer(),
             num_environments=cfg.logging.evaluation_episodes,
-            scenario=cfg.scenario,
+            scenario=self.cfg.scenario,
             device=device.env_device,
         )
 
@@ -177,22 +177,25 @@ class MAPPOCoDesign[
             for iteration, sampling_td in enumerate(collector):
                 sampling_time = time.time() - sampling_start
                 training_tds, training_start = [], time.time()
-                logger.collect_sampling_td(sampling_td)
 
                 # Compute GAE
+                sampling_td = sampling_td.reshape(
+                    -1, self.cfg.scenario.get_episode_steps()
+                )
+                assert sampling_td[("next", "agents", "done")][:, -1].all()
+
                 loss_module.to(device=device.storage_device)
-                with torch.no_grad():
-                    loss_module.value_estimator(
-                        sampling_td,
-                        params=loss_module.critic_network_params,
-                        target_params=loss_module.target_critic_network_params,
-                    )
+                self.minibatch_advantage_calculation(
+                    sampling_td=sampling_td, loss_module=loss_module
+                )
                 loss_module.to(device=device.train_device)
 
                 # Add to the replay buffer (shuffling)
                 current_frames = sampling_td.numel()
                 total_frames += current_frames
                 replay_buffer.extend(sampling_td.reshape(-1))
+
+                logger.collect_sampling_td(sampling_td)
 
                 # PPO Update
                 policy.train()
@@ -273,7 +276,7 @@ class MAPPOCoDesign[
                             return frames.append(env.render()[0])
 
                         rollouts = eval_env.rollout(
-                            max_steps=cfg.scenario.max_steps,
+                            max_steps=self.cfg.scenario.get_episode_steps(),
                             policy=policy,
                             callback=callback,
                             auto_cast_to_device=True,
@@ -354,10 +357,10 @@ class MAPPOCoDesign[
 
     def create_batched_env(
         self,
+        mode: Literal["train", "eval", "reference"],
         num_environments: int,
         scenario: SC,
         designer: DesignConsumer,
-        mode: Literal["train", "eval", "reference"],
         device: str | None = None,
     ) -> ParallelEnv:
         def create_env_fn(render: bool = False):
@@ -380,6 +383,43 @@ class MAPPOCoDesign[
             device=device,
         )
 
+    def minibatch_advantage_calculation(
+        self,
+        sampling_td: TensorDict,
+        loss_module: ClipPPOLoss,
+        batch_size: int = 1,
+        batch_dim: int = 0,
+    ):
+        group_name = self.group_name
+        shape = sampling_td.get(("next", group_name, "reward")).shape
+
+        keys_list = [
+            (group_name, "state_value"),
+            ("next", group_name, "state_value"),
+            "advantage",
+            "value_target",
+        ]
+
+        buffer = [
+            torch.zeros(shape, device=sampling_td.device) for _ in range(len(keys_list))
+        ]
+
+        with torch.no_grad():
+            for i, eb in enumerate(sampling_td.split(batch_size, dim=batch_dim)):
+                loss_module.value_estimator(
+                    eb,
+                    params=loss_module.critic_network_params,
+                    target_params=loss_module.target_critic_network_params,
+                )
+
+                start = i * batch_size
+                end = min((i + 1) * batch_size, sampling_td.shape[0])
+                for j, key in enumerate(keys_list):
+                    buffer[j][start:end] = eb.get(key)
+
+        sampling_td.update({key: value for key, value in zip(keys_list, buffer)})
+        return sampling_td
+
     @abstractmethod
     def create_env(
         self,
@@ -397,5 +437,5 @@ class MAPPOCoDesign[
         reference_env: EnvBase,
         actor_critic_config: ACC,
         device: torch.device,
-    ):
+    ) -> tuple[torch.nn.Module, torch.nn.Module]:
         raise NotImplementedError()

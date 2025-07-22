@@ -2,7 +2,7 @@ defaults:
   - _self_
   - value_model: cnn
 
-type: sampling
+kind: sampling
 environment_repeats: 10
 value_n_update_iterations: 5
 value_n_sample: 16

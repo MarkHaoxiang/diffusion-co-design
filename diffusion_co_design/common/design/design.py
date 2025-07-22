@@ -24,7 +24,7 @@ from diffusion_co_design.common.pydra import Config
 
 
 class DesignerConfig(Config):
-    kind: str  # type: ignore
+    kind: Any
     environment_repeats: int = 1
 
 

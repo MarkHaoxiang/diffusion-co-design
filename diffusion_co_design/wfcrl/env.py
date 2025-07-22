@@ -9,7 +9,6 @@ import numpy as np
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from torchrl.envs import (
-    ParallelEnv,
     PettingZooWrapper,
     TransformedEnv,
     RewardSum,
@@ -30,6 +29,7 @@ from wfcrl.rewards import DoNothingReward
 from wfcrl.mdp import WindFarmMDP
 
 from diffusion_co_design.common.design import DesignConsumer
+from diffusion_co_design.wfcrl.static import GROUP_NAME
 from diffusion_co_design.wfcrl.design import make_generate_fn
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
 
@@ -206,7 +206,6 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
         self,
         env=None,
         reset_policy: TensorDictModule | None = None,
-        environment_objective=None,
         scenario_cfg=None,
         return_state=False,
         group_map=None,
@@ -227,7 +226,6 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
             **kwargs,
         )
         self._env._reset_policy = reset_policy
-        self._env._environment_objective = environment_objective
         assert scenario_cfg is not None
         self._env._scenario_cfg = scenario_cfg
 
@@ -236,27 +234,11 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
 
         if self._env._reset_policy is not None:
             # Should recompute layout
-            if self._env._environment_objective is not None:
-                if tensordict is not None:
-                    tensordict[("environment_design", "objective")] = (
-                        self._env._environment_objective
-                    )
-                    td = tensordict
-
-                else:
-                    td = TensorDict(
-                        {
-                            (
-                                "environment_design",
-                                "objective",
-                            ): self._env._environment_objective
-                        }
-                    )
-            else:
-                if tensordict is not None:
-                    td = tensordict
-                else:
-                    td = TensorDict({}, device=self.device)
+            td = (
+                tensordict
+                if tensordict is not None
+                else TensorDict({}, device=self.device)
+            )
             reset_policy_output = self._env._reset_policy(td)
             td.update(reset_policy_output, keys_to_update=reset_policy_output.keys())
             theta = reset_policy_output.get(
@@ -342,36 +324,12 @@ def create_env(
         env=env,
         transform=Compose(
             RewardSum(
-                in_keys=[env.reward_key], out_keys=[("turbine", "episode_reward")]
+                in_keys=[env.reward_key], out_keys=[(GROUP_NAME, "episode_reward")]
             ),
             RemoveEmptySpecs(),
         ),
     )
     return env
-
-
-def create_batched_env(
-    num_environments: int,
-    scenario: ScenarioConfig,
-    designer: DesignConsumer,
-    mode: Literal["train", "eval", "reference"],
-    device: str | None = None,
-):
-    def create_env_fn(render: bool = False):
-        return create_env(
-            mode, scenario=scenario, designer=designer, render=render, device="cpu"
-        )
-
-    eval_kwargs = [{"render": True}]
-    for _ in range(num_environments - 1):
-        eval_kwargs.append({})
-
-    return ParallelEnv(
-        num_workers=num_environments,
-        create_env_fn=create_env_fn,
-        create_env_kwargs=eval_kwargs if mode == "eval" else {},
-        device=device,
-    )
 
 
 def render_layout(x, scenario):
