@@ -11,12 +11,13 @@ from torch_geometric.nn import AttentionalAggregation
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 from guided_diffusion.nn import conv_nd, normalization
 from guided_diffusion.unet import Downsample, AttentionBlock, AttentionPool2d
+from diffusion_co_design.common.nn import EnvCritic
 from diffusion_co_design.rware.schema import ScenarioConfig
 from diffusion_co_design.rware.diffusion.generate import get_position
 from diffusion_co_design.rware.model.nn import ResBlock
 
 
-class Classifier(nn.Module):
+class Classifier(EnvCritic):
     @abstractmethod
     def predict(self, x):
         raise NotImplementedError
@@ -139,6 +140,8 @@ class UnetCNNClassifier(ImageClassifier):
 
 
 class CustomCNNClassifier(ImageClassifier):
+    supports_distillation = True
+
     def __init__(
         self,
         cfg: ScenarioConfig,

@@ -130,7 +130,7 @@ def main(cfg):
 
             train_losses.append(running_train_loss)
             eval_losses.append(running_eval_loss_sampling)
-            pbar.set_description(f" Train Loss {running_train_loss}")
+            pbar.set_description(f"Train Loss {running_train_loss}")
 
             logger.log(
                 {

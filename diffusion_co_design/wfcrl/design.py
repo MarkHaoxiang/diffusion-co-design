@@ -7,7 +7,7 @@ import torch
 
 from diffusion_co_design.common import design
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
-from diffusion_co_design.wfcrl.static import GROUP_NAME
+from diffusion_co_design.wfcrl.static import GROUP_NAME, ENV_NAME
 from diffusion_co_design.wfcrl.schema import (
     NormalisationStatistics,
     ScenarioConfig as SC,
@@ -113,6 +113,9 @@ class ValueLearner(design.ValueLearner):
             device=device,
         )
 
+    def _get_layout_from_state(self, state):
+        return state["layout"]
+
     def _eval_to_train(self, theta):
         return eval_to_train(theta, self.scenario)
 
@@ -188,7 +191,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
         super().__init__(
             designer_setting=designer_setting,
             value_learner=ValueLearner(
-                scenario=designer_setting.scenario,
+                scenario=sc,
                 classifier=classifier,
                 normalisation_statistics=normalisation_statistics,
                 hyperparameters=value_learner_hyperparameters,
@@ -198,7 +201,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
             diffusion_setting=diffusion,
             diffusion_generator=Generator(
                 generator_model_path=get_latest_model(
-                    os.path.join(OUTPUT_DIR, "wfcrl", "diffusion", sc.name), "model"
+                    os.path.join(OUTPUT_DIR, ENV_NAME, "diffusion", sc.name), "model"
                 ),
                 scenario=sc,
                 default_guidance_wt=diffusion.forward_guidance_wt,

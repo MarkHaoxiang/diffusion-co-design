@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
+from diffusion_co_design.common.nn import EnvCritic
 from guided_diffusion import dist_util
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.respace import SpacedDiffusion, _WrappedModel
@@ -94,7 +95,7 @@ class BaseGenerator(ABC):
     def generate_batch(
         self,
         batch_size: int | None = None,
-        value: nn.Module | None = None,
+        value: EnvCritic | None = None,
         use_operation: bool = False,
         operation_override: OptimizerDetails | None = None,
     ):
@@ -109,7 +110,9 @@ class BaseGenerator(ABC):
             def cond_fn(x: torch.Tensor, t):
                 with torch.enable_grad():
                     x_in = x.detach().requires_grad_(True)
-                    out = value(x_in, t).sum() * self.guidance_weight
+                    out = (
+                        value.predict_theta_value(x_in, t).sum() * self.guidance_weight
+                    )
                     return torch.autograd.grad(outputs=out, inputs=x_in)[0]
         else:
             cond_fn = None
@@ -138,7 +141,7 @@ class BaseGenerator(ABC):
                 #     )
                 #     x = torch.cat([x, additional_batch], dim=1)
                 assert additional is None
-                return -value(x)
+                return -value.predict_theta_value(x)
 
             operation.loss_func = criterion
             sample = self.diffusion.ddim_sample_loop_operation(

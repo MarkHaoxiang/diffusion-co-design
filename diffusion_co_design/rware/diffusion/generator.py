@@ -1,7 +1,7 @@
 import torch
-from torch import nn
 
 from diffusion_co_design.common.design import OptimizerDetails, BaseGenerator
+from diffusion_co_design.common.nn import EnvCritic
 
 from diffusion_co_design.rware.schema import ScenarioConfig, Representation
 from diffusion_co_design.rware.model.diffusion import diffusion_setup
@@ -39,7 +39,7 @@ class Generator(BaseGenerator):
     def generate_batch(
         self,
         batch_size: int | None = None,
-        value: nn.Module | None = None,
+        value: EnvCritic | None = None,
         use_operation: bool = False,
         operation_override: OptimizerDetails | None = None,
     ):

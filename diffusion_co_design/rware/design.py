@@ -1,4 +1,3 @@
-from abc import abstractmethod, ABC
 import math
 import os
 from typing import Callable
@@ -30,7 +29,7 @@ from diffusion_co_design.rware.diffusion.transform import (
 )
 from diffusion_co_design.rware.diffusion.generate import generate, get_position
 from diffusion_co_design.rware.diffusion.generator import Generator, OptimizerDetails
-from diffusion_co_design.rware.static import GROUP_NAME
+from diffusion_co_design.rware.static import GROUP_NAME, ENV_NAME
 from diffusion_co_design.rware.schema import (
     ScenarioConfig as SC,
     DesignerConfig,
@@ -39,7 +38,7 @@ from diffusion_co_design.rware.schema import (
     Representation,
 )
 
-from diffusion_co_design.rware.schema import Fixed, Random, _Value
+from diffusion_co_design.rware.schema import Fixed, Random, _Value, Sampling, Diffusion
 
 
 def make_generate_fn(scenario: SC, representation: Representation):
@@ -88,6 +87,27 @@ default_value_learner_hyperparameters = design.ValueLearnerHyperparameters(
 )
 
 
+def make_reference_layouts(
+    scenario: SC, representation: Representation, device: torch.device
+):
+    return torch.tensor(
+        np.array(
+            generate(
+                size=scenario.size,
+                n_shelves=scenario.n_shelves,
+                goal_idxs=scenario.goal_idxs,
+                n_colors=scenario.n_colors,
+                n=64,
+                training_dataset=True,
+                representation=representation,
+                rng=np.random.default_rng(seed=0),
+            )
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+
+
 class ValueLearner(design.ValueLearner):
     def __init__(
         self,
@@ -96,9 +116,10 @@ class ValueLearner(design.ValueLearner):
         representation: Representation = "image",
         hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
         gamma: float = 0.99,
-        device="cpu",
+        device: torch.device = torch.device("cpu"),
     ):
         self.scenario = scenario
+        self.representation = representation
         super().__init__(
             model=make_model(
                 model=classifier.name,
@@ -113,7 +134,9 @@ class ValueLearner(design.ValueLearner):
             group_aggregation="sum",
             device=device,
         )
-        self.representation = representation
+
+    def _get_layout_from_state(self, state):
+        return state[:, :, : self.scenario.n_colors]
 
     def _eval_to_train(self, theta):
         match self.representation:
@@ -126,6 +149,122 @@ class ValueLearner(design.ValueLearner):
                 }
             case "image":
                 return theta * 2 - 1
+
+
+class DicodeDesigner(design.DicodeDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        classifier: EnvCriticConfig,
+        diffusion: DiffusionOperation,
+        representation: Representation,
+        value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        random_generation_early_start: int = 0,
+        gamma: float = 0.99,
+        total_annealing_iters: int = 2000,
+        device: torch.device = torch.device("cpu"),
+    ):
+        self.representation = representation
+        sc = designer_setting.scenario
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=ValueLearner(
+                scenario=designer_setting.scenario,
+                classifier=classifier,
+                hyperparameters=value_learner_hyperparameters,
+                representation=representation,
+                gamma=gamma,
+                device=device,
+            ),
+            diffusion_setting=diffusion,
+            diffusion_generator=Generator(
+                generator_model_path=get_latest_model(
+                    os.path.join(
+                        OUTPUT_DIR, ENV_NAME, "diffusion", representation, sc.name
+                    ),
+                    "model",
+                ),
+                scenario=sc,
+                representation=representation,
+                guidance_wt=diffusion.forward_guidance_wt,
+                device=device,
+            ),
+            random_generation_early_start=random_generation_early_start,
+            total_annealing_iters=total_annealing_iters,
+        )
+
+        self.generate = RandomDesigner(designer_setting)
+        match self.representation:
+            case "graph":
+                self.pc = graph_projection_constraint(sc)
+            case "image":
+                self.pc = image_projection_constraint(sc)
+
+    def projection_constraint(self, x):
+        return self.pc(x)
+
+    def _make_reference_layouts(self):
+        return make_reference_layouts(
+            self.scenario, self.representation, self.value_learner.device
+        )
+
+    def _generate_random_layout_batch(self, batch_size):
+        return self.generate.generate_random_layouts(batch_size)
+
+
+class SamplingDesigner(design.SamplingDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        classifier: EnvCriticConfig,
+        representation: Representation,
+        value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        n_samples: int = 16,
+        random_generation_early_start: int = 0,
+        gamma: float = 0.99,
+        device: torch.device = torch.device("cpu"),
+    ):
+        self.representation = representation
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=ValueLearner(
+                scenario=designer_setting.scenario,
+                classifier=classifier,
+                hyperparameters=value_learner_hyperparameters,
+                representation=representation,
+                gamma=gamma,
+                device=device,
+            ),
+            n_samples=n_samples,
+            random_generation_early_start=random_generation_early_start,
+        )
+        if representation != "image":
+            raise NotImplementedError(
+                "SamplingDesigner only supports 'image' representation, not yet implemented."
+            )
+
+    def _make_reference_layouts(self):
+        return make_reference_layouts(
+            self.scenario, self.representation, self.value_learner.device
+        )
+
+    def generate_random_layouts(self, batch_size):
+        layouts = torch.tensor(
+            np.array(
+                generate(
+                    size=self.scenario.size,
+                    n_shelves=self.scenario.n_shelves,
+                    goal_idxs=self.scenario.goal_idxs,
+                    n_colors=self.scenario.n_colors,
+                    n=batch_size,
+                    training_dataset=False,
+                )
+            )
+        )
+        return layouts
+
+    def _generate_random_layout_batch(self, batch_size):
+        return list(self.generate_random_layouts(batch_size))
 
 
 # class PolicyDesigner(CentralisedDesigner):
@@ -304,285 +443,6 @@ class ValueLearner(design.ValueLearner):
 #     def get_logs(self):
 #         logs = {"designer_loss": self.reinforce_loss}
 #         return logs
-
-
-# class ValueDesigner(CentralisedDesigner, ABC):
-#     def __init__(
-#         self,
-#         scenario: ScenarioConfig,
-#         classifier: EnvCriticConfig,
-#         gamma: float = 0.99,
-#         n_update_iterations: int = 5,
-#         train_batch_size: int = 64,
-#         buffer_size: int = 2048,
-#         lr: float = 3e-5,
-#         weight_decay: float = 0.0,
-#         environment_repeats: int = 1,
-#         distill_from_critic: bool = False,
-#         distill_samples: int = 1,
-#         early_start: int | None = None,
-#         device: torch.device = torch.device("cpu"),
-#     ):
-#         super().__init__(scenario, environment_repeats=environment_repeats)
-#         self.model = make_model(
-#             model=classifier.name,
-#             scenario=scenario,
-#             model_kwargs=classifier.model_kwargs,
-#             device=device,
-#         )
-#         self.representation = classifier.representation  # type: ignore
-
-#         self.optim = torch.optim.Adam(
-#             self.model.parameters(), lr=lr, weight_decay=weight_decay
-#         )
-#         self.criterion = torch.nn.MSELoss()
-
-#         self.buffer_size = buffer_size
-#         self.train_batch_size = train_batch_size
-#         self.env_buffer = ReplayBuffer(
-#             storage=LazyTensorStorage(max_size=buffer_size),
-#             sampler=SamplerWithoutReplacement(drop_last=True),
-#             batch_size=self.train_batch_size,
-#         )
-
-#         self.n_update_iterations = n_update_iterations
-#         self.device = device
-#         self.gamma = gamma
-
-#         self.distill_from_critic = distill_from_critic
-#         self.distill_samples = distill_samples
-#         self.critic: TensorDictModule | None = None
-#         self.ref_env: EnvBase | None = None
-#         if self.distill_from_critic:
-#             self.manual_designer = FixedDesigner(scenario=scenario)
-
-#         # Logging
-#         self.ref_random_designs = torch.tensor(
-#             np.array(
-#                 generate(
-#                     size=scenario.size,
-#                     n_shelves=scenario.n_shelves,
-#                     goal_idxs=scenario.goal_idxs,
-#                     n_colors=scenario.n_colors,
-#                     n=64,
-#                     training_dataset=True,
-#                     representation=self.representation,
-#                     rng=np.random.default_rng(seed=0),
-#                 )
-#             ),
-#             dtype=torch.float32,
-#             device=self.device,
-#         )
-
-#         self.early_start = early_start
-
-#     @abstractmethod
-#     def _reset_env_buffer(self, batch_size):
-#         raise NotImplementedError()
-
-#     def reset_env_buffer(self, batch_size):
-#         if self.early_start and len(self.env_buffer) < self.early_start:
-#             return generate(
-#                 size=self.scenario.size,
-#                 n_shelves=self.scenario.n_shelves,
-#                 goal_idxs=self.scenario.goal_idxs,
-#                 n_colors=self.scenario.n_colors,
-#                 n=batch_size,
-#                 representation=self.representation,
-#             )
-#         else:
-#             return self._reset_env_buffer(batch_size)
-
-#     def update(self, sampling_td):
-#         super().update(sampling_td)
-
-#         # Update replay buffer
-#         X, y = get_env_from_td(sampling_td, self.scenario, gamma=self.gamma)
-#         match self.representation:
-#             case "graph":
-#                 pos, colors = image_to_pos_colors(X, self.scenario.n_shelves)
-#                 pos = (pos / (self.scenario.size - 1)) * 2 - 1
-#                 X_post = {
-#                     "pos": pos.to(dtype=torch.float32, device=self.device),
-#                     "colors": colors.to(dtype=torch.float32, device=self.device),
-#                 }
-#             case "image":
-#                 X_post = X * 2 - 1
-
-#         data = TensorDict(
-#             {"env": X, "env_post": X_post, "episode_reward": y}, batch_size=len(y)
-#         )
-#         self.env_buffer.extend(data)
-
-#         if self.distill_from_critic:
-#             assert self.critic is not None
-#             assert self.ref_env is not None
-#             self.ref_env._env._reset_policy = self.manual_designer.to_td_module()
-
-#         # Train
-#         if len(self.env_buffer) >= self.train_batch_size:
-#             self.running_loss = 0
-#             train_y_batch = []
-#             self.model.train()
-#             for _ in range(self.n_update_iterations):
-#                 self.optim.zero_grad()
-#                 sample = self.env_buffer.sample(batch_size=self.train_batch_size)
-#                 X_batch = sample.get("env_post").to(
-#                     dtype=torch.float32, device=self.device
-#                 )
-
-#                 if self.distill_from_critic:
-#                     assert self.critic is not None
-#                     assert self.ref_env is not None
-#                     X_img = sample.get("env")
-#                     observations_tds = []
-#                     for env_image in X_img:
-#                         observations_tds.append([])
-#                         self.manual_designer.layout_image.data.copy_(env_image)
-#                         for _ in range(self.distill_samples):
-#                             observations_tds[-1].append(self.ref_env.reset())
-#                         observations_tds[-1] = torch.stack(observations_tds[-1])
-#                     observations_tds = torch.stack(observations_tds)
-#                     self.critic.eval()
-#                     with torch.no_grad():
-#                         y_batch = self.critic(observations_tds).get(
-#                             ("agents", "state_value")
-#                         )
-#                         assert y_batch.shape == (
-#                             self.train_batch_size,
-#                             self.distill_samples,
-#                             self.scenario.n_agents,
-#                             1,
-#                         ), y_batch.shape
-#                         y_batch = y_batch.sum(dim=-2)
-#                         y_batch = y_batch.mean(dim=-2)
-#                         y_batch = y_batch.squeeze(-1)
-#                         assert y_batch.shape == (self.train_batch_size,)
-#                 else:
-#                     y_batch = sample.get("episode_reward").to(
-#                         dtype=torch.float32, device=self.device
-#                     )
-#                 train_y_batch.append(y_batch)
-
-#                 # Data Preprocessing
-#                 if self.representation == "graph":
-#                     X_batch = (X_batch["pos"], X_batch["colors"])
-
-#                 # Timesteps
-#                 # t, _ = self.generator.schedule_sampler.sample(len(X_batch), self.device)
-#                 # X_batch = self.generator.diffusion.q_sample(X_batch, t)
-#                 # y_pred = self.model(X_batch, t).squeeze()
-
-#                 y_pred = self.model.predict(X_batch)[0]
-#                 loss = self.criterion(y_pred, y_batch)
-#                 loss.backward()
-#                 self.running_loss += loss.item()
-#                 self.optim.step()
-#             # Logs
-#             self.running_loss = self.running_loss / self.n_update_iterations
-#             train_y_batch = torch.cat(train_y_batch)
-#             self.train_y_mean = train_y_batch.mean().item()
-#             self.train_y_max = train_y_batch.max().item()
-#             self.train_y_min = train_y_batch.min().item()
-
-#         if self.representation == "graph":
-#             X_post = (X_post["pos"], X_post["colors"])
-#         classifier_prediction = self.model.predict(X_post)[0]
-#         self.classifier_prediction_mean = classifier_prediction.mean().item()
-#         self.classifier_prediction_max = classifier_prediction.max().item()
-#         self.classifier_prediction_min = classifier_prediction.min().item()
-
-#         classifier_prediction_rand = self.model(self.ref_random_designs)
-#         self.classifier_prediction_rand_mean = classifier_prediction_rand.mean().item()
-#         self.classifier_prediction_rand_max = classifier_prediction_rand.max().item()
-#         self.classifier_prediction_rand_min = classifier_prediction_rand.min().item()
-
-#     def get_logs(self):
-#         logs = {
-#             "classifier_prediction_mean": self.classifier_prediction_mean,
-#             "classifier_prediction_max": self.classifier_prediction_max,
-#             "classifier_prediction_min": self.classifier_prediction_min,
-#             "classifier_prediction_rand_mean": self.classifier_prediction_rand_mean,
-#             "classifier_prediction_rand_max": self.classifier_prediction_rand_max,
-#             "classifier_prediction_rand_min": self.classifier_prediction_rand_min,
-#         }
-#         if len(self.env_buffer) >= self.train_batch_size:
-#             logs.update(
-#                 {
-#                     "designer_loss": self.running_loss,
-#                     "design_y_mean": self.train_y_mean,
-#                     "design_y_max": self.train_y_max,
-#                     "design_y_min": self.train_y_min,
-#                 }
-#             )
-#         return logs
-
-#     def get_model(self):
-#         return self.model
-
-#     def get_training_buffer(self):
-#         return self.env_buffer
-
-
-# class SamplingDesigner(ValueDesigner):
-#     def __init__(
-#         self,
-#         scenario: ScenarioConfig,
-#         classifier: EnvCriticConfig,
-#         gamma: float = 0.99,
-#         n_sample: int = 5,
-#         n_update_iterations: int = 5,
-#         train_batch_size: int = 64,
-#         buffer_size: int = 2048,
-#         lr: float = 3e-5,
-#         weight_decay: float = 0.00,
-#         environment_repeats: int = 1,
-#         distill_from_critic: bool = False,
-#         distill_samples: int = 1,
-#         early_start: int | None = None,
-#         device: torch.device = torch.device("cpu"),
-#     ):
-#         super().__init__(
-#             scenario=scenario,
-#             classifier=classifier,
-#             gamma=gamma,
-#             n_update_iterations=n_update_iterations,
-#             train_batch_size=train_batch_size,
-#             buffer_size=buffer_size,
-#             lr=lr,
-#             weight_decay=weight_decay,
-#             environment_repeats=environment_repeats,
-#             distill_from_critic=distill_from_critic,
-#             distill_samples=distill_samples,
-#             early_start=early_start,
-#             device=device,
-#         )
-#         self.n_sample = n_sample
-#         assert self.representation == "image"
-
-#     def _reset_env_buffer(self, batch_size: int):
-#         B = batch_size
-#         self.model.eval()
-#         X_numpy: np.ndarray = np.array(
-#             generate(
-#                 size=self.scenario.size,
-#                 n_shelves=self.scenario.n_shelves,
-#                 goal_idxs=self.scenario.goal_idxs,
-#                 n_colors=self.scenario.n_colors,
-#                 n=B * self.n_sample,
-#                 training_dataset=True,
-#             )
-#         )
-#         X_torch = torch.tensor(X_numpy, dtype=torch.float32, device=self.device)
-#         y: torch.Tensor = self.model(X_torch).squeeze()
-
-#         y = y.reshape(B, self.n_sample)
-#         X_numpy = X_numpy.reshape((B, self.n_sample, *X_numpy.shape[1:]))
-#         X_numpy = (X_numpy + 1) / 2
-#         indices = y.argmax(dim=1).numpy(force=True)
-#         batch = list(X_numpy[np.arange(B), indices])
-
-#         return batch
 
 
 # class GradientDescentDesigner(ValueDesigner):
@@ -779,42 +639,40 @@ def create_designer(
     elif isinstance(designer, Random):
         designer_producer = RandomDesigner(designer_setting)
     elif isinstance(designer, _Value):
-        pass
-        # value_hyperparameters = design.ValueLearnerHyperparameters(
-        #     lr=designer.lr,
-        #     train_batch_size=designer.batch_size,
-        #     buffer_size=designer.buffer_size,
-        #     n_update_iterations=designer.n_update_iterations,
-        #     clip_grad_norm=designer.clip_grad_norm,
-        #     weight_decay=0.0,
-        #     distill_from_critic=designer.distill_enable,
-        #     distill_samples=designer.distill_samples,
-        #     loss_criterion=designer.loss_criterion,
-        #     train_early_start=designer.train_early_start,
-        # )
-
-        # if isinstance(designer, Sampling):
-        #     designer_producer = SamplingDesigner(
-        #         designer_setting=designer_setting,
-        #         classifier=designer.model,
-        #         normalisation_statistics=normalisation_statistics,
-        #         value_learner_hyperparameters=value_hyperparameters,
-        #         random_generation_early_start=designer.random_generation_early_start,
-        #         gamma=ppo_cfg.gamma,
-        #         n_samples=designer.n_samples,
-        #         device=device,
-        #     )
-        # elif isinstance(designer, Diffusion):
-        #     designer_producer = DicodeDesigner(
-        #         diffusion=designer.diffusion,
-        #         classifier=designer.model,
-        #         designer_setting=designer_setting,
-        #         normalisation_statistics=normalisation_statistics,
-        #         value_learner_hyperparameters=value_hyperparameters,
-        #         random_generation_early_start=designer.random_generation_early_start,
-        #         gamma=ppo_cfg.gamma,
-        #         total_annealing_iters=ppo_cfg.n_iters,
-        #         device=device,
-        #     )
+        value_hyperparameters = design.ValueLearnerHyperparameters(
+            lr=designer.lr,
+            train_batch_size=designer.train_batch_size,
+            buffer_size=designer.buffer_size,
+            n_update_iterations=designer.n_update_iterations,
+            clip_grad_norm=None,
+            weight_decay=0.0,
+            distill_from_critic=designer.distill_enable,
+            distill_samples=designer.distill_samples,
+            loss_criterion=designer.loss_criterion,
+            train_early_start=designer.train_early_start,
+        )
+        if isinstance(designer, Sampling):
+            designer_producer = SamplingDesigner(
+                designer_setting=designer_setting,
+                classifier=designer.model,
+                value_learner_hyperparameters=value_hyperparameters,
+                random_generation_early_start=designer.random_generation_early_start,
+                gamma=ppo_cfg.gamma,
+                n_samples=designer.n_samples,
+                representation=designer.representation,
+                device=device,
+            )
+        elif isinstance(designer, Diffusion):
+            designer_producer = DicodeDesigner(
+                diffusion=designer.diffusion,
+                classifier=designer.model,
+                designer_setting=designer_setting,
+                value_learner_hyperparameters=value_hyperparameters,
+                random_generation_early_start=designer.random_generation_early_start,
+                gamma=ppo_cfg.gamma,
+                total_annealing_iters=ppo_cfg.n_iters,
+                representation=designer.representation,
+                device=device,
+            )
 
     return designer_producer, design_consumer_fn

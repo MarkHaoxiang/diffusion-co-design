@@ -115,6 +115,11 @@ class _Value(_Designer):
     loss_criterion: Literal["mse", "huber"] = "mse"
     train_early_start: int = 0
 
+    @model_validator(mode="after")
+    def validate_representation(cls, values):
+        assert values.model.representation == values.representation
+        return values
+
 
 class Sampling(_Value):
     kind: Literal["sampling"]

@@ -15,6 +15,7 @@ from diffusion_co_design.common.design.base import (
     DesignProducer,
     ENVIRONMENT_DESIGN_KEY,
 )
+from diffusion_co_design.common.nn import EnvCritic
 from diffusion_co_design.common.design.diffusion import (
     OptimizerDetails,
     DiffusionOperation,
@@ -81,7 +82,7 @@ class ValueLearnerHyperparameters:
 class ValueLearner:
     def __init__(
         self,
-        model: nn.Module,
+        model: EnvCritic,
         group_name: str,
         episode_steps: int,
         gamma: float = 0.99,
@@ -140,7 +141,7 @@ class ValueLearner:
         self.is_training = False
 
         # Update replay buffer
-        X, y = self._get_env_from_td(td)
+        X, y = self._get_training_pair_from_td(td)
         X_post = self._eval_to_train(X)
         data = TensorDict(
             {
@@ -191,8 +192,10 @@ class ValueLearner:
                     observations_tds = torch.stack(observations_tds_list)
                     self.critic.eval()
                     with torch.no_grad():
-                        y_batch = self.critic(observations_tds).get(
-                            (self.group_name, "state_value")
+                        critic_td = self.critic(observations_tds)
+                        y_batch = critic_td.get((self.group_name, "state_value"))
+                        hint_batch = critic_td.get(
+                            (self.group_name, "distillation_hint"), None
                         )
                         assert y_batch.shape == (
                             self.train_batch_size,
@@ -200,7 +203,12 @@ class ValueLearner:
                             y_batch.shape[-2],  # Number of agents
                             1,
                         ), y_batch.shape
-                        y_batch = y_batch.mean(dim=-2)  # Mean instead of sum
+                        match self.group_aggregation:
+                            case "mean":
+                                y_batch = y_batch.mean(dim=-2)
+                            case "sum":
+                                y_batch = y_batch.sum(dim=-2)
+                        # TODO: Hint distillation stuff
                         y_batch = y_batch.mean(dim=-2)
                         y_batch = y_batch.squeeze(-1)
                         assert y_batch.shape == (self.train_batch_size,)
@@ -212,7 +220,7 @@ class ValueLearner:
                 train_y_batch_list.append(y_batch)
 
                 # Timesteps
-                y_pred = self.model(X_batch)
+                y_pred, hint_pred = self.model.predict_theta_value_with_hint(X_batch)
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 if self.clip_grad_norm is not None:
@@ -230,17 +238,18 @@ class ValueLearner:
             self.train_y_max = train_y_batch.max().item()
             self.train_y_min = train_y_batch.min().item()
 
-        sampling_y_pred = self.model(X_post)
+        sampling_y_pred = self.model.predict_theta_value(X_post)
         self.sampling_y_pred_mean = sampling_y_pred.mean().item()
         self.sampling_y_pred_max = sampling_y_pred.max().item()
         self.sampling_y_pred_min = sampling_y_pred.min().item()
 
-    def _get_env_from_td(self, td: TensorDict):
+    def _get_training_pair_from_td(self, td: TensorDict):
         assert self.group_name is not None, "Group name must be set"
         assert self.episode_steps is not None, "Episode steps must be set"
 
         done = td.get(("next", "done"))
-        X = td.get(("state", "layout"))[done.squeeze(-1)].to(dtype=torch.float32)
+        state = td.get("state")
+        X = self._get_layout_from_state(state)[done.squeeze(-1)].to(dtype=torch.float32)
         reward = td.get(("next", self.group_name, "reward"))
         match self.group_aggregation:
             case "mean":
@@ -256,6 +265,10 @@ class ValueLearner:
         y = y.reshape(-1, self.episode_steps)
         y = y[:, 0]
         return X, y
+
+    @abstractmethod
+    def _get_layout_from_state(self, state: TensorDict):
+        raise NotImplementedError()
 
     @abstractmethod
     def _eval_to_train(self, theta: TensorDict):
@@ -296,7 +309,7 @@ class ValueDesigner[SC](Designer[SC]):
         )
         if self.ref_layouts is not None:
             self.model.eval()
-            ref_y_pred = self.model(self.ref_layouts)
+            ref_y_pred = self.model.predict_theta_value(self.ref_layouts)
             logs.update(
                 {
                     "ref_y_pred_mean": ref_y_pred.mean().item(),
@@ -359,7 +372,7 @@ class SamplingDesigner[SC](ValueDesigner[SC]):
         self.model.eval()
         X = self.generate_random_layouts(batch_size * self.n_samples)
         X_post = self.value_learner._eval_to_train(X)
-        y = self.model(X_post).squeeze()
+        y = self.model.predict_theta_value(X_post).squeeze()
         y = y.reshape(batch_size, self.n_samples)
         indices = y.argmax(dim=1).numpy(force=True)
         return [X[i * self.n_samples + j] for i, j in enumerate(indices)]
@@ -427,3 +440,53 @@ class DicodeDesigner[SC](ValueDesigner[SC]):
 
     def projection_constraint(self, x):
         return x
+
+
+class GradientDescentDesigner[SC](ValueDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: DesignerParams[SC],
+        value_learner: ValueLearner,
+        random_generation_early_start: int = 0,
+        lr: float = 0.03,
+    ):
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=value_learner,
+            random_generation_early_start=random_generation_early_start,
+        )
+        self.lr = lr
+
+    def _generate_layout_batch(self, batch_size):
+        env = torch.tensor(
+            self.value_learner._eval_to_train(
+                self._generate_random_layout_batch(batch_size)
+            ),
+            device=self.value_learner.device,
+            dtype=torch.float32,
+        )
+        optim = torch.optim.Adam([env], lr=self.lr)
+
+        for epoch in range(self.epochs):
+            env.requires_grad = True
+            for iteration in range(self.gradient_iterations):
+                optim.zero_grad()
+
+                y_pred = self.model.predict_theta_value(env)
+                loss = -y_pred.sum()
+                loss.backward()
+                optim.step()
+
+            env = self.projection_constraint(env.detach())
+
+        env = self._train_to_eval(env=env.detach())
+        batch = list(env)
+
+        return batch
+
+    def projection_constraint(self, x):
+        return x
+
+    @abstractmethod
+    def _train_to_eval(self, env):
+        raise NotImplementedError()

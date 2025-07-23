@@ -4,6 +4,19 @@ from torch_geometric.nn import MessagePassing
 from torch_scatter import scatter
 
 
+class EnvCritic(nn.Module):
+    supports_distillation: bool = False
+
+    def predict_theta_value_with_hint(self, theta):
+        if self.supports_distillation:
+            return self.forward(theta)
+        else:
+            return self.forward(theta), None
+
+    def predict_theta_value(self, theta):
+        return self.predict_theta_value_with_hint(theta)[0]
+
+
 def fully_connected(n):
     row, col = torch.meshgrid(torch.arange(n), torch.arange(n), indexing="ij")
     edge_index = torch.stack([row.flatten(), col.flatten()], dim=0)
