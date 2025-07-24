@@ -2,13 +2,11 @@ import os
 from functools import partial
 
 import hydra
+import hydra.core.hydra_config
 import torch
 from tqdm import tqdm
-from experiments.train_rware.main import TrainingConfig
-from diffusion_co_design.common import (
-    ExperimentLogger,
-    cuda as device,
-)
+from diffusion_co_design.common import ExperimentLogger, cuda as device
+from diffusion_co_design.rware.schema import TrainingConfig
 
 from dataset import load_dataset, make_dataloader
 from diffusion_co_design.rware.model.classifier import make_model, make_hint_loss

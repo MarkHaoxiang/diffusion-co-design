@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from tqdm import tqdm
 import torch
@@ -9,13 +10,15 @@ from tensordict import TensorDict
 
 from diffusion_co_design.common import get_latest_model
 from diffusion_co_design.common.constants import EXPERIMENT_DIR
+from diffusion_co_design.common.rl.util import create_batched_env
+from diffusion_co_design.common.design.base import LiveDesignConsumer
+from diffusion_co_design.common.design import DesignerParams
+from diffusion_co_design.rware.design import RandomDesigner
 from diffusion_co_design.rware.model.classifier import image_to_pos_colors
 from diffusion_co_design.rware.model.rl import rware_models
 from diffusion_co_design.rware.model.graph import WarehouseGNNBase
-from diffusion_co_design.rware.design import ScenarioConfig
-from diffusion_co_design.rware.env import create_env, create_batched_env
-from diffusion_co_design.rware.schema import TrainingConfig, DesignerConfig
-from diffusion_co_design.rware.design import DesignerRegistry
+from diffusion_co_design.rware.env import create_env
+from diffusion_co_design.rware.schema import TrainingConfig, ScenarioConfig
 
 working_dir = os.path.join(EXPERIMENT_DIR, "train_rware_classifier")
 if not os.path.exists(working_dir):
@@ -52,7 +55,7 @@ def rware_policy_return_dataset(
     training_dir: str,
     dataset_size: int,
     num_parallel_collection: int,
-    device: str,
+    device: torch.device,
 ):
     # Create policy
     checkpoint_dir = os.path.join(training_dir, "checkpoints")
@@ -63,15 +66,25 @@ def rware_policy_return_dataset(
     )
     gamma = training_cfg.ppo.gamma
 
-    _, env_designer = DesignerRegistry.get(
-        designer=DesignerConfig(type="random"),
+    env_designer = LiveDesignConsumer(
+        RandomDesigner(
+            designer_setting=DesignerParams(
+                scenario=scenario,
+                artifact_dir=Path(working_dir),
+                lock=torch.multiprocessing.Lock(),
+                environment_repeats=1,
+            )
+        )
+    )
+
+    ref_env = create_env(
+        mode="reference",
         scenario=scenario,
-        ppo_cfg=training_cfg.ppo,
-        artifact_dir=working_dir,
+        designer=env_designer,
+        representation="image",
         device=device,
     )
 
-    ref_env = create_env(scenario, env_designer, render=True, device=device)
     policy, critic = rware_models(ref_env, training_cfg.policy, device=device)
     policy.load_state_dict(torch.load(latest_policy, map_location=device))
     critic.load_state_dict(torch.load(latest_critic, map_location=device))
@@ -79,10 +92,11 @@ def rware_policy_return_dataset(
 
     # Collection
     collection_env = create_batched_env(
+        mode="train",
+        create_env=create_env,
         num_environments=num_parallel_collection,
         scenario=scenario,
         designer=env_designer,
-        is_eval=False,
         device="cpu",
     )
 
@@ -117,11 +131,6 @@ def rware_policy_return_dataset(
                 data_dict["distillation_hint"] = distillation_hint.detach().cpu()
 
             data = TensorDict(data_dict, batch_size=len(ep_reward))
-
-            # done = rollout.get(("next", "done"))
-            # X = rollout.get("state")[done.squeeze()]
-            # y = rollout.get(("next", "agents", "episode_reward")).mean(-2)[done]
-            # data = TensorDict({"env": X, "episode_reward": y}, batch_size=len(y))
 
             env_returns.extend(data)
     collection_env.close()

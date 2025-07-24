@@ -12,7 +12,7 @@ buffer_size: 128
 weight_decay: 0.0
 lr: 3e-5
 distill_enable: true
-distill_samples: 1
+distill_samples: 3
 random_generation_early_start: 0
 loss_criterion: mse
 train_early_start: 0

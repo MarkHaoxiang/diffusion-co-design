@@ -9,7 +9,7 @@ import hydra
 import hydra.core.hydra_config
 from tensordict import TensorDict
 import torch
-from torchrl.envs import EnvBase, ParallelEnv
+from torchrl.envs import EnvBase
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import ReplayBuffer, SamplerWithoutReplacement, LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
@@ -27,7 +27,10 @@ from diffusion_co_design.common.design import (
 from diffusion_co_design.common.pydra import Config
 from diffusion_co_design.common.env import ScenarioConfig
 from diffusion_co_design.common.device import memory_management
-from diffusion_co_design.common.rl.util import make_optimiser_and_lr_scheduler
+from diffusion_co_design.common.rl.util import (
+    make_optimiser_and_lr_scheduler,
+    create_batched_env,
+)
 from diffusion_co_design.common.rl.mappo.schema import TrainingConfig, PPOConfig
 from diffusion_co_design.common.logging import RLExperimentLogger
 from diffusion_co_design.common.misc import start_from_checkpoint
@@ -71,14 +74,16 @@ class MAPPOCoDesign[
                 device=self.device.env_device,
             )
 
-        train_env = self.create_batched_env(
+        train_env = create_batched_env(
+            create_env=self.create_env,
             mode="train",
             designer=make_design_consumer(),
             num_environments=n_train_envs,
             scenario=self.cfg.scenario,
             device=device.env_device,
         )
-        eval_env = self.create_batched_env(
+        eval_env = create_batched_env(
+            create_env=self.create_env,
             mode="eval",
             designer=make_design_consumer(),
             num_environments=cfg.logging.evaluation_episodes,
@@ -353,34 +358,6 @@ class MAPPOCoDesign[
         device: torch.device,
     ) -> tuple[Designer[SC], Callable[[], DesignConsumer]]:
         raise NotImplementedError()
-
-    def create_batched_env(
-        self,
-        mode: Literal["train", "eval", "reference"],
-        num_environments: int,
-        scenario: SC,
-        designer: DesignConsumer,
-        device: str | None = None,
-    ) -> ParallelEnv:
-        def create_env_fn(render: bool = False):
-            return self.create_env(
-                mode,
-                scenario=scenario,
-                designer=designer,
-                render=render,
-                device=torch.device("cpu"),
-            )
-
-        eval_kwargs = [{"render": True}]
-        for _ in range(num_environments - 1):
-            eval_kwargs.append({})
-
-        return ParallelEnv(
-            num_workers=num_environments,
-            create_env_fn=create_env_fn,
-            create_env_kwargs=eval_kwargs if mode == "eval" else {},
-            device=device,
-        )
 
     def minibatch_advantage_calculation(
         self,

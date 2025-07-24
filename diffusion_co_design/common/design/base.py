@@ -81,14 +81,6 @@ class DesignProducer(_Designer, ABC):
         with self.lock:
             buffer = self._read_buffer_unsafe()
 
-            # n_layouts = math.ceil(batch_size / self.environment_repeats)
-            # generated_layouts = self.generate_layout_batch(n_layouts)
-            # generated_layouts = [
-            #     [x] * self.environment_repeats for x in generated_layouts
-            # ]
-            # generated_layouts = [x for xs in generated_layouts for x in xs][
-            #     : batch_size * self.environment_repeats
-            # ]
             generated_layouts = self.generate_layout_batch(batch_size)
             buffer.extend(generated_layouts)
             self._write_buffer_unsafe(buffer)
@@ -142,3 +134,14 @@ class DesignProducer(_Designer, ABC):
 
 class DesignConsumer(_Designer):
     pass
+
+
+class LiveDesignConsumer(DesignConsumer):
+    """ "A design consumer that uses the design producer to get layouts on demand."""
+
+    def __init__(self, design_producer: DesignProducer):
+        super().__init__(design_producer.artifact_dir, design_producer.lock)
+        self.design_producer = design_producer
+
+    def forward(self):
+        return self.design_producer.generate_layout_batch(1)[0]

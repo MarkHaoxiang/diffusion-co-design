@@ -1,5 +1,11 @@
+from typing import Callable, Literal
+
 import torch
 import torch.optim as o
+from torchrl.envs import ParallelEnv
+
+from diffusion_co_design.common.env import ScenarioConfig
+from diffusion_co_design.common.design import DesignConsumer
 
 
 # https://github.com/pytorch/rl/blob/main/torchrl/objectives/utils.py#L602
@@ -60,3 +66,32 @@ def make_optimiser_and_lr_scheduler(
         critic_optim.zero_grad()
 
     return optim_step, scheduler_step
+
+
+def create_batched_env[SC: ScenarioConfig](
+    create_env: Callable[..., ParallelEnv],
+    mode: Literal["train", "eval", "reference"],
+    num_environments: int,
+    scenario: SC,
+    designer: DesignConsumer,
+    device: str | None = None,
+) -> ParallelEnv:
+    def create_env_fn(render: bool = False):
+        return create_env(
+            mode,
+            scenario=scenario,
+            designer=designer,
+            render=render,
+            device=torch.device("cpu"),
+        )
+
+    eval_kwargs = [{"render": True}]
+    for _ in range(num_environments - 1):
+        eval_kwargs.append({})
+
+    return ParallelEnv(
+        num_workers=num_environments,
+        create_env_fn=create_env_fn,
+        create_env_kwargs=eval_kwargs if mode == "eval" else {},
+        device=device,
+    )

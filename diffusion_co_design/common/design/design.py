@@ -208,7 +208,11 @@ class ValueLearner:
                                 y_batch = y_batch.mean(dim=-2)
                             case "sum":
                                 y_batch = y_batch.sum(dim=-2)
-                        # TODO: Hint distillation stuff
+
+                        if hint_batch is not None:
+                            # Reduce over agents and samples
+                            hint_batch = hint_batch.mean(dim=1).mean(dim=1)
+
                         y_batch = y_batch.mean(dim=-2)
                         y_batch = y_batch.squeeze(-1)
                         assert y_batch.shape == (self.train_batch_size,)
@@ -272,6 +276,9 @@ class ValueLearner:
 
     @abstractmethod
     def _eval_to_train(self, theta: TensorDict):
+        raise NotImplementedError()
+
+    def _make_hint_loss(self):
         raise NotImplementedError()
 
 
