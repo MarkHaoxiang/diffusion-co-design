@@ -65,6 +65,7 @@ class DesignProducer(_Designer, ABC):
         self._write_buffer_unsafe([])
 
         self.update_counter = 0
+        self.training_environment_buffer = []
 
     def update(self, sampling_td: TensorDict):
         self.update_counter += 1
@@ -80,15 +81,41 @@ class DesignProducer(_Designer, ABC):
         with self.lock:
             buffer = self._read_buffer_unsafe()
 
-            n_layouts = math.ceil(batch_size / self.environment_repeats)
-            generated_layouts = self.generate_layout_batch(n_layouts)
-            generated_layouts = [
-                [x] * self.environment_repeats for x in generated_layouts
-            ]
-            generated_layouts = [x for xs in generated_layouts for x in xs][:batch_size]
-
+            # n_layouts = math.ceil(batch_size / self.environment_repeats)
+            # generated_layouts = self.generate_layout_batch(n_layouts)
+            # generated_layouts = [
+            #     [x] * self.environment_repeats for x in generated_layouts
+            # ]
+            # generated_layouts = [x for xs in generated_layouts for x in xs][
+            #     : batch_size * self.environment_repeats
+            # ]
+            generated_layouts = self.generate_layout_batch(batch_size)
             buffer.extend(generated_layouts)
             self._write_buffer_unsafe(buffer)
+
+    def replenish_training_set(
+        self, training_episodes_per_batch: int, num_different_envs_in_parallel: int
+    ):
+        while len(self.training_environment_buffer) < training_episodes_per_batch:
+            # Replenish the training buffer
+            generated_layouts = (
+                self.generate_layout_batch(num_different_envs_in_parallel)
+                * self.environment_repeats
+            )
+            self.training_environment_buffer.extend(generated_layouts)
+
+        with self.lock:
+            buffer = self._read_buffer_unsafe()
+            assert len(buffer) == 0
+            self._write_buffer_unsafe(
+                self.training_environment_buffer[:training_episodes_per_batch]
+            )
+            self.training_environment_buffer = self.training_environment_buffer[
+                training_episodes_per_batch:
+            ]
+
+    def replenish_evaluation_set(self, n_eval_episodes: int):
+        self.replenish_layout_buffer(batch_size=n_eval_episodes)
 
     def _clear_layout_buffer(self):
         with self.lock:
@@ -102,6 +129,11 @@ class DesignProducer(_Designer, ABC):
 
     def set_environment_repeats(self, n: int):
         self.environment_repeats = n
+
+    @property
+    def buffer_len(self) -> int:
+        with self.lock:
+            return len(self._read_buffer_unsafe())
 
     @abstractmethod
     def generate_layout_batch(self, batch_size: int) -> list:

@@ -262,10 +262,7 @@ class MAPPOCoDesign[
                     and iteration % cfg.logging.evaluation_interval == 0
                 ):
                     evaluation_start = time.time()
-                    designer.replenish_layout_buffer(
-                        batch_size=cfg.logging.evaluation_episodes * 2
-                    )
-                    designer.set_environment_repeats(1)
+                    designer.replenish_evaluation_set(cfg.logging.evaluation_episodes)
                     with (
                         torch.no_grad(),
                         set_exploration_type(ExplorationType.RANDOM),
@@ -282,11 +279,8 @@ class MAPPOCoDesign[
                             auto_cast_to_device=True,
                             break_when_all_done=True,
                         )
-
                         evaluation_time = time.time() - evaluation_start
-
                         logger.collect_evaluation_td(rollouts, evaluation_time, frames)
-                    designer.set_environment_repeats(cfg.designer.environment_repeats)
 
                 lr = scheduler_step()
                 logger.log({"lr_actor": lr[0], "lr_critic": lr[1]})
@@ -330,7 +324,12 @@ class MAPPOCoDesign[
 
                 pbar.update()
                 sampling_start = time.time()
-                designer.replenish_layout_buffer(batch_size=n_train_envs)
+                designer.replenish_training_set(
+                    training_episodes_per_batch=cfg.ppo.frames_per_batch
+                    // cfg.scenario.get_episode_steps(),
+                    num_different_envs_in_parallel=n_train_envs,
+                )
+
         finally:
             # Cleaup
             logger.close()

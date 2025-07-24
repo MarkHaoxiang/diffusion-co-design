@@ -7,14 +7,14 @@ from torch_scatter import scatter
 class EnvCritic(nn.Module):
     supports_distillation: bool = False
 
-    def predict_theta_value_with_hint(self, theta):
+    def predict_theta_value_with_hint(self, *args, **kwargs):
         if self.supports_distillation:
-            return self.forward(theta)
+            return self.forward(*args, **kwargs)
         else:
-            return self.forward(theta), None
+            return self.forward(*args, **kwargs), None
 
-    def predict_theta_value(self, theta):
-        return self.predict_theta_value_with_hint(theta)[0]
+    def predict_theta_value(self, *args, **kwargs):
+        return self.predict_theta_value_with_hint(*args, **kwargs)[0]
 
 
 def fully_connected(n):
