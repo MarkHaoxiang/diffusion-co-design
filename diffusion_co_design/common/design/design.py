@@ -8,6 +8,7 @@ from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 import torch
 import torch.nn as nn
+from torch.optim import Adam
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from torchrl.objectives.value.functional import reward2go
 
@@ -75,6 +76,8 @@ class ValueLearnerHyperparameters:
     clip_grad_norm: float | None = 1.0
     distill_from_critic: bool = False
     distill_samples: int = 1
+    distill_embedding_hint: bool = False
+    distill_embedding_hint_loss_weight: float = 0.1
     n_update_iterations: int = 5
     loss_criterion: Literal["mse", "huber"] = "mse"
 
@@ -90,7 +93,7 @@ class ValueLearner:
         group_aggregation: Literal["mean", "sum"] = "mean",
         device: torch.device = torch.device("cpu"),
     ):
-        hp = hyperparameters
+        self.hp = hp = hyperparameters
         match hp.loss_criterion:
             case "huber":
                 self.criterion: torch.nn.Module = torch.nn.HuberLoss()
@@ -103,9 +106,15 @@ class ValueLearner:
 
         self.model = model
         self.model.to(device=device)
-        self.optim = torch.optim.Adam(
-            self.model.parameters(), lr=hp.lr, weight_decay=hp.weight_decay
-        )
+
+        self.use_hint_loss = hp.distill_embedding_hint
+        if hp.distill_embedding_hint:
+            self.hint_loss_weight = hp.distill_embedding_hint_loss_weight
+
+        else:
+            self.optim = Adam(
+                self.model.parameters(), lr=hp.lr, weight_decay=hp.weight_decay
+            )
 
         self.buffer_size = hp.buffer_size
         self.train_batch_size = hp.train_batch_size
@@ -134,8 +143,15 @@ class ValueLearner:
 
     def initialise_critic_distillation(self, critic, ref_env):
         self.initialised_critic = True
-        self.critic: nn.Module = critic  # Agent critic to distill from
+        self.critic: TensorDictModule = critic  # Agent critic to distill from
         self.ref_env = ref_env  # Reference environment used to calculate the state distribution from layout
+        if self.use_hint_loss:
+            self.hint_loss_fn = self._make_hint_loss(device=self.device)
+            self.optim = Adam(
+                list(self.model.parameters()) + list(self.hint_loss_fn.parameters()),
+                lr=self.hp.lr,
+                weight_decay=self.hp.weight_decay,
+            )
 
     def update(self, td: TensorDict):
         self.is_training = False
@@ -161,7 +177,9 @@ class ValueLearner:
         if len(self.env_buffer) >= max((self.train_batch_size, self.train_early_start)):
             self.is_training = True
 
-            self.running_loss = 0.0
+            self.running_prediction_loss = 0.0
+            self.running_distillation_loss = 0.0
+
             train_y_batch_list = []
             self.model.train()
             for _ in range(self.n_update_iterations):
@@ -210,8 +228,8 @@ class ValueLearner:
                                 y_batch = y_batch.sum(dim=-2)
 
                         if hint_batch is not None:
-                            # Reduce over agents and samples
-                            hint_batch = hint_batch.mean(dim=1).mean(dim=1)
+                            # Reduce over samples
+                            hint_batch = hint_batch.mean(dim=1)
 
                         y_batch = y_batch.mean(dim=-2)
                         y_batch = y_batch.squeeze(-1)
@@ -225,17 +243,26 @@ class ValueLearner:
 
                 # Timesteps
                 y_pred, hint_pred = self.model.predict_theta_value_with_hint(X_batch)
-                loss = self.criterion(y_pred, y_batch)
+
+                prediction_loss = self.criterion(y_pred, y_batch)
+                self.running_prediction_loss += prediction_loss.item()
+                loss = prediction_loss
+                if self.use_critic_distillation:
+                    distil_hint_loss = self.hint_loss_fn(hint_batch, hint_pred)
+                    loss += distil_hint_loss * self.hint_loss_weight
+                    self.running_distillation_loss += distil_hint_loss.item()
+
                 loss.backward()
                 if self.clip_grad_norm is not None:
                     grad_norm = torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), max_norm=self.clip_grad_norm
                     )
                     self.grad_norm = grad_norm.item()
-                self.running_loss += loss.item()
                 self.optim.step()
 
-            self.running_loss = self.running_loss / self.n_update_iterations
+            self.running_prediction_loss = (
+                self.running_prediction_loss / self.n_update_iterations
+            )
             train_y_batch = torch.cat(train_y_batch_list)
 
             self.train_y_mean = train_y_batch.mean().item()
@@ -278,7 +305,7 @@ class ValueLearner:
     def _eval_to_train(self, theta: TensorDict):
         raise NotImplementedError()
 
-    def _make_hint_loss(self):
+    def _make_hint_loss(self, device: torch.device) -> nn.Module:
         raise NotImplementedError()
 
 
@@ -331,11 +358,13 @@ class ValueDesigner[SC](Designer[SC]):
                     "train_y_mean": self.value_learner.train_y_mean,
                     "train_y_max": self.value_learner.train_y_max,
                     "train_y_min": self.value_learner.train_y_min,
-                    "designer_loss": self.value_learner.running_loss,
+                    "prediction_loss": self.value_learner.running_prediction_loss,
                 }
             )
             if self.value_learner.clip_grad_norm is not None:
                 logs["grad_norm"] = self.value_learner.grad_norm
+            if self.value_learner.use_critic_distillation is not None:
+                logs["distillation_loss"] = self.value_learner.running_distillation_loss
 
         return logs
 

@@ -13,6 +13,8 @@ weight_decay: 0.0
 lr: 3e-5
 distill_enable: true
 distill_samples: 3
+distill_hint: true
+distill_hint_weight: 0.1
 random_generation_early_start: 0
 loss_criterion: mse
 train_early_start: 0

@@ -111,6 +111,8 @@ class _Value(_Designer):
     lr: float = 3e-5
     distill_enable: bool = False
     distill_samples: int = 5
+    distill_hint: bool = False
+    distill_hint_weight: float = 0.1
     random_generation_early_start: int = 0
     loss_criterion: Literal["mse", "huber"] = "mse"
     train_early_start: int = 0

@@ -55,7 +55,7 @@ def main(cfg):
         hint_loss_fn = make_hint_loss(
             model=cfg.model.name, env_critic=model, device=device
         )
-        optim = torch.optim.AdamW(
+        optim = torch.optim.Adam(
             list(model.parameters()) + list(hint_loss_fn.parameters()),
             lr=cfg.lr,
             weight_decay=cfg.weight_decay,
@@ -75,8 +75,8 @@ def main(cfg):
         ExperimentLogger(
             directory=output_dir,
             experiment_name=experiment_name,
-            config=cfg.model_dump(),
             project_name="diffusion-co-design-rware-classifier",
+            config=cfg.model_dump(),
             mode=cfg.logging_mode,
         ) as logger,
         tqdm(range(cfg.train_epochs)) as pbar,

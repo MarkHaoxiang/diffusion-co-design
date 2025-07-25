@@ -104,9 +104,9 @@ class RLExperimentLogger(ExperimentLogger):
         self.group_name = group_name
         self.metrics_to_log: dict[str, Any] = {}
 
-    def log(self, log: dict[str, Any], train: bool = True):
-        if train:
-            log = {f"train/{k}": v for k, v in log.items()}
+    def log(self, log: dict[str, Any], path_prefix: str | None = "train"):
+        if path_prefix is not None:
+            log = {f"{path_prefix}/{k}": v for k, v in log.items()}
         self.metrics_to_log.update(log)
 
     def collect_sampling_td(self, td: TensorDictBase):

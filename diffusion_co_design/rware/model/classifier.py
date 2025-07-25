@@ -6,6 +6,7 @@ from diffusion_co_design.rware.model.graph import (
     WarehouseGNNLayer,
     WarehouseGNNBase,
 )
+from tensordict.nn import TensorDictModule
 from torch_geometric.data import Data
 from torch_geometric.nn import AttentionalAggregation
 from guided_diffusion.script_util import create_classifier, classifier_defaults
@@ -15,6 +16,7 @@ from diffusion_co_design.common.nn import EnvCritic
 from diffusion_co_design.rware.schema import ScenarioConfig
 from diffusion_co_design.rware.diffusion.generate import get_position
 from diffusion_co_design.rware.model.nn import ResBlock
+from diffusion_co_design.rware.model.shared import RLCritic
 
 
 class Classifier(EnvCritic):
@@ -555,11 +557,19 @@ def make_model(
     return model.to(device=device)
 
 
-def make_hint_loss(model, env_critic, device):
+def make_hint_loss(
+    model: str,
+    agent_critic: TensorDictModule,
+    env_critic: EnvCritic,
+    device: torch.device,
+):
     match model:
         case "cnn":
+            assert isinstance(env_critic, CustomCNNClassifier)
+            agent_critic_net = agent_critic.module[1].module
+            assert isinstance(agent_critic_net, RLCritic)
             return CNNRegressorLoss(
-                hint_channels=128,
+                hint_channels=agent_critic_net.distillation_hint_channels,
                 student_channels=env_critic.distillation_hint_channels,
             ).to(device=device)
         case _:

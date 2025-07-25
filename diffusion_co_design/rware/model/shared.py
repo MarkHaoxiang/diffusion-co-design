@@ -119,12 +119,15 @@ class RLCritic(EncoderUNetModel):
 
         distillation_hint = h  # Use this as the hints
         h = self.middle_block(h, emb)
+
         distillation_hint_shape = (
             N,
             distillation_hint.shape[-3],
             distillation_hint.shape[-2],
             distillation_hint.shape[-1],
         )
+        self.distillation_hint_channels = distillation_hint_shape[1]
+
         cnn_out = self.out(h)
         result = self.out_mlp(cnn_out)
 

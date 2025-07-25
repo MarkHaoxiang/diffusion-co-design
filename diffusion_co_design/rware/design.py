@@ -21,7 +21,11 @@ from diffusion_co_design.common import (
     np_list_to_tensor_list,
 )
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
-from diffusion_co_design.rware.model.classifier import make_model, image_to_pos_colors
+from diffusion_co_design.rware.model.classifier import (
+    make_model,
+    image_to_pos_colors,
+    make_hint_loss,
+)
 from diffusion_co_design.rware.diffusion.transform import (
     graph_projection_constraint,
     image_projection_constraint,
@@ -120,6 +124,7 @@ class ValueLearner(design.ValueLearner):
     ):
         self.scenario = scenario
         self.representation = representation
+        self.classifier_name = classifier.name
         super().__init__(
             model=make_model(
                 model=classifier.name,
@@ -149,6 +154,14 @@ class ValueLearner(design.ValueLearner):
                 }
             case "image":
                 return theta * 2 - 1
+
+    def _make_hint_loss(self, device):
+        return make_hint_loss(
+            model=self.classifier_name,
+            agent_critic=self.critic,
+            env_critic=self.model,
+            device=device,
+        )
 
 
 class DicodeDesigner(design.DicodeDesigner[SC]):
@@ -648,6 +661,8 @@ def create_designer(
             weight_decay=0.0,
             distill_from_critic=designer.distill_enable,
             distill_samples=designer.distill_samples,
+            distill_embedding_hint=designer.distill_hint,
+            distill_embedding_hint_loss_weight=designer.distill_hint_weight,
             loss_criterion=designer.loss_criterion,
             train_early_start=designer.train_early_start,
         )

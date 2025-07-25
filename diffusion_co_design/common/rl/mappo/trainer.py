@@ -260,7 +260,7 @@ class MAPPOCoDesign[
                 logger.collect_times(
                     sampling_time, training_time, design_time, total_time
                 )
-                logger.log(designer.get_logs())
+                logger.log(designer.get_logs(), path_prefix="train/designer")
 
                 if (
                     cfg.logging.evaluation_episodes > 0

@@ -10,5 +10,5 @@ lr: 3e-5
 train_target: critic
 weight_decay: 0.0
 logging_mode: online
-enable_hint: false
+enable_hint: true
 hint_loss_weight: 0.1
