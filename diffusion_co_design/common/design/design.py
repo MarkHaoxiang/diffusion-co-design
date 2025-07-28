@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
@@ -83,6 +84,34 @@ class ValueLearnerHyperparameters:
     distill_embedding_hint_loss_weight: float = 0.1
     n_update_iterations: int = 5
     loss_criterion: Literal["mse", "huber"] = "mse"
+
+
+def get_training_pair_from_td(
+    td: TensorDict,
+    group_name: str,
+    group_aggregation: Literal["mean", "sum"],
+    episode_steps: int,
+    gamma: float,
+    get_layout_from_state,
+):
+    done = td.get(("next", "done"))
+    state = td.get("state")
+    X = get_layout_from_state(state)[done.squeeze(-1)].to(dtype=torch.float32)
+    reward = td.get(("next", group_name, "reward"))
+    match group_aggregation:
+        case "mean":
+            reward = reward.mean(dim=-2)
+        case "sum":
+            reward = reward.sum(dim=-2)
+        case _:
+            raise ValueError(
+                f"Unknown group aggregation method: {group_aggregation}. Use 'mean' or 'sum'."
+            )
+
+    y = reward2go(reward, done=done, gamma=gamma, time_dim=-2)
+    y = y.reshape(-1, episode_steps)
+    y = y[:, 0]
+    return X, y
 
 
 class ValueLearner:
@@ -278,27 +307,14 @@ class ValueLearner:
         self.sampling_y_pred_min = sampling_y_pred.min().item()
 
     def _get_training_pair_from_td(self, td: TensorDict):
-        assert self.group_name is not None, "Group name must be set"
-        assert self.episode_steps is not None, "Episode steps must be set"
-
-        done = td.get(("next", "done"))
-        state = td.get("state")
-        X = self._get_layout_from_state(state)[done.squeeze(-1)].to(dtype=torch.float32)
-        reward = td.get(("next", self.group_name, "reward"))
-        match self.group_aggregation:
-            case "mean":
-                reward = reward.mean(dim=-2)
-            case "sum":
-                reward = reward.sum(dim=-2)
-            case _:
-                raise ValueError(
-                    f"Unknown group aggregation method: {self.group_aggregation}. Use 'mean' or 'sum'."
-                )
-
-        y = reward2go(reward, done=done, gamma=self.gamma, time_dim=-2)
-        y = y.reshape(-1, self.episode_steps)
-        y = y[:, 0]
-        return X, y
+        return get_training_pair_from_td(
+            td=td,
+            group_name=self.group_name,
+            group_aggregation=self.group_aggregation,
+            episode_steps=self.episode_steps,
+            gamma=self.gamma,
+            get_layout_from_state=self._get_layout_from_state,
+        )
 
     @abstractmethod
     def _get_layout_from_state(self, state: TensorDict):
@@ -670,3 +686,135 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
     def generate_layout_batch(self, batch_size: int):
         envs, _ = self._generate_env_action_batch(batch_size=batch_size)
         return list(envs)
+
+
+type EnvReturn = tuple[
+    Any,  # Environment
+    float,  # Return
+    int,  # Timestep
+]
+
+
+class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
+    def __init__(
+        self,
+        group_name: str,
+        designer_setting: DesignerParams[SC],
+        buffer_size: int = 1000,
+        infill_ratio: float = 0.25,
+        replay_sample_ratio: float = 0.9,
+        stale_sample_ratio: float = 0.3,
+        return_smoothing_factor: float = 0.8,
+        return_sample_temperature: float = 0.1,
+        gamma: float = 0.99,
+        group_aggregation: Literal["mean", "sum"] = "sum",
+    ):
+        super().__init__(designer_setting=designer_setting)
+        self.buffer_size = buffer_size
+        self.replay_sample_ratio = replay_sample_ratio
+        self.return_smoothing_factor = return_smoothing_factor
+        self.beta = return_sample_temperature
+        self.group_name = group_name
+        self.group_aggregation = group_aggregation
+        self.gamma = gamma
+        self.infill_ratio = infill_ratio
+        self.stale_sample_ratio = stale_sample_ratio
+
+        self.env_buffer: dict[Any, EnvReturn] = {
+            self._hash(env): (env, 0.0, -1)  # Return, Timestep
+            for env in self._generate_random_layout_batch(
+                batch_size=int(buffer_size * self.infill_ratio)
+            )
+        }
+
+        self.rng = np.random.default_rng()
+
+    def update(self, sampling_td: TensorDict):
+        super().update(sampling_td)
+        X, y = self._get_training_pair_from_td(sampling_td)
+
+        for i in range(len(X)):
+            key = self._hash(X[i])
+
+            env, env_return, timestep = self.env_buffer.get(key, (X[i], 0.0, 0))
+
+            # Exponential average of return
+            if timestep == -1:
+                env_return = y[i].item()
+            else:
+                env_return = env_return * self.return_smoothing_factor + (
+                    y[i].item() * (1 - self.return_smoothing_factor)
+                )
+
+            timestep = self.update_counter
+
+            value = (env, env_return, timestep)
+            if key not in self.env_buffer and len(self.env_buffer) >= self.buffer_size:
+                # Discard the worst environment
+                worst_key = min(
+                    self.env_buffer.keys(), key=lambda k: self.env_buffer[k][1]
+                )
+                self.env_buffer.pop(worst_key)
+
+            self.env_buffer[key] = value
+
+    def generate_layout_batch(self, batch_size):
+        _, values = zip(*self.env_buffer.items())
+        envs = [value[0] for value in values]
+
+        # Replay from buffer
+        # Prioritise stale samples
+        timesteps = np.array([value[2] for value in values])
+        current_timestep = self.update_counter
+        scores = current_timestep - timesteps
+        stale_p = scores / scores.sum()
+
+        # Prioritise high returns
+        returns = np.array([value[1] for value in values])
+        returns[timesteps == -1] = returns.max()  # Encourage early exploration
+        ranking = returns.argsort()[::-1].argsort()
+        scores = ranking ** (1 / self.beta)
+        return_p = scores / scores.sum()
+
+        n_samples = self.rng.binomial(n=batch_size, p=self.replay_sample_ratio)
+        n_stale = self.rng.binomial(n=n_samples, p=self.stale_sample_ratio)
+        n_return = n_samples - n_stale
+
+        sample_stale = self.rng.choice(envs, size=n_stale, p=stale_p, replace=False)
+        sample_return = self.rng.choice(envs, size=n_return, p=return_p, replace=False)
+
+        # Mutate new
+        new_environments = []
+        generate_base_envs = self.rng.choice(
+            envs, size=batch_size - n_samples, p=return_p, replace=False
+        )
+        for base_env in generate_base_envs:
+            new_environments.append(self._mutate(base_env))
+
+        layouts = sample_stale.tolist() + sample_return.tolist() + new_environments
+        return layouts
+
+    @abstractmethod
+    def _generate_random_layout_batch(self, batch_size: int):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _get_layout_from_state(self, state: TensorDict):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _mutate(self, env: Any):
+        raise NotImplementedError()
+
+    def _get_training_pair_from_td(self, td: TensorDict):
+        return get_training_pair_from_td(
+            td=td,
+            group_name=self.group_name,
+            group_aggregation=self.group_aggregation,
+            episode_steps=self.scenario.get_episode_steps(),
+            gamma=self.gamma,
+            get_layout_from_state=self._get_layout_from_state,
+        )
+
+    def _hash(self, env):
+        raise NotImplementedError()
