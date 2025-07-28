@@ -241,3 +241,15 @@ def storage_to_layout(
             goal_idxs=config.goal_idxs,
             goal_colors=config.goal_colors,
         )
+
+
+def hashable_representation(env: torch.Tensor, representation: Representation):
+    match representation:
+        case "image":
+            assert len(env.shape) == 4
+            np_repr = np.ascontiguousarray(env.detach().cpu().to(torch.uint8).numpy())
+            return np_repr.tobytes()
+        case "graph":
+            raise NotImplementedError()
+        case _:
+            raise ValueError(f"Unknown representation: {representation}")

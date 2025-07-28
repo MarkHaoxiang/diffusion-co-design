@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from typing import Literal
 from math import prod
 
@@ -5,13 +6,35 @@ import torch
 import torch.nn as nn
 from torch_geometric.utils import scatter
 
+from diffusion_co_design.common.nn import EnvCritic as _EnvCritic, fully_connected
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
-from diffusion_co_design.common.nn import fully_connected
 
 
-class MLPCritic(nn.Module):
-    def __init__(self, cfg: ScenarioConfig, embedding_size: int = 256, depth: int = 2):
+class EnvCritic(_EnvCritic):
+    def __init__(self, post_hook: torch.nn.Module | None = None):
         super().__init__()
+        self.post_hook = post_hook
+
+    def forward(self, x: torch.Tensor):
+        out = self._forward(x)
+        if self.post_hook is not None:
+            return self.post_hook(out)
+        return out
+
+    @abstractmethod
+    def _forward(self, layout: torch.Tensor):
+        raise NotImplementedError()
+
+
+class MLPCritic(EnvCritic):
+    def __init__(
+        self,
+        cfg: ScenarioConfig,
+        embedding_size: int = 256,
+        depth: int = 2,
+        post_hook: torch.nn.Module | None = None,
+    ):
+        super().__init__(post_hook=post_hook)
         self.scenario = cfg
         layers: list[nn.Module] = []
 
@@ -26,13 +49,13 @@ class MLPCritic(nn.Module):
             nn.Linear(embedding_size, 1),
         )
 
-    def forward(self, x: torch.Tensor):
+    def _forward(self, layout: torch.Tensor):
         # x: [B, N, 2]
-        x = x.flatten(start_dim=1)  # [B, N*2]
-        return self.mlp(x).squeeze(-1)  # [B]
+        layout = layout.flatten(start_dim=1)  # [B, N*2]
+        return self.mlp(layout).squeeze(-1)  # [B]
 
 
-class GNNCritic(nn.Module):
+class GNNCritic(EnvCritic):
     def __init__(
         self,
         cfg: ScenarioConfig,
@@ -40,8 +63,9 @@ class GNNCritic(nn.Module):
         edge_emb_dim: int = 16,
         n_layers: int = 4,
         aggr: Literal["add", "mean", "max"] = "add",
+        post_hook: torch.nn.Module | None = None,
     ):
-        super().__init__()
+        super().__init__(post_hook=post_hook)
         self.scenario = cfg
         self.n_turbines = self.scenario.n_turbines  # N
 
@@ -81,7 +105,7 @@ class GNNCritic(nn.Module):
 
         self.out_mlp = nn.Linear(node_emb_dim, 1)
 
-    def forward(
+    def _forward(
         self,
         layout: torch.Tensor,  # [*B, N, 2]
     ):

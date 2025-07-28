@@ -140,8 +140,16 @@ class Descent(_Value):
     gradient_lr: float = 0.03
 
 
+class Reinforce(_Designer):
+    kind: Literal["reinforce"]
+    lr: float = 1e-4
+    train_batch_size: int = 20
+    train_epochs: int = 1
+
+
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion | Sampling | Descent, Field(discriminator="kind")
+    Random | Fixed | Diffusion | Sampling | Descent | Reinforce,
+    Field(discriminator="kind"),
 ]
 
 

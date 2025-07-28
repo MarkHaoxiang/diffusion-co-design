@@ -344,3 +344,10 @@ def render_layout(x, scenario):
     im = env.render()
     env.close()
     return im
+
+
+def hashable_representation(env: torch.Tensor):
+    # Round to 4dp
+    env = torch.round(env, decimals=4)
+    np_repr = np.ascontiguousarray(env.detach().cpu().to(torch.uint8).numpy())
+    return np_repr.tobytes()

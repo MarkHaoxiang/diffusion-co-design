@@ -96,14 +96,12 @@ class ValueLearner(design.ValueLearner):
     ):
         self.scenario = scenario
         super().__init__(
-            model=torch.nn.Sequential(
-                GNNCritic(
-                    cfg=scenario,
-                    node_emb_dim=classifier.node_emb_size,
-                    edge_emb_dim=classifier.edge_emb_size,
-                    n_layers=classifier.depth,
-                ),
-                maybe_make_denormaliser(normalisation_statistics),
+            model=GNNCritic(
+                cfg=scenario,
+                node_emb_dim=classifier.node_emb_size,
+                edge_emb_dim=classifier.edge_emb_size,
+                n_layers=classifier.depth,
+                post_hook=maybe_make_denormaliser(normalisation_statistics),
             ),
             group_name=GROUP_NAME,
             episode_steps=scenario.max_steps,

@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from multiprocessing.synchronize import Lock
 from typing import Any, Literal
@@ -9,6 +10,7 @@ from tensordict.nn import TensorDictModule
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torchrl.envs.batched_envs import BatchedEnvBase
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from torchrl.objectives.value.functional import reward2go
 
@@ -16,6 +18,7 @@ from diffusion_co_design.common.design.base import (
     DesignProducer,
     ENVIRONMENT_DESIGN_KEY,
 )
+from diffusion_co_design.common.env import ScenarioConfig
 from diffusion_co_design.common.nn import EnvCritic
 from diffusion_co_design.common.design.diffusion import (
     OptimizerDetails,
@@ -31,14 +34,14 @@ class DesignerConfig(Config):
 
 
 @dataclass
-class DesignerParams[SC]:
+class DesignerParams[SC: ScenarioConfig]:
     scenario: SC
     artifact_dir: Path
     lock: Lock
     environment_repeats: int = 1
 
 
-class Designer[SC](DesignProducer):
+class Designer[SC: ScenarioConfig](DesignProducer):
     def __init__(self, designer_setting: DesignerParams[SC]):
         super().__init__(
             designer_setting.artifact_dir,
@@ -48,7 +51,7 @@ class Designer[SC](DesignProducer):
         self.scenario = designer_setting.scenario
 
 
-class RandomDesigner[SC](Designer[SC]):
+class RandomDesigner[SC: ScenarioConfig](Designer[SC]):
     def generate_layout_batch(self, batch_size: int):
         return self.generate_random_layouts(batch_size)
 
@@ -57,7 +60,7 @@ class RandomDesigner[SC](Designer[SC]):
         raise NotImplementedError()
 
 
-class FixedDesigner[SC](Designer[SC]):
+class FixedDesigner[SC: ScenarioConfig](Designer[SC]):
     def __init__(self, designer_setting: DesignerParams[SC], layout: Any):
         super().__init__(designer_setting)
         self.layout = torch.nn.Parameter(layout, requires_grad=False)
@@ -107,8 +110,8 @@ class ValueLearner:
         self.model = model
         self.model.to(device=device)
 
-        self.use_hint_loss = hp.distill_embedding_hint
-        if hp.distill_embedding_hint:
+        self.use_hint_loss = hp.distill_embedding_hint and hp.distill_from_critic
+        if self.use_hint_loss:
             self.hint_loss_weight = hp.distill_embedding_hint_loss_weight
 
         else:
@@ -247,7 +250,7 @@ class ValueLearner:
                 prediction_loss = self.criterion(y_pred, y_batch)
                 self.running_prediction_loss += prediction_loss.item()
                 loss = prediction_loss
-                if self.use_critic_distillation:
+                if self.use_hint_loss:
                     distil_hint_loss = self.hint_loss_fn(hint_batch, hint_pred)
                     loss += distil_hint_loss * self.hint_loss_weight
                     self.running_distillation_loss += distil_hint_loss.item()
@@ -309,7 +312,7 @@ class ValueLearner:
         raise NotImplementedError()
 
 
-class ValueDesigner[SC](Designer[SC]):
+class ValueDesigner[SC: ScenarioConfig](Designer[SC]):
     def __init__(
         self,
         designer_setting: DesignerParams[SC],
@@ -389,7 +392,7 @@ class ValueDesigner[SC](Designer[SC]):
         raise NotImplementedError()
 
 
-class SamplingDesigner[SC](ValueDesigner[SC]):
+class SamplingDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
     def __init__(
         self,
         designer_setting: DesignerParams[SC],
@@ -418,7 +421,7 @@ class SamplingDesigner[SC](ValueDesigner[SC]):
         raise NotImplementedError()
 
 
-class DicodeDesigner[SC](ValueDesigner[SC]):
+class DicodeDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
     def __init__(
         self,
         designer_setting: DesignerParams[SC],
@@ -478,13 +481,15 @@ class DicodeDesigner[SC](ValueDesigner[SC]):
         return x
 
 
-class GradientDescentDesigner[SC](ValueDesigner[SC]):
+class GradientDescentDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
     def __init__(
         self,
         designer_setting: DesignerParams[SC],
         value_learner: ValueLearner,
         random_generation_early_start: int = 0,
         lr: float = 0.03,
+        n_epochs: int = 10,
+        n_gradient_iterations: int = 10,
     ):
         super().__init__(
             designer_setting=designer_setting,
@@ -492,20 +497,16 @@ class GradientDescentDesigner[SC](ValueDesigner[SC]):
             random_generation_early_start=random_generation_early_start,
         )
         self.lr = lr
+        self.epochs = n_epochs
+        self.gradient_iterations = n_gradient_iterations
 
     def _generate_layout_batch(self, batch_size):
-        env = torch.tensor(
-            self.value_learner._eval_to_train(
-                self._generate_random_layout_batch(batch_size)
-            ),
-            device=self.value_learner.device,
-            dtype=torch.float32,
-        )
+        env = self._generate_initial_env(batch_size=batch_size)
         optim = torch.optim.Adam([env], lr=self.lr)
 
-        for epoch in range(self.epochs):
+        for _ in range(self.epochs):
             env.requires_grad = True
-            for iteration in range(self.gradient_iterations):
+            for _ in range(self.gradient_iterations):
                 optim.zero_grad()
 
                 y_pred = self.model.predict_theta_value(env)
@@ -514,7 +515,6 @@ class GradientDescentDesigner[SC](ValueDesigner[SC]):
                 optim.step()
 
             env = self.projection_constraint(env.detach())
-
         env = self._train_to_eval(env=env.detach())
         batch = list(env)
 
@@ -523,6 +523,150 @@ class GradientDescentDesigner[SC](ValueDesigner[SC]):
     def projection_constraint(self, x):
         return x
 
+    def _generate_initial_env(self, batch_size: int):
+        env = torch.stack(self._generate_random_layout_batch(batch_size))
+        env = self.value_learner._eval_to_train(env)
+
     @abstractmethod
     def _train_to_eval(self, env):
         raise NotImplementedError()
+
+    @abstractmethod
+    def _generate_random_layout_batch(self, batch_size):
+        raise NotImplementedError()
+
+
+class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
+    def __init__(
+        self,
+        designer_setting: DesignerParams[SC],
+        group_name: str,
+        group_aggregation: Literal["mean", "sum"] = "sum",
+        lr: float = 3e-4,
+        train_batch_size: int = 64,
+        train_epochs: int = 5,
+        gamma: float = 0.99,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(designer_setting)
+        self.lr = lr
+        self.train_batch_size = train_batch_size
+        self.train_epochs = train_epochs
+        self.gamma = gamma
+        self.device = device
+
+        self.policy = self._create_policy().to(device=device)
+        self.optim = Adam(self.policy.parameters(), lr=self.lr)
+        self.group_name = group_name
+        self.group_aggregation = group_aggregation
+
+        self.initialised = False
+
+    def update(self, sampling_td):
+        super().update(sampling_td)
+
+        assert self.initialised
+
+        self.reinforce_loss = 0.0
+        for _ in range(self.train_epochs):
+            # Collect episode (environment, reward) pairs
+            self.policy.eval()
+            envs, actions = self._generate_env_action_batch(
+                batch_size=self.train_batch_size
+            )
+
+            chunk_number = math.ceil(self.train_batch_size / self.train_env_batch_size)
+            env_chunks = torch.chunk(envs, chunk_number, dim=0)
+
+            rewards_list = []
+            for env_chunk in env_chunks:
+                envs_list = list(env_chunk)
+                n = len(envs_list)
+                if n < self.train_env_batch_size:
+                    envs_list += [envs_list[-1]] * (
+                        self.train_env_batch_size - n
+                    )  # Pad if needed
+
+                td = self.train_env.reset(
+                    list_of_kwargs=[{"layout_override": env.cpu()} for env in envs_list]
+                )
+                td = self.train_env.rollout(
+                    max_steps=self.scenario.get_episode_steps(),
+                    policy=self.agent_policy,
+                    auto_reset=False,
+                    tensordict=td,
+                )
+
+                done = td.get(("next", "done"))
+                reward = td.get(("next", self.group_name, "reward"))
+                match self.group_aggregation:
+                    case "mean":
+                        reward = reward.mean(dim=-2)
+                    case "sum":
+                        reward = reward.sum(dim=-2)
+                    case _:
+                        raise ValueError(
+                            f"Unknown group aggregation method: {self.group_aggregation}. Use 'mean' or 'sum'."
+                        )
+                y = reward2go(reward, done=done, gamma=self.gamma, time_dim=-2)
+                y = y.reshape(-1, self.scenario.get_episode_steps())
+                y = y[:n, 0]
+
+                rewards_list.append(y)
+
+            rewards = torch.cat(rewards_list, dim=0)
+
+            assert rewards.shape == (self.train_batch_size,), rewards.shape
+
+            # Reinforce
+            self.policy.train()
+            self.reinforce_loss += self.reinforce(envs, actions, rewards)
+
+            self.reinforce_loss /= self.train_epochs
+            self.train_env.reset()
+
+    def reinforce(self, actions: torch.Tensor, rewards: torch.Tensor):
+        B = rewards.shape[0]
+        assert rewards.shape == (B,), rewards.shape
+
+        action_log_probs = self._calculate_action_log_probs(
+            actions
+        )  # [B, Steps, Probability]
+
+        loss = -(action_log_probs * rewards.unsqueeze(-1)).sum(dim=1).mean()
+        self.optim.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
+        self.optim.step()
+        return loss.item()
+
+    def get_logs(self):
+        logs = {"reinforce_loss": self.reinforce_loss}
+        return logs
+
+    def initialise(
+        self,
+        train_env: BatchedEnvBase,
+        train_env_batch_size: int,
+        agent_policy: TensorDictModule,
+    ):
+        self.initialised = True
+        self.train_env = train_env
+        self.train_env_batch_size = train_env_batch_size
+        self.agent_policy = agent_policy
+
+    @abstractmethod
+    def _create_policy(self) -> nn.Module:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _generate_env_action_batch(self, batch_size: int):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _calculate_action_log_probs(self, actions: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def generate_layout_batch(self, batch_size: int):
+        envs, _ = self._generate_env_action_batch(batch_size=batch_size)
+        return list(envs)

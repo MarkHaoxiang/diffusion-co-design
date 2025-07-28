@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import math
 from multiprocessing.synchronize import Lock
 from pathlib import Path
 import pickle as pkl
@@ -65,7 +64,7 @@ class DesignProducer(_Designer, ABC):
         self._write_buffer_unsafe([])
 
         self.update_counter = 0
-        self.training_environment_buffer = []
+        self.training_environment_buffer: list = []
 
     def update(self, sampling_td: TensorDict):
         self.update_counter += 1

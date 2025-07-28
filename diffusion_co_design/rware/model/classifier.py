@@ -6,6 +6,7 @@ from diffusion_co_design.rware.model.graph import (
     WarehouseGNNLayer,
     WarehouseGNNBase,
 )
+from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule
 from torch_geometric.data import Data
 from torch_geometric.nn import AttentionalAggregation
@@ -19,10 +20,46 @@ from diffusion_co_design.rware.model.nn import ResBlock
 from diffusion_co_design.rware.model.shared import RLCritic
 
 
-class Classifier(EnvCritic):
+class GraphClassifier(EnvCritic):
+    def __init__(self, cfg: ScenarioConfig):
+        super().__init__()
+        self.cfg = cfg
+
+    def forward(self, x):
+        if isinstance(x, torch.Tensor):
+            colors = (
+                colors_setup(
+                    batch_size=x.shape[0],
+                    n_shelves=self.cfg.n_shelves,
+                    n_colors=self.cfg.n_colors,
+                )
+                .detach()
+                .to(device=x.device)
+            )
+
+            return self._predict((x, colors))
+        elif isinstance(x, tuple):
+            return self._predict(x)
+        elif isinstance(x, dict) or isinstance(x, TensorDictBase):
+            pos = x["pos"]
+            colors = x["colors"]
+            return self._predict((pos, colors))
+        elif isinstance(x, Data):
+            return self._predict(x)
+        else:
+            raise ValueError(
+                f"Unsupported input type: {type(x)}. Expected Tensor, tuple, dict, or Data."
+            )
+
     @abstractmethod
-    def predict(self, x):
-        raise NotImplementedError
+    def _predict(self, x):
+        raise NotImplementedError()
+
+
+class ImageClassifier(EnvCritic):
+    def __init__(self, cfg: ScenarioConfig):
+        super().__init__()
+        self.cfg = cfg
 
 
 def image_to_pos_colors(data: torch.Tensor, n_shelves: int):
@@ -60,25 +97,6 @@ def colors_setup(batch_size: int, n_shelves: int, n_colors: int):
     return colors.detach()
 
 
-class GraphClassifier(Classifier):
-    def __init__(self, cfg: ScenarioConfig):
-        super().__init__()
-        self.cfg = cfg
-
-    def forward(self, pos):
-        colors = (
-            colors_setup(
-                batch_size=pos.shape[0],
-                n_shelves=self.cfg.n_shelves,
-                n_colors=self.cfg.n_colors,
-            )
-            .detach()
-            .to(device=pos.device)
-        )
-
-        return self.predict((pos, colors))[0]
-
-
 class MLPClassifier(GraphClassifier):
     def __init__(self, cfg: ScenarioConfig, hidden_dim: int = 512, num_layers: int = 4):
         super().__init__(cfg)
@@ -96,21 +114,12 @@ class MLPClassifier(GraphClassifier):
         self.net = nn.Sequential(*layers)
         self.cfg = cfg
 
-    def predict(self, x):
+    def _predict(self, x):
         pos, colors = x
         x = torch.cat([pos, colors], dim=-1)
         x = x.view(x.shape[0], -1)
         x = self.net(x)
         return x.squeeze(-1), None
-
-
-class ImageClassifier(Classifier):
-    def __init__(self, cfg: ScenarioConfig):
-        super().__init__()
-        self.cfg = cfg
-
-    def predict(self, x):
-        return self.forward(x)
 
 
 class UnetCNNClassifier(ImageClassifier):
@@ -295,6 +304,8 @@ class CNNRegressorLoss(nn.Module):
 
 
 class GNNCNN(GraphClassifier):
+    supports_distillation = True
+
     def __init__(
         self,
         cfg: ScenarioConfig,
@@ -342,7 +353,7 @@ class GNNCNN(GraphClassifier):
                 self.goal_pos[-1, *get_position(goal_idx, cfg.size)] = 1
                 self.goal_pos[c, *get_position(goal_idx, cfg.size)] = 1
 
-    def predict(self, x, add_position_noise: bool = True):
+    def _predict(self, x, add_position_noise: bool = True):
         pos = x[0]  # [B, N, 2]
 
         if add_position_noise:
@@ -389,7 +400,7 @@ class GNNCNN(GraphClassifier):
             f"Image shape {image.shape[1]} does not match expected {self.num_channels}"
         )
 
-        y, distillation_hint = self.model.predict(image)
+        y, distillation_hint = self.model(image)
         return y.squeeze(-1), distillation_hint
 
 
@@ -416,7 +427,7 @@ class MLPCNNClassifier(GraphClassifier):
             nn.Linear(1024, cfg.size * cfg.size * cfg.n_colors),
         )
 
-    def predict(self, x):
+    def _predict(self, x):
         pos, colors = x
         x = torch.cat([pos, colors], dim=-1)
         B = x.shape[0]
@@ -523,7 +534,7 @@ class GNNClassifier(GraphClassifier):
             radius=radius,
         )
 
-    def predict(self, x):
+    def _predict(self, x):
         if isinstance(x, Data):
             return self.gnn(graph=x)
         else:
@@ -536,7 +547,7 @@ def make_model(
     scenario,
     model_kwargs=None,
     device=None,
-) -> Classifier:
+) -> EnvCritic:
     if model_kwargs is None:
         model_kwargs = {}
     match model:

@@ -2,18 +2,11 @@ defaults:
   - metadata/training@_here_
   - template/default@_here_
   - _self_
+  - designer: diffusion_image_distill_hint
 
-experiment_name: corners_agent_rl_210525
+experiment_name: corners_agent_distill_image_hint
 scenario_name: rware_16_50_5_4_corners
 device:
   device_management: "gpu"
   gpu_id: 0
   max_gpu_memory: 1.0
-designer:
-  kind: reinforce
-  environment_repeats: 10
-  train_epochs: 1
-  train_batch_size: 20
-  lr: 1e-4
-ppo:
-  n_iters: 2000
