@@ -1,9 +1,13 @@
+from pathlib import Path
+
+import torch
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
 
 from diffusion_co_design.common.rl.mappo import MAPPOCoDesign
+from diffusion_co_design.common.design import DesignerParams
 from diffusion_co_design.rware.static import GROUP_NAME
 import diffusion_co_design.rware.schema as schema
 import diffusion_co_design.rware.design as design
@@ -46,6 +50,15 @@ class Trainer(
             env=reference_env,
             cfg=actor_critic_config,
             device=device,
+        )
+
+    def create_placeholder_designer(self, scenario):
+        return design.RandomDesigner(
+            designer_setting=DesignerParams(
+                scenario=scenario,
+                artifact_dir=self.artifact_dir.joinpath("temp"),
+                lock=torch.multiprocessing.Lock(),
+            )
         )
 
     @property

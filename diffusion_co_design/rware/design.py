@@ -436,7 +436,11 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
             action_log_prob_list.append(action_log_probs)
             constructed_envs[batch_idxs, channel_selection, idxs] = 1
 
-        return torch.stack(action_log_prob_list)
+        return torch.stack(action_log_prob_list).T
+
+
+class ReplayDesigner(design.ReplayDesigner[SC]):
+    pass
 
 
 def create_designer(

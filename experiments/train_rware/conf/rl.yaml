@@ -15,5 +15,6 @@ designer:
   train_epochs: 1
   train_batch_size: 20
   lr: 1e-4
+  representation: image
 ppo:
   n_iters: 2000

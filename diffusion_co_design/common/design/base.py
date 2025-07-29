@@ -16,6 +16,8 @@ class _Designer(nn.Module):  # nn module to operate with tensordict
         super().__init__()
         self.lock = lock
         self.artifact_dir = artifact_dir
+        if not self.artifact_dir.exists():
+            self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self.buffer_path = artifact_dir.joinpath(BUFFER_FILENAME)
 
     def pop_layout(self):

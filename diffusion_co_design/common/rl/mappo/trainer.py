@@ -22,6 +22,7 @@ from diffusion_co_design.common.design import (
     Designer,
     DesignConsumer,
     ValueDesigner,
+    ReinforceDesigner,
 )
 
 from diffusion_co_design.common.pydra import Config
@@ -31,6 +32,7 @@ from diffusion_co_design.common.rl.util import (
     make_optimiser_and_lr_scheduler,
     create_batched_env,
 )
+from diffusion_co_design.common.design.base import LiveDesignConsumer
 from diffusion_co_design.common.rl.mappo.schema import TrainingConfig, PPOConfig
 from diffusion_co_design.common.logging import RLExperimentLogger
 from diffusion_co_design.common.misc import start_from_checkpoint
@@ -52,11 +54,12 @@ class MAPPOCoDesign[
         cfg, device = self.cfg, self.device
         n_train_envs = cfg.n_train_envs
         output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        self.artifact_dir = Path(output_dir)
         designer, make_design_consumer = self.create_designer(
             scenario=cfg.scenario,
             designer=cfg.designer,
             ppo=cfg.ppo,
-            artifact_dir=Path(output_dir),
+            artifact_dir=self.artifact_dir,
             device=self.device.train_device,
         )
 
@@ -66,11 +69,15 @@ class MAPPOCoDesign[
             environment_reset_num += n_train_envs + 1
         designer.replenish_layout_buffer(batch_size=environment_reset_num)
 
+        placeholder_designer = LiveDesignConsumer(
+            self.create_placeholder_designer(scenario=cfg.scenario)
+        )
+
         def create_reference_env():
             return self.create_env(
                 mode="reference",
                 scenario=self.cfg.scenario,
-                designer=make_design_consumer(),
+                designer=placeholder_designer,
                 device=self.device.env_device,
             )
 
@@ -100,6 +107,19 @@ class MAPPOCoDesign[
         if isinstance(designer, ValueDesigner):
             designer.value_learner.initialise_critic_distillation(
                 critic=critic, ref_env=create_reference_env()
+            )
+        elif isinstance(designer, ReinforceDesigner):
+            designer.initialise(
+                train_env=create_batched_env(
+                    create_env=self.create_env,
+                    mode="train",
+                    num_environments=n_train_envs,
+                    designer=placeholder_designer,
+                    scenario=cfg.scenario,
+                    device=device.env_device,
+                ),
+                train_env_batch_size=n_train_envs,
+                agent_policy=policy,
             )
 
         collector = SyncDataCollector(
@@ -414,4 +434,11 @@ class MAPPOCoDesign[
         actor_critic_config: ACC,
         device: torch.device,
     ) -> tuple[torch.nn.Module, torch.nn.Module]:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def create_placeholder_designer(self, scenario: SC) -> Designer[SC]:
+        """
+        Create a placeholder designer for the environment. This is used for reference environments.
+        """
         raise NotImplementedError()
