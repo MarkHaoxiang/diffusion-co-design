@@ -41,6 +41,15 @@ class DesignerParams[SC: ScenarioConfig]:
     lock: Lock
     environment_repeats: int = 1
 
+    @staticmethod
+    def new(scenario: SC, artifact_dir: Path, environment_repeats: int = 1):
+        return DesignerParams(
+            scenario=scenario,
+            artifact_dir=artifact_dir,
+            lock=torch.multiprocessing.Lock(),
+            environment_repeats=environment_repeats,
+        )
+
 
 class Designer[SC: ScenarioConfig](DesignProducer):
     def __init__(self, designer_setting: DesignerParams[SC]):
@@ -731,6 +740,7 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
 
     def update(self, sampling_td: TensorDict):
         super().update(sampling_td)
+
         X, y = self._get_training_pair_from_td(sampling_td)
 
         for i in range(len(X)):
@@ -754,9 +764,12 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
                 worst_key = min(
                     self.env_buffer.keys(), key=lambda k: self.env_buffer[k][1]
                 )
-                self.env_buffer.pop(worst_key)
+                worst_env_return = self.env_buffer[worst_key][1]
+                if worst_env_return < env_return:
+                    self.env_buffer.pop(worst_key)
 
-            self.env_buffer[key] = value
+            if key in self.env_buffer or len(self.env_buffer) < self.buffer_size:
+                self.env_buffer[key] = value
 
     def generate_layout_batch(self, batch_size):
         _, values = zip(*self.env_buffer.items())
@@ -788,8 +801,9 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
         generate_base_envs = self.rng.choice(
             envs, size=batch_size - n_samples, p=return_p, replace=False
         )
+
         for base_env in generate_base_envs:
-            new_environments.append(self._mutate(base_env))
+            new_environments.append(self._mutate(torch.tensor(base_env)))
 
         layouts = sample_stale.tolist() + sample_return.tolist() + new_environments
         return layouts
@@ -816,5 +830,7 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
             get_layout_from_state=self._get_layout_from_state,
         )
 
-    def _hash(self, env):
+    @staticmethod
+    @abstractmethod
+    def _hash(env):
         raise NotImplementedError()

@@ -1,0 +1,21 @@
+defaults:
+  - metadata/training@_here_
+  - template/default@_here_
+  - _self_
+
+experiment_name: corners_agent_random_210525
+scenario_name: rware_16_50_5_4_corners
+device:
+  device_management: "gpu"
+  gpu_id: 0
+  max_gpu_memory: 1.0
+designer:
+  kind: replay
+  buffer_size: 1000
+  infill_ratio: 0.25
+  replay_sample_ratio: 0.9
+  stale_sample_ratio: 0.3
+  return_smoothing_factor: 0.8
+  return_sample_temperature: 0.1
+  mutation_ratio: 0.1
+  environment_repeats: 1

@@ -246,7 +246,7 @@ def storage_to_layout(
 def hashable_representation(env: torch.Tensor, representation: Representation):
     match representation:
         case "image":
-            assert len(env.shape) == 4
+            assert len(env.shape) == 3
             np_repr = np.ascontiguousarray(env.detach().cpu().to(torch.uint8).numpy())
             return np_repr.tobytes()
         case "graph":

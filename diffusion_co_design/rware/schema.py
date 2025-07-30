@@ -142,13 +142,36 @@ class Descent(_Value):
 
 class Reinforce(_Designer):
     kind: Literal["reinforce"]
+    representation: Representation = "image"
     lr: float = 1e-4
     train_batch_size: int = 20
     train_epochs: int = 1
 
+    @model_validator(mode="after")
+    def validate_representation(cls, values):
+        assert values.representation == "image"
+        return values
+
+
+class Replay(_Designer):
+    kind: Literal["replay"]
+    representation: Representation = "image"
+    buffer_size: int = 1000
+    infill_ratio: float = 0.25
+    replay_sample_ratio: float = 0.9
+    stale_sample_ratio: float = 0.3
+    return_smoothing_factor: float = 0.8
+    return_sample_temperature: float = 0.1
+    mutation_ratio: float = 0.1
+
+    @model_validator(mode="after")
+    def validate_representation(cls, values):
+        assert values.representation == "image"
+        return values
+
 
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion | Sampling | Descent | Reinforce,
+    Random | Fixed | Diffusion | Sampling | Descent | Reinforce | Replay,
     Field(discriminator="kind"),
 ]
 

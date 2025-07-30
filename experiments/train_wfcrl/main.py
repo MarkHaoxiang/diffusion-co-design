@@ -1,4 +1,3 @@
-import torch
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
@@ -52,10 +51,8 @@ class Trainer(
 
     def create_placeholder_designer(self, scenario):
         return design.RandomDesigner(
-            designer_setting=DesignerParams(
-                scenario=scenario,
-                artifact_dir=self.artifact_dir.joinpath("temp"),
-                lock=torch.multiprocessing.Lock(),
+            designer_setting=DesignerParams.new(
+                scenario=scenario, artifact_dir=self.artifact_dir.joinpath("temp")
             )
         )
 

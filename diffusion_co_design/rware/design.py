@@ -22,6 +22,7 @@ from diffusion_co_design.rware.diffusion.transform import (
     graph_projection_constraint,
     image_projection_constraint,
     train_to_eval,
+    hashable_representation,
 )
 from diffusion_co_design.rware.diffusion.generate import generate, get_position
 from diffusion_co_design.rware.diffusion.generator import Generator
@@ -42,6 +43,7 @@ from diffusion_co_design.rware.schema import (
     Diffusion,
     Descent,
     Reinforce,
+    Replay,
 )
 
 
@@ -141,6 +143,8 @@ class ValueLearner(design.ValueLearner):
         )
 
     def _get_layout_from_state(self, state):
+        print(state.shape)
+        assert False
         return state[:, :, : self.scenario.n_colors]
 
     def _eval_to_train(self, theta):
@@ -440,7 +444,79 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
 
 
 class ReplayDesigner(design.ReplayDesigner[SC]):
-    pass
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        buffer_size: int = 1000,
+        infill_ratio: float = 0.25,
+        replay_sample_ratio: float = 0.9,
+        stale_sample_ratio: float = 0.3,
+        return_smoothing_factor: float = 0.8,
+        return_sample_temperature: float = 0.1,
+        ratio_of_shelves_moved_per_mutation: float = 0.1,
+        gamma: float = 0.99,
+    ):
+        self.generate = make_generate_fn(
+            designer_setting.scenario, representation="image"
+        )
+        super().__init__(
+            group_name=GROUP_NAME,
+            designer_setting=designer_setting,
+            buffer_size=buffer_size,
+            infill_ratio=infill_ratio,
+            replay_sample_ratio=replay_sample_ratio,
+            stale_sample_ratio=stale_sample_ratio,
+            return_smoothing_factor=return_smoothing_factor,
+            return_sample_temperature=return_sample_temperature,
+            gamma=gamma,
+            group_aggregation="sum",
+        )
+        self.shelves_moved_per_mutation = int(
+            ratio_of_shelves_moved_per_mutation * self.scenario.n_shelves
+        )
+
+    def _generate_random_layout_batch(self, batch_size):
+        return np_list_to_tensor_list(self.generate(batch_size))
+
+    def _get_layout_from_state(self, state):
+        return state[:, :, : self.scenario.n_colors]
+
+    def _mutate(self, env: torch.Tensor):
+        env = env.clone()
+        empty_locations = []
+        has_shelf_locations = []
+        empty_locations_shelf = env.sum(dim=-1) == 0
+
+        for idx in range(self.scenario.size**2):
+            if idx not in self.scenario.goal_idxs:
+                if empty_locations_shelf[*get_position(idx, self.scenario.size)]:
+                    empty_locations.append(idx)
+                else:
+                    has_shelf_locations.append(idx)
+                empty_locations.append(idx)
+
+        new_idxs = np.random.choice(
+            empty_locations,
+            size=self.shelves_moved_per_mutation,
+            replace=False,
+        )
+
+        from_idxs = np.random.choice(
+            has_shelf_locations,
+            size=self.shelves_moved_per_mutation,
+            replace=False,
+        )
+
+        for new_idx, from_idx in zip(new_idxs, from_idxs):
+            color = env[*get_position(from_idx, self.scenario.size), :].argmax(dim=-1)
+            env[*get_position(new_idx, self.scenario.size), color] = 0
+            env[*get_position(new_idx, self.scenario.size), color] = 1
+
+        return env
+
+    @staticmethod
+    def _hash(env):
+        return hashable_representation(env, representation="image")
 
 
 def create_designer(
@@ -528,6 +604,18 @@ def create_designer(
             train_epochs=designer.train_epochs,
             gamma=ppo_cfg.gamma,
             device=device,
+        )
+    elif isinstance(designer, Replay):
+        designer_producer = ReplayDesigner(
+            designer_setting=designer_setting,
+            buffer_size=designer.buffer_size,
+            infill_ratio=designer.infill_ratio,
+            replay_sample_ratio=designer.replay_sample_ratio,
+            stale_sample_ratio=designer.stale_sample_ratio,
+            return_smoothing_factor=designer.return_smoothing_factor,
+            return_sample_temperature=designer.return_sample_temperature,
+            ratio_of_shelves_moved_per_mutation=designer.mutation_ratio,
+            gamma=ppo_cfg.gamma,
         )
 
     return designer_producer, design_consumer_fn
