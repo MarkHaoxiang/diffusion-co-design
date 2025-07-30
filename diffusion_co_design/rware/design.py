@@ -143,8 +143,6 @@ class ValueLearner(design.ValueLearner):
         )
 
     def _get_layout_from_state(self, state):
-        print(state.shape)
-        assert False
         return state[:, :, : self.scenario.n_colors]
 
     def _eval_to_train(self, theta):
@@ -485,7 +483,7 @@ class ReplayDesigner(design.ReplayDesigner[SC]):
         env = env.clone()
         empty_locations = []
         has_shelf_locations = []
-        empty_locations_shelf = env.sum(dim=-1) == 0
+        empty_locations_shelf = env.sum(dim=0) == 0
 
         for idx in range(self.scenario.size**2):
             if idx not in self.scenario.goal_idxs:
@@ -508,9 +506,10 @@ class ReplayDesigner(design.ReplayDesigner[SC]):
         )
 
         for new_idx, from_idx in zip(new_idxs, from_idxs):
-            color = env[*get_position(from_idx, self.scenario.size), :].argmax(dim=-1)
-            env[*get_position(new_idx, self.scenario.size), color] = 0
-            env[*get_position(new_idx, self.scenario.size), color] = 1
+            pos = get_position(new_idx, self.scenario.size)
+            color = env[:, *pos].argmax(dim=0)
+            env[color, *pos] = 0
+            env[color, *pos] = 1
 
         return env
 

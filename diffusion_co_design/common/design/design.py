@@ -793,19 +793,25 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
         n_stale = self.rng.binomial(n=n_samples, p=self.stale_sample_ratio)
         n_return = n_samples - n_stale
 
-        sample_stale = self.rng.choice(envs, size=n_stale, p=stale_p, replace=False)
-        sample_return = self.rng.choice(envs, size=n_return, p=return_p, replace=False)
+        env_idxs = np.arange(len(envs))
+        sample_stale = self.rng.choice(env_idxs, size=n_stale, p=stale_p, replace=False)
+        sample_stale = [envs[i] for i in sample_stale]
+        sample_return = self.rng.choice(
+            env_idxs, size=n_return, p=return_p, replace=False
+        )
+        sample_return = [envs[i] for i in sample_return]
 
         # Mutate new
         new_environments = []
         generate_base_envs = self.rng.choice(
-            envs, size=batch_size - n_samples, p=return_p, replace=False
+            env_idxs, size=batch_size - n_samples, p=return_p, replace=False
         )
+        generate_base_envs = [envs[i] for i in generate_base_envs]
 
         for base_env in generate_base_envs:
-            new_environments.append(self._mutate(torch.tensor(base_env)))
+            new_environments.append(self._mutate(base_env))
 
-        layouts = sample_stale.tolist() + sample_return.tolist() + new_environments
+        layouts = sample_stale + sample_return + new_environments
         return layouts
 
     @abstractmethod
