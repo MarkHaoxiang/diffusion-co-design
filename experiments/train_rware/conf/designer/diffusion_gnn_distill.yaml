@@ -3,6 +3,7 @@ defaults:
   - value_model: gnn_cnn
 
 kind: diffusion
+representation: graph
 environment_repeats: 10
 value_n_update_iterations: 5
 value_train_batch_size: 64

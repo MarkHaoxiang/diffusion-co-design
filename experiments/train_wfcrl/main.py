@@ -51,9 +51,7 @@ class Trainer(
 
     def create_placeholder_designer(self, scenario):
         return design.RandomDesigner(
-            designer_setting=DesignerParams.new(
-                scenario=scenario, artifact_dir=self.artifact_dir.joinpath("temp")
-            )
+            designer_setting=DesignerParams.placeholder(scenario=scenario)
         )
 
     @property

@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 from multiprocessing.synchronize import Lock
 from typing import Any, Literal
+import tempfile
 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
@@ -40,6 +41,7 @@ class DesignerParams[SC: ScenarioConfig]:
     artifact_dir: Path
     lock: Lock
     environment_repeats: int = 1
+    _temp_dir: tempfile.TemporaryDirectory | None = None
 
     @staticmethod
     def new(scenario: SC, artifact_dir: Path, environment_repeats: int = 1):
@@ -49,6 +51,13 @@ class DesignerParams[SC: ScenarioConfig]:
             lock=torch.multiprocessing.Lock(),
             environment_repeats=environment_repeats,
         )
+
+    @staticmethod
+    def placeholder(scenario: SC):
+        temp_dir = tempfile.TemporaryDirectory()
+        params = DesignerParams.new(scenario=scenario, artifact_dir=Path(temp_dir.name))
+        params._temp_dir = temp_dir
+        return params
 
 
 class Designer[SC: ScenarioConfig](DesignProducer):
@@ -91,6 +100,8 @@ class ValueLearnerHyperparameters:
     distill_samples: int = 1
     distill_embedding_hint: bool = False
     distill_embedding_hint_loss_weight: float = 0.1
+    distill_synthetic_ratio: float = 0.0
+    distill_synthetic_ood_ratio: float = 1.0
     n_update_iterations: int = 5
     loss_criterion: Literal["mse", "huber"] = "mse"
 
@@ -123,7 +134,7 @@ def get_training_pair_from_td(
     return X, y
 
 
-class ValueLearner:
+class ValueLearner[SC: ScenarioConfig]:
     def __init__(
         self,
         model: EnvCritic,
@@ -132,6 +143,7 @@ class ValueLearner:
         gamma: float = 0.99,
         hyperparameters: ValueLearnerHyperparameters = ValueLearnerHyperparameters(),
         group_aggregation: Literal["mean", "sum"] = "mean",
+        random_designer: Designer[SC] | None = None,
         device: torch.device = torch.device("cpu"),
     ):
         self.hp = hp = hyperparameters
@@ -179,8 +191,13 @@ class ValueLearner:
         self.initialised_critic = False
         self.use_critic_distillation = hp.distill_from_critic
         self.distill_samples = hp.distill_samples
+        self.synthetic_ratio = hp.distill_synthetic_ratio
+        self.synthetic_uniform_data_ratio = hp.distill_synthetic_ood_ratio
 
         self.is_training = False
+
+        self.random_designer = random_designer
+        self.distribution_designer: Designer[SC] | None = None
 
     def initialise_critic_distillation(self, critic, ref_env):
         self.initialised_critic = True
@@ -225,61 +242,67 @@ class ValueLearner:
             self.model.train()
             for _ in range(self.n_update_iterations):
                 self.optim.zero_grad()
-                sample = self.env_buffer.sample(batch_size=self.train_batch_size)
-                X_batch = sample.get("env_post").to(
-                    dtype=torch.float32, device=self.device
-                )
 
-                # Get output
                 if self.use_critic_distillation:
-                    X = sample.get("env")
-                    observations_tds_list: list[torch.Tensor] = []
-                    for theta in X:
-                        self.ref_env._env._reset_policy = TensorDictModule(
-                            module=lambda: theta,
-                            in_keys=[],
-                            out_keys=[ENVIRONMENT_DESIGN_KEY],
-                        )
-                        observations_tds_list.append(
-                            torch.stack(
-                                [
-                                    self.ref_env.reset()
-                                    for _ in range(self.distill_samples)
-                                ]
+                    n_synthetic = int(self.train_batch_size * self.synthetic_ratio)
+                    n_sampling = self.train_batch_size - n_synthetic
+                    n_u = int(n_synthetic * self.synthetic_uniform_data_ratio)
+                    n_gen = n_synthetic - n_u
+
+                    assert self.train_batch_size == n_u + n_gen + n_sampling
+
+                    X_batch_list = []
+                    X_eval_list = []
+                    if n_sampling > 0:
+                        sample = self.env_buffer.sample(batch_size=n_sampling)
+                        X_batch_list.append(
+                            sample.get("env_post").to(
+                                dtype=torch.float32, device=self.device
                             )
                         )
-                    observations_tds = torch.stack(observations_tds_list)
-                    self.critic.eval()
-                    with torch.no_grad():
-                        critic_td = self.critic(observations_tds)
-                        y_batch = critic_td.get((self.group_name, "state_value"))
-                        hint_batch = critic_td.get(
-                            (self.group_name, "distillation_hint"), None
+                        X_eval_gen = sample.get("env").to(
+                            dtype=torch.float32, device=self.device
                         )
-                        assert y_batch.shape == (
-                            self.train_batch_size,
-                            self.distill_samples,
-                            y_batch.shape[-2],  # Number of agents
-                            1,
-                        ), y_batch.shape
-                        match self.group_aggregation:
-                            case "mean":
-                                y_batch = y_batch.mean(dim=-2)
-                            case "sum":
-                                y_batch = y_batch.sum(dim=-2)
+                        X_eval_gen = [self._eval_to_gen(x) for x in X_eval_gen]
+                        X_eval_list.append(torch.stack(X_eval_gen))
+                    if n_u > 0:
+                        assert self.random_designer is not None
+                        X_uniform = torch.stack(
+                            [
+                                self._gen_to_torchable(x)
+                                for x in self.random_designer.generate_layout_batch(n_u)
+                            ]
+                        ).to(dtype=torch.float32, device=self.device)
+                        X_eval_list.append(X_uniform)
+                        X_batch_list.append(self._gen_to_train(X_uniform))
 
-                        if hint_batch is not None:
-                            # Reduce over samples
-                            hint_batch = hint_batch.mean(dim=1)
+                    if n_gen > 0:
+                        assert self.distribution_designer is not None
+                        X_gen = torch.stack(
+                            [
+                                self._gen_to_torchable(x)
+                                for x in self.distribution_designer.generate_layout_batch(
+                                    n_gen
+                                )
+                            ],
+                        ).to(dtype=torch.float32, device=self.device)
+                        X_eval_list.append(X_gen)
+                        X_batch_list.append(self._gen_to_train(X_gen))
 
-                        y_batch = y_batch.mean(dim=-2)
-                        y_batch = y_batch.squeeze(-1)
-                        assert y_batch.shape == (self.train_batch_size,)
+                    # Sample proportion from buffer
+                    X_batch = torch.cat(X_batch_list, dim=0)
+                    X_eval = torch.cat(X_eval_list, dim=0)
+                    y_batch, hint_batch = self._get_critic_y_from_layout(X_eval)
                 else:
+                    sample = self.env_buffer.sample(batch_size=self.train_batch_size)
+                    X_batch = sample.get("env_post").to(
+                        dtype=torch.float32, device=self.device
+                    )
                     y_batch = sample.get("episode_reward").to(
                         dtype=torch.float32, device=self.device
                     )
 
+                # Get output
                 train_y_batch_list.append(y_batch)
 
                 # Timesteps
@@ -325,6 +348,44 @@ class ValueLearner:
             get_layout_from_state=self._get_layout_from_state,
         )
 
+    def _get_critic_y_from_layout(self, X):
+        observations_tds_list: list[torch.Tensor] = []
+        for theta in X:
+            self.ref_env._env._reset_policy = TensorDictModule(
+                module=lambda: theta,
+                in_keys=[],
+                out_keys=[ENVIRONMENT_DESIGN_KEY],
+            )
+            observations_tds_list.append(
+                torch.stack([self.ref_env.reset() for _ in range(self.distill_samples)])
+            )
+        observations_tds = torch.stack(observations_tds_list)
+        self.critic.eval()
+        with torch.no_grad():
+            critic_td = self.critic(observations_tds)
+            y_batch = critic_td.get((self.group_name, "state_value"))
+            hint_batch = critic_td.get((self.group_name, "distillation_hint"), None)
+            assert y_batch.shape == (
+                self.train_batch_size,
+                self.distill_samples,
+                y_batch.shape[-2],  # Number of agents
+                1,
+            ), y_batch.shape
+            match self.group_aggregation:
+                case "mean":
+                    y_batch = y_batch.mean(dim=-2)
+                case "sum":
+                    y_batch = y_batch.sum(dim=-2)
+
+            if hint_batch is not None:
+                # Reduce over samples
+                hint_batch = hint_batch.mean(dim=1)
+
+            y_batch = y_batch.mean(dim=-2)
+            y_batch = y_batch.squeeze(-1)
+            assert y_batch.shape == (self.train_batch_size,)
+            return y_batch, hint_batch
+
     @abstractmethod
     def _get_layout_from_state(self, state: TensorDict):
         raise NotImplementedError()
@@ -332,6 +393,15 @@ class ValueLearner:
     @abstractmethod
     def _eval_to_train(self, theta: TensorDict):
         raise NotImplementedError()
+
+    def _gen_to_train(self, theta):
+        return theta
+
+    def _eval_to_gen(self, theta):
+        return theta
+
+    def _gen_to_torchable(self, theta):
+        return torch.tensor(theta, dtype=torch.float32, device=self.device)
 
     def _make_hint_loss(self, device: torch.device) -> nn.Module:
         raise NotImplementedError()
@@ -346,6 +416,7 @@ class ValueDesigner[SC: ScenarioConfig](Designer[SC]):
     ):
         super().__init__(designer_setting)
         self.value_learner = value_learner
+        self.value_learner.distribution_designer = self
 
         self.random_generation_early_start = random_generation_early_start
         self.ref_layouts = self._make_reference_layouts()

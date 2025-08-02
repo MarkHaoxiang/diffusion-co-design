@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from tensordict import TensorDict
 from guided_diffusion.script_util import create_model
 
 from diffusion_co_design.common import (
@@ -17,6 +18,7 @@ from diffusion_co_design.rware.model.classifier import (
     make_model,
     image_to_pos_colors,
     make_hint_loss,
+    colors_setup,
 )
 from diffusion_co_design.rware.diffusion.transform import (
     graph_projection_constraint,
@@ -62,20 +64,30 @@ def make_generate_fn(scenario: SC, representation: Representation):
 
 
 class RandomDesigner(design.RandomDesigner[SC]):
-    def __init__(self, designer_setting: design.DesignerParams[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        representation: Representation = "image",
+    ):
         super().__init__(designer_setting=designer_setting)
-        self.generate = make_generate_fn(self.scenario, representation="image")
+        self.generate = make_generate_fn(self.scenario, representation=representation)
 
     def generate_random_layouts(self, batch_size: int):
         return np_list_to_tensor_list(self.generate(batch_size))
 
 
 class FixedDesigner(design.FixedDesigner[SC]):
-    def __init__(self, designer_setting: design.DesignerParams[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        representation: Representation = "image",
+    ):
         super().__init__(
             designer_setting,
             layout=torch.tensor(
-                make_generate_fn(designer_setting.scenario, representation="image")(n=1)
+                make_generate_fn(
+                    designer_setting.scenario, representation=representation
+                )(n=1)
             ).squeeze(0),
         )
 
@@ -114,7 +126,7 @@ def make_reference_layouts(
     )
 
 
-class ValueLearner(design.ValueLearner):
+class ValueLearner(design.ValueLearner[SC]):
     def __init__(
         self,
         scenario: SC,
@@ -139,6 +151,10 @@ class ValueLearner(design.ValueLearner):
             hyperparameters=hyperparameters,
             gamma=gamma,
             group_aggregation="sum",
+            random_designer=RandomDesigner(
+                designer_setting=design.DesignerParams.placeholder(scenario=scenario),
+                representation=representation,
+            ),
             device=device,
         )
 
@@ -154,6 +170,45 @@ class ValueLearner(design.ValueLearner):
                     "pos": pos.to(dtype=torch.float32, device=self.device),
                     "colors": colors.to(dtype=torch.float32, device=self.device),
                 }
+            case "image":
+                return theta * 2 - 1
+
+    def _eval_to_gen(self, theta):
+        match self.representation:
+            case "image":
+                return theta
+            case "graph":
+                pos, colors = image_to_pos_colors(
+                    theta.unsqueeze(0), self.scenario.n_shelves
+                )
+                correct_order = colors_setup(
+                    1, self.scenario.n_shelves, self.scenario.n_colors
+                )[0].to(colors.device)
+
+                # Double checking that positions once passed to generate will be in the correct order
+                # No permutation is needed, but this relies on an implementation detail of `image_to_pos_colors`
+                # Rather than a guarantee from API
+                assert (colors - correct_order).max() == 0
+
+                return pos
+        return super()._eval_to_gen(theta)
+
+    def _gen_to_train(self, theta):
+        match self.representation:
+            case "graph":
+                pos = theta
+                colors = colors_setup(
+                    batch_size=pos.shape[0],
+                    n_shelves=self.scenario.n_shelves,
+                    n_colors=self.scenario.n_colors,
+                )
+                pos = (pos / (self.scenario.size - 1)) * 2 - 1
+                return TensorDict(
+                    {
+                        "pos": pos.to(dtype=torch.float32, device=self.device),
+                        "colors": colors.to(dtype=torch.float32, device=self.device),
+                    }
+                )
             case "image":
                 return theta * 2 - 1
 
@@ -207,7 +262,6 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
             random_generation_early_start=random_generation_early_start,
             total_annealing_iters=total_annealing_iters,
         )
-
         self.generate = make_generate_fn(
             self.scenario, representation=self.representation
         )
@@ -542,9 +596,13 @@ def create_designer(
         return design.DesignConsumer(artifact_dir_path, lock)
 
     if isinstance(designer, Fixed):
-        designer_producer: design.Designer[SC] = FixedDesigner(designer_setting)
+        designer_producer: design.Designer[SC] = FixedDesigner(
+            designer_setting, representation=designer.representation
+        )
     elif isinstance(designer, Random):
-        designer_producer = RandomDesigner(designer_setting)
+        designer_producer = RandomDesigner(
+            designer_setting=designer_setting, representation=designer.representation
+        )
     elif isinstance(designer, _Value):
         value_hyperparameters = design.ValueLearnerHyperparameters(
             lr=designer.lr,
@@ -557,6 +615,8 @@ def create_designer(
             distill_samples=designer.distill_samples,
             distill_embedding_hint=designer.distill_hint,
             distill_embedding_hint_loss_weight=designer.distill_hint_weight,
+            distill_synthetic_ratio=designer.distill_synthetic_ratio,
+            distill_synthetic_ood_ratio=designer.distill_synthetic_ood_ratio,
             loss_criterion=designer.loss_criterion,
             train_early_start=designer.train_early_start,
         )

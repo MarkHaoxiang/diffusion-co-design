@@ -583,5 +583,13 @@ def make_hint_loss(
                 hint_channels=agent_critic_net.distillation_hint_channels,
                 student_channels=env_critic.distillation_hint_channels,
             ).to(device=device)
+        case "gnn-cnn":
+            assert isinstance(env_critic, GNNCNN)
+            agent_critic_net = agent_critic.module[1].module
+            assert isinstance(agent_critic_net, RLCritic)
+            return CNNRegressorLoss(
+                hint_channels=agent_critic_net.distillation_hint_channels,
+                student_channels=env_critic.model.distillation_hint_channels,
+            ).to(device=device)
         case _:
             raise NotImplementedError(f"Hint loss for model {model} not implemented")

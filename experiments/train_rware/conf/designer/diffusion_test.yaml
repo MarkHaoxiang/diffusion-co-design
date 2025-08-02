@@ -1,20 +1,24 @@
 defaults:
   - _self_
-  - model: cnn
+  # - model: cnn
+  - model: gnn_cnn
 
 kind: diffusion
 environment_repeats: 1
 # Value
-representation: image
+representation: graph
+# representation: image
 n_update_iterations: 2
-train_batch_size: 2
+train_batch_size: 4
 buffer_size: 128
 weight_decay: 0.0
 lr: 3e-5
 distill_enable: true
-distill_samples: 3
+distill_samples: 1
 distill_hint: true
-distill_hint_weight: 0.1
+distill_hint_weight: 0.0
+distill_synthetic_ratio: 0.0
+distill_synthetic_ood_ratio: 1.0
 random_generation_early_start: 0
 loss_criterion: mse
 train_early_start: 0

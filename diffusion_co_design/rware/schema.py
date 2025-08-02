@@ -86,20 +86,10 @@ class Random(_Designer):
     kind: Literal["random"]
     representation: Representation = "image"
 
-    @model_validator(mode="after")
-    def validate_representation(cls, values):
-        assert values.representation == "image"
-        return values
-
 
 class Fixed(_Designer):
     kind: Literal["fixed"]
     representation: Representation = "image"
-
-    @model_validator(mode="after")
-    def validate_representation(cls, values):
-        assert values.representation == "image"
-        return values
 
 
 class _Value(_Designer):
@@ -113,6 +103,8 @@ class _Value(_Designer):
     distill_samples: int = 5
     distill_hint: bool = False
     distill_hint_weight: float = 0.1
+    distill_synthetic_ratio: float = 0.0
+    distill_synthetic_ood_ratio: float = 1.0
     random_generation_early_start: int = 0
     loss_criterion: Literal["mse", "huber"] = "mse"
     train_early_start: int = 0
