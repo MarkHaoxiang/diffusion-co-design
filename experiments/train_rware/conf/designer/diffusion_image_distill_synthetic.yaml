@@ -6,7 +6,7 @@ kind: diffusion
 environment_repeats: 10
 # Value
 representation: image
-n_update_iterations: 5
+n_update_iterations: 10
 train_batch_size: 64
 buffer_size: 8096
 weight_decay: 0.0
@@ -14,7 +14,8 @@ lr: 3e-5
 distill_enable: true
 distill_samples: 5
 distill_hint: false
-distill_synthetic_ratio: 0.0
+distill_synthetic_ratio: 0.5
+distill_synthetic_ood_ratio: 1.0
 random_generation_early_start: 2048
 loss_criterion: mse
 train_early_start: 0

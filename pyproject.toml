@@ -8,7 +8,6 @@ dependencies = [
     "ipykernel>=6.29.5",
     "matplotlib>=3.10.0",
     "numpy>=2.2.2",
-    "rware[pettingzoo, dev]",
     "guided-diffusion",
     "torchrl>=0.7.1",
     "torch>=2.6.0",
@@ -25,6 +24,9 @@ dependencies = [
     "seaborn>=0.13.2",
 ]
 
+# VMAS and RWARE are incompatible with each other
+# Manually modify this configuration file to select one of them
+
 [dependency-groups]
 dev = [
     "mypy>=1.14.1",
@@ -32,13 +34,36 @@ dev = [
     "ruff>=0.9.3",
     "expecttest>=0.3.0",
 ]
+rware = [ # Pyglet 2.1
+  "rware[pettingzoo, dev]",
+]
+vmas = [
+  "vmas[render]"
+]
+
+
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.workspace]
-members = [".", "packages/*", "experiments/*"]
+members = [
+  ".",
+  "packages/guided_diffusion",
+  "packages/wfcrl-env",
+  # "packages/robotic_warehouse",
+  "experiments/*"
+]
+
+[tool.uv]
+conflicts = [
+  [
+    { group = "rware" },
+    { group = "vmas" },
+  ]
+]
+default-groups = ["dev", "vmas"] # Modify here, and uncomment rware in the sources section.
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -53,6 +78,7 @@ torchvision = [
   { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 diffusion_co_design = { workspace = true }
-rware = { workspace = true }
 guided_diffusion = { workspace = true }
 wfcrl = { workspace = true }
+vmas = { git = "https://github.com/MarkHaoxiang/VectorizedMultiAgentSimulator", branch = "dicode" }
+# rware = { workspace = true }

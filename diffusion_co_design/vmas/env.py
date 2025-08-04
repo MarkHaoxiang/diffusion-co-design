@@ -1,6 +1,11 @@
 from torchrl.envs import VmasEnv, TransformedEnv, RewardSum
+from vmas.simulator.scenario import BaseScenario
 
 from pydantic import BaseModel
+
+
+class DesignableScenario(BaseScenario):
+    pass
 
 
 class ScenarioConfig(BaseModel):
