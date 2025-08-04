@@ -22,6 +22,7 @@ dependencies = [
     # uv pip install torch-cluster -f https://data.pyg.org/whl/torch-2.7.0+cu128.html --no-build-isolation
     "wfcrl",
     "seaborn>=0.13.2",
+    "segnn",
 ]
 
 # VMAS and RWARE are incompatible with each other
@@ -53,7 +54,8 @@ members = [
   "packages/guided_diffusion",
   "packages/wfcrl-env",
   # "packages/robotic_warehouse",
-  "experiments/*"
+  "experiments/*",
+  "packages/segnn",
 ]
 
 [tool.uv]
@@ -84,4 +86,5 @@ diffusion_co_design = { workspace = true }
 guided_diffusion = { workspace = true }
 wfcrl = { workspace = true }
 vmas = { git = "https://github.com/MarkHaoxiang/VectorizedMultiAgentSimulator", branch = "dicode" }
+segnn = { workspace = true }
 # rware = { workspace = true }

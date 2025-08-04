@@ -115,7 +115,8 @@ class Scenario(BaseScenario):
             entity_locations=agent_goals,
             entity_radius=torch.tensor(
                 [self.agent_radius] * self.n_agents, device=device
-            ),
+            )
+            + self.min_collision_distance / 2,
             n_entities=self.n_agents,
             occupied_positions=None,
             occupied_radius=torch.zeros((0,), device=device),
@@ -129,13 +130,15 @@ class Scenario(BaseScenario):
             entity_locations=agent_spawns,
             entity_radius=torch.tensor(
                 [self.agent_radius] * self.n_agents, device=device
-            ),
+            )
+            + self.min_collision_distance / 2,
             n_entities=self.n_agents,
             occupied_positions=occupied_locations,
             occupied_radius=torch.fill(
                 torch.zeros((occupied_locations.shape[0],), device=device),
                 self.agent_radius,
-            ),
+            )
+            + self.min_collision_distance / 2,
             x_bounds=(-self.world_spawning_x, self.world_spawning_x),
             y_bounds=(-self.world_spawning_y, self.world_spawning_y),
             device=device,
@@ -149,13 +152,14 @@ class Scenario(BaseScenario):
         obstacle_positions = kwargs.pop("obstacle_positions", None)
         self.obstacle_locations = setup_entity_locations(
             entity_locations=obstacle_positions,
-            entity_radius=self.obstacle_sizes,
+            entity_radius=self.obstacle_sizes + self.min_collision_distance / 2,
             n_entities=self.n_obstacles,
             occupied_positions=occupied_locations,
             occupied_radius=torch.fill(
                 torch.zeros((occupied_locations.shape[0],), device=device),
                 self.agent_radius,
-            ),
+            )
+            + self.min_collision_distance / 2,
             x_bounds=(-self.world_spawning_x, self.world_spawning_x),
             y_bounds=(-self.world_spawning_y, self.world_spawning_y),
             device=device,

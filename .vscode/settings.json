@@ -1,6 +1,7 @@
 {
     "python.analysis.extraPaths": [
         "./packages/robotic-warehouse",
-        "./packages/guided_diffusion"
+        "./packages/guided_diffusion",
+        "./packages/segnn"
     ]
 }

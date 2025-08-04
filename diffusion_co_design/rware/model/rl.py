@@ -17,7 +17,7 @@ from diffusion_co_design.rware.env import RwareCoDesignWrapper
 from diffusion_co_design.rware.schema import (
     ActorCriticConfig,
     ActorCriticConfigV1,
-    ActorCRiticConfigV2,
+    ActorCriticConfigV2,
 )
 
 
@@ -149,7 +149,7 @@ def rware_models_v1(
 
 
 def rware_models_v2(
-    env: RwareCoDesignWrapper, cfg: ActorCRiticConfigV2, device: DEVICE_TYPING | None
+    env: RwareCoDesignWrapper, cfg: ActorCriticConfigV2, device: DEVICE_TYPING | None
 ):
     dtype_cast = TensorDictModule(
         DTypeCastTransform(
@@ -256,6 +256,6 @@ def rware_models(
 ):
     if isinstance(cfg, ActorCriticConfigV1):
         return rware_models_v1(env, cfg, device)
-    elif isinstance(cfg, ActorCRiticConfigV2):
+    elif isinstance(cfg, ActorCriticConfigV2):
         return rware_models_v2(env, cfg, device)
     assert False

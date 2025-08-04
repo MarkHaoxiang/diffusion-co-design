@@ -1,6 +1,9 @@
 from abc import abstractmethod
+from typing import Literal
 
 from diffusion_co_design.common.pydra import Config
+
+ENVIRONMENT_MODE = Literal["train", "eval", "reference"]
 
 
 class ScenarioConfig(Config):

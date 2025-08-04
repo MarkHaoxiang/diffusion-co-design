@@ -12,6 +12,7 @@ from torchrl.envs import (
 from rware.pettingzoo import PettingZooWrapper as RwarePZW
 from rware.warehouse import Warehouse, ObservationRegistry, RewardRegistry, ImageLayer
 
+from diffusion_co_design.common.env import ENVIRONMENT_MODE
 from diffusion_co_design.common.design import DesignConsumer
 from diffusion_co_design.rware.diffusion.generate import generate
 from diffusion_co_design.rware.diffusion.transform import storage_to_layout
@@ -98,7 +99,7 @@ class RwareCoDesignWrapper(PettingZooWrapper):
 
 
 def create_env(
-    mode: Literal["train", "eval", "reference"],
+    mode: ENVIRONMENT_MODE,
     scenario: ScenarioConfig,
     designer: DesignConsumer,
     representation: Literal["image", "graph"] = "image",

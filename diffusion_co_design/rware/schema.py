@@ -56,7 +56,7 @@ class ActorCriticConfigV1(Config):
     share_params: bool = True
 
 
-class ActorCRiticConfigV2(Config):
+class ActorCriticConfigV2(Config):
     version: Literal["v2"] = "v2"
     kernel_sizes: int | Sequence[int] = 3
     num_cells: int | Sequence[int] = [16, 32, 64]
@@ -68,7 +68,7 @@ class ActorCRiticConfigV2(Config):
 
 
 ActorCriticConfig = Annotated[
-    ActorCriticConfigV1 | ActorCRiticConfigV2,
+    ActorCriticConfigV1 | ActorCriticConfigV2,
     Field(
         discriminator="version",
     ),
