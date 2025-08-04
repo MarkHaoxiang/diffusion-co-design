@@ -4,10 +4,11 @@
 import warnings
 import typing
 
+from tensordict import TensorDict
 import torch
 from torch import Tensor
-
-from vmas import render_interactively, make_env
+from torchrl.envs import VmasEnv
+from vmas import render_interactively
 from vmas.simulator.core import Agent, Entity, Landmark, Sphere, World
 from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.sensors import Lidar
@@ -383,6 +384,75 @@ class Scenario(BaseScenario):
                     geoms.append(line)
 
         return geoms
+
+
+class DesignableVmasEnv(VmasEnv):
+    def __init__(
+        self,
+        scenario,
+        reset_policy,
+        num_envs=1,
+        device="cpu",
+        continuous_actions=True,
+        max_steps=None,
+        seed=None,
+        dict_spaces=False,
+        multidiscrete_actions=False,
+        clamp_actions=False,
+        grad_enabled=False,
+        terminated_truncated=False,
+        wrapper=None,
+        wrapper_kwargs=None,
+        **kwargs,
+    ):
+        super().__init__(
+            scenario=scenario,
+            num_envs=num_envs,
+            device=device,
+            continuous_actions=continuous_actions,
+            max_steps=max_steps,
+            seed=seed,
+            dict_spaces=dict_spaces,
+            multidiscrete_actions=multidiscrete_actions,
+            clamp_actions=clamp_actions,
+            grad_enabled=grad_enabled,
+            terminated_truncated=terminated_truncated,
+            wrapper=wrapper,
+            wrapper_kwargs=wrapper_kwargs,
+            **kwargs,
+        )
+        self._env._reset_policy = reset_policy
+
+    def _reset(self, tensordict=None, **kwargs):
+        if "layout_override" in kwargs and kwargs["layout_override"] is not None:
+            theta = kwargs.pop("layout_override")
+        elif self._env._reset_policy is not None:
+            td = (
+                tensordict
+                if tensordict is not None
+                else TensorDict({}, device=self.device)
+            )
+            reset_policy_output = self._env._reset_policy(td)
+            td.update(reset_policy_output, keys_to_update=reset_policy_output.keys())
+            theta = reset_policy_output.get(("environment_design", "layout_weights"))
+        else:
+            theta = None
+
+        if theta is not None:
+            assert isinstance(theta, Tensor)
+            assert theta.shape == self._env.obstacle_locations.shape
+            theta = theta.to(self._env.obstacle_locations.device)
+            self._env.obstacle_locations = theta
+
+        tensordict_out = super()._reset(tensordict, **kwargs)
+        tensordict_out["state"] = self._env.obstacle_locations
+
+        return tensordict_out
+
+    def _step(self, tensordict):
+        tensordict_out = super()._step(tensordict)
+        tensordict_out["state"] = self._env.obstacle_locations
+        return tensordict_out
 
 
 if __name__ == "__main__":

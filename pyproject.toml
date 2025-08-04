@@ -63,7 +63,10 @@ conflicts = [
     { group = "vmas" },
   ]
 ]
-default-groups = ["dev", "vmas"] # Modify here, and uncomment rware in the sources section.
+
+# Modify here, and uncomment rware in the sources section.
+default-groups = ["dev", "vmas"] 
+# default-groups = ["dev", "rware"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
