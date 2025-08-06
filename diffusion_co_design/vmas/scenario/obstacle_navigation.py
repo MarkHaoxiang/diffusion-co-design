@@ -105,7 +105,7 @@ class Scenario(BaseScenario):
 
         # Make agents
         self.lidar_range = kwargs.pop("lidar_range", 0.35)
-        self.agent_radius = kwargs.pop("agent_radius", 0.1)
+        self.agent_radius = kwargs.pop("agent_radius", 0.05)
         self.comms_range = kwargs.pop("comms_range", 0)
         self.n_lidar_rays = kwargs.pop("n_lidar_rays", 12)
         self.min_collision_distance = 0.005
@@ -405,8 +405,6 @@ class DesignableVmasEnv(VmasEnv):
         clamp_actions=False,
         grad_enabled=False,
         terminated_truncated=False,
-        wrapper=None,
-        wrapper_kwargs=None,
         **kwargs,
     ):
         super().__init__(
@@ -421,8 +419,6 @@ class DesignableVmasEnv(VmasEnv):
             clamp_actions=clamp_actions,
             grad_enabled=grad_enabled,
             terminated_truncated=terminated_truncated,
-            wrapper=wrapper,
-            wrapper_kwargs=wrapper_kwargs,
             **kwargs,
         )
         self._env._reset_policy = reset_policy
@@ -442,20 +438,25 @@ class DesignableVmasEnv(VmasEnv):
         else:
             theta = None
 
+        scenario = self._env.scenario  # vmas.simulator.environment
         if theta is not None:
             assert isinstance(theta, Tensor)
-            assert theta.shape == self._env.obstacle_locations.shape
-            theta = theta.to(self._env.obstacle_locations.device)
-            self._env.obstacle_locations = theta
+            assert theta.shape == scenario.obstacle_locations.shape
+            theta = theta.to(scenario.obstacle_locations.device)
+            scenario.obstacle_locations = theta
 
         tensordict_out = super()._reset(tensordict, **kwargs)
-        tensordict_out["state"] = self._env.obstacle_locations
+        tensordict_out["state"] = scenario.obstacle_locations.unsqueeze(0).expand(
+            scenario.world._batch_dim, -1, -1
+        )
 
         return tensordict_out
 
     def _step(self, tensordict):
         tensordict_out = super()._step(tensordict)
-        tensordict_out["state"] = self._env.obstacle_locations
+        tensordict_out["state"] = self._env.scenario.obstacle_locations.unsqueeze(
+            0
+        ).expand(self._env.scenario.world._batch_dim, -1, -1)
         return tensordict_out
 
 
