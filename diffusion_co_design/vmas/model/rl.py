@@ -8,7 +8,12 @@ from e3nn.o3 import Irreps
 from segnn.balanced_irreps import BalancedIrreps
 from segnn.segnn import SEGNN
 
-from diffusion_co_design.vmas.schema import ActorConfig, CriticConfig, ActorCriticConfig
+from diffusion_co_design.vmas.schema import (
+    ActorConfig,
+    CriticConfig,
+    ActorCriticConfig,
+    ScenarioConfig,
+)
 from diffusion_co_design.vmas.scenario.obstacle_navigation import DesignableVmasEnv
 from diffusion_co_design.vmas.static import GROUP_NAME
 
@@ -58,45 +63,60 @@ def create_policy(env: DesignableVmasEnv, cfg: ActorConfig, device: DEVICE_TYPIN
 class E3Critic(torch.nn.Module):
     def __init__(
         self,
-        node_input: Irreps,
-        node_attr: Irreps,
-        edge_attr: Irreps,
-        additional_message: Irreps | None = None,
+        scenario: ScenarioConfig,
         hidden_features: int = 128,
         hidden_lmax: int = 2,
         num_layers: int = 3,
     ):
         super().__init__()
+        # One-hot node type (agent, obstacle, goal)
+        # Velocity
+        # Relative position to center of map
+        # Norm of velocity
+        # Radius of entity
+        irreps_node_input = Irreps("3x0e + 1o + 1o + 0e + 0e").simplify()
+
+        # Absolute center distance, absolute collision distance
+        additional_message_irreps = Irreps("2x0e")
+
+        edge_attr_irreps = Irreps.spherical_harmonics(hidden_lmax)
+        node_attr_irreps = Irreps.spherical_harmonics(hidden_lmax)
 
         hidden_irreps = BalancedIrreps(hidden_lmax, hidden_features, True)
         self.model = SEGNN(
-            input_irreps=node_input,
+            input_irreps=irreps_node_input,
             hidden_irreps=hidden_irreps,
             output_irreps=Irreps("1x0e"),
-            edge_attr_irreps=edge_attr,
-            node_attr_irreps=node_attr,
+            edge_attr_irreps=edge_attr_irreps,
+            node_attr_irreps=node_attr_irreps,
             num_layers=num_layers,
             norm=None,
             pool="avg",
             task="graph",
-            additional_message_irreps=additional_message,
+            additional_message_irreps=additional_message_irreps,
         )
 
     def forward(self, x):
         return self.model(x)
 
 
-def create_critic(env: DesignableVmasEnv, cfg: CriticConfig, device: DEVICE_TYPING):
+def create_critic(
+    env: DesignableVmasEnv,
+    scenario: ScenarioConfig,
+    cfg: CriticConfig,
+    device: DEVICE_TYPING,
+):
     raise NotImplementedError()
 
 
 def vmas_models(
     env: DesignableVmasEnv,
+    scenario: ScenarioConfig,
     actor_critic_cfg: ActorCriticConfig,
     device: DEVICE_TYPING = torch.device("cpu"),
 ):
     policy = create_policy(env, actor_critic_cfg.actor, device)
-    critic = create_critic(env, actor_critic_cfg.critic, device)
+    critic = create_critic(env, scenario, actor_critic_cfg.critic, device)
 
     td = env.reset()
     with torch.no_grad():

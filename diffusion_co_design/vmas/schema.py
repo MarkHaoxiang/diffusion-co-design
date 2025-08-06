@@ -31,11 +31,13 @@ class ScenarioConfig(_ScenarioConfig):
 
 class ActorConfig(Config):
     depth: int = 2
-    hidden_size: int = 256
+    hidden_size: int = 128
 
 
 class CriticConfig(Config):
-    pass
+    depth: int = 3
+    hidden_size: int = 128
+    lmax: int = 2
 
 
 class ActorCriticConfig(Config):
