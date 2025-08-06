@@ -17,7 +17,6 @@ def create_env(
     num_environments: int = 1,
     device: torch.device = torch.device("cpu"),
 ):
-    pass
     agent_spawns = torch.tensor(scenario.agent_spawns, device=device)
     agent_goals = torch.tensor(scenario.agent_goals, device=device)
     obstacle_sizes = torch.tensor(scenario.obstacle_sizes, device=device)
