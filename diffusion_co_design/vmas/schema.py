@@ -37,7 +37,6 @@ class ActorConfig(Config):
 class CriticConfig(Config):
     depth: int = 3
     hidden_size: int = 128
-    lmax: int = 2
 
 
 class ActorCriticConfig(Config):

@@ -75,7 +75,7 @@ class WindFarmGNN(nn.Module):
             layout = layout.unsqueeze(0)
 
         B_all = wind_direction.shape[:-2]
-        B, N = prod(B_all), self.scenario.n_turbines
+        B, N = prod(B_all), self.scenario.get_num_agents()
 
         # Shape checks
         wind_direction = wind_direction.reshape(-1, N, 1)

@@ -1,12 +1,12 @@
+from math import prod
+
 import torch
 from tensordict.nn import TensorDictModule, InteractionType
 from torchrl.data.utils import DEVICE_TYPING
 from torchrl.modules import ProbabilisticActor, MultiAgentMLP
 from torchrl.modules import NormalParamExtractor, TanhNormal
-
-from e3nn.o3 import Irreps
-from segnn.balanced_irreps import BalancedIrreps
-from segnn.segnn import SEGNN
+from torch_geometric.data import Data, Batch
+from torch_geometric.nn import knn_graph
 
 from diffusion_co_design.vmas.schema import (
     ActorConfig,
@@ -64,40 +64,66 @@ class E3Critic(torch.nn.Module):
     def __init__(
         self,
         scenario: ScenarioConfig,
-        hidden_features: int = 128,
-        hidden_lmax: int = 2,
+        node_emb_dim: int = 128,
+        out_dim: int = 128,
         num_layers: int = 3,
+        k: int = 5,
     ):
         super().__init__()
-        # One-hot node type (agent, obstacle, goal)
-        # Velocity
-        # Relative position to center of map
-        # Norm of velocity
-        # Radius of entity
-        irreps_node_input = Irreps("3x0e + 1o + 1o + 0e + 0e").simplify()
+        self.scenario = scenario
+        self.n_obstacles = len(scenario.obstacle_sizes)
+        self.k = k
 
-        # Absolute center distance, absolute collision distance
-        additional_message_irreps = Irreps("2x0e")
+        # Observations
+        # agent_pos (2) vel (2) goal_pos (2) lidar (12)
 
-        edge_attr_irreps = Irreps.spherical_harmonics(hidden_lmax)
-        node_attr_irreps = Irreps.spherical_harmonics(hidden_lmax)
+        # State
+        # obstacle_pos (n_obstacles, 2)
 
-        hidden_irreps = BalancedIrreps(hidden_lmax, hidden_features, True)
-        self.model = SEGNN(
-            input_irreps=irreps_node_input,
-            hidden_irreps=hidden_irreps,
-            output_irreps=Irreps("1x0e"),
-            edge_attr_irreps=edge_attr_irreps,
-            node_attr_irreps=node_attr_irreps,
-            num_layers=num_layers,
-            norm=None,
-            pool="avg",
-            task="graph",
-            additional_message_irreps=additional_message_irreps,
+    def forward(self, obs, state):
+        B_all = obs.shape[:-2]
+        B, N = prod(B_all), self.scenario.get_num_agents()
+
+        # Shape checks
+        obs = obs.reshape(-1, N, obs.shape[-1])
+        assert obs.shape == (B, N, 18), obs.shape
+        state = state.reshape(-1, N, state.shape[-1])
+        assert state.shape == (B, self.n_obstacles, 2), state.shape
+
+        # Construct graph
+        data_list: list[Data] = []
+        for i in range(B):
+            obstacle_pos = state[i]
+            agent_pos = obs[i, :, :2]
+            goal_pos = obs[i, :, 4:6]
+
+            # Note: discard lidar for now, position information should be sufficient
+            agent_vel = obs[i, :, 2:4]
+
+    def construct_graph(self, obstacle_pos, agent_pos, goal_pos, agent_vel):
+        N = self.scenario.get_num_agents() * 2 + self.n_obstacles
+
+        # Graph topology
+        pos = torch.cat([agent_pos, goal_pos, obstacle_pos], dim=-1)
+        assert pos.shape == (N, 2), pos.shape
+        edge_index = knn_graph(pos, k=self.k, loop=False)
+        # add direct edges between agents and their goals
+        agent_goal_edges = torch.arange(self.n_obstacles, device=pos.device)
+        agent_goal_edges = torch.stack(
+            [agent_goal_edges, agent_goal_edges + self.scenario.get_num_agents()],
+            dim=0,
         )
+        edge_index = torch.cat([edge_index, agent_goal_edges], dim=-1)
+        # remove duplicate edges
+        edge_index = torch.unique(edge_index, dim=-1)
 
-    def forward(self, x):
-        return self.model(x)
+        # Node features:
+        # One-hot encoding of node types
+        # Velocity norm
+        x = torch.zeros((N, 3 + 1), device=pos.device)
+        x[: self.n_obstacles, 0] = 1.0
+        x[self.n_obstacles : self.n_obstacles + self.scenario.get_num_agents(), 1] = 1.0
+        x[self.n_obstacles + self.scenario.get_num_agents() :, 2] = 1.0
 
 
 def create_critic(

@@ -92,7 +92,7 @@ class Scenario(BaseScenario):
         # Make world
         self.world_spawning_x = kwargs.pop("world_spawning_x", 1)
         self.world_spawning_y = kwargs.pop("world_spawning_y", 1)
-        self.enforce_bounds = kwargs.pop("enforce_bounds", True)
+        self.enforce_bounds = kwargs.pop("enforce_bounds", False)
         self.x_semidim = self.world_spawning_x if self.enforce_bounds else None
         self.y_semidim = self.world_spawning_y if self.enforce_bounds else None
         world = World(
@@ -446,17 +446,21 @@ class DesignableVmasEnv(VmasEnv):
             scenario.obstacle_locations = theta
 
         tensordict_out = super()._reset(tensordict, **kwargs)
-        tensordict_out["state"] = scenario.obstacle_locations.unsqueeze(0).expand(
-            scenario.world._batch_dim, -1, -1
+        tensordict_out["state"] = (
+            scenario.obstacle_locations.unsqueeze(0)
+            .expand(scenario.world._batch_dim, -1, -1)
+            .clone()
         )
 
         return tensordict_out
 
     def _step(self, tensordict):
         tensordict_out = super()._step(tensordict)
-        tensordict_out["state"] = self._env.scenario.obstacle_locations.unsqueeze(
-            0
-        ).expand(self._env.scenario.world._batch_dim, -1, -1)
+        tensordict_out["state"] = (
+            self._env.scenario.obstacle_locations.unsqueeze(0)
+            .expand(self._env.scenario.world._batch_dim, -1, -1)
+            .clone()
+        )
         return tensordict_out
 
 

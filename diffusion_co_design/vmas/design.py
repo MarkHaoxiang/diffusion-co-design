@@ -1,3 +1,5 @@
+import torch
+
 from diffusion_co_design.common import design, np_list_to_tensor_list
 from diffusion_co_design.vmas.diffusion.generate import Generate
 from diffusion_co_design.vmas.schema import ScenarioConfig as SC
@@ -15,4 +17,18 @@ class RandomDesigner(design.RandomDesigner[SC]):
     def generate_random_layouts(self, batch_size):
         return np_list_to_tensor_list(
             self.generate(n=batch_size, training_dataset=False)
+        )
+
+
+class FixedDesigner(design.FixedDesigner[SC]):
+    def __init__(
+        self, designer_setting: design.DesignerParams, seed: int | None = None
+    ):
+        super().__init__(
+            designer_setting=designer_setting,
+            layout=torch.tensor(
+                Generate(scenario=designer_setting.scenario, rng=seed)(
+                    n=1, training_dataset=False
+                )[0]
+            ),
         )
