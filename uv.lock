@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "platform_machine != 'aarch64' and sys_platform == 'linux'",
@@ -20,6 +20,7 @@ members = [
     "train-rware",
     "train-rware-classifier",
     "train-rware-diffusion",
+    "train-vmas",
     "train-wfcrl-classifier",
     "train-wfcrl-diffusion",
     "wfcrl",
@@ -384,7 +385,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.2" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "segnn", virtual = "packages/segnn" },
+    { name = "segnn", editable = "packages/segnn" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.6.0" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch-geometric", specifier = ">=2.6.1" },
@@ -1940,7 +1941,7 @@ wheels = [
 [[package]]
 name = "segnn"
 version = "0.1.0"
-source = { virtual = "packages/segnn" }
+source = { editable = "packages/segnn" }
 dependencies = [
     { name = "e3nn" },
     { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'group-19-diffusion-co-design-rware' and extra == 'group-19-diffusion-co-design-vmas') or (sys_platform == 'win32' and extra == 'group-19-diffusion-co-design-rware' and extra == 'group-19-diffusion-co-design-vmas')" },
@@ -2339,6 +2340,11 @@ requires-dist = [
 name = "train-rware-diffusion"
 version = "0.1.0"
 source = { virtual = "experiments/train_rware_diffusion" }
+
+[[package]]
+name = "train-vmas"
+version = "0.1.0"
+source = { virtual = "experiments/train_vmas" }
 
 [[package]]
 name = "train-wfcrl-classifier"

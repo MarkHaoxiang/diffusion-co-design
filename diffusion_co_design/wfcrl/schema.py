@@ -96,9 +96,11 @@ class ActorCriticConfig(Config):
     policy_head_hidden_size: int = 64
     policy_gnn_depth: int = 3
     policy_head_depth: int = 2
+    policy_graph_k: int = 5
     critic_node_hidden_size: int = 64
     critic_edge_hidden_size: int = 16
     critic_gnn_depth: int = 3
+    critic_graph_k: int = 5
 
 
 class TrainingConfig(

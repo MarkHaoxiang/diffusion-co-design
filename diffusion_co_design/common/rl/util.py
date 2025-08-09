@@ -2,7 +2,8 @@ from typing import Callable, Literal
 
 import torch
 import torch.optim as o
-from torchrl.envs import ParallelEnv
+from torchrl.envs import ParallelEnv, SerialEnv
+from torchrl.envs.batched_envs import BatchedEnvBase
 
 from diffusion_co_design.common.env import ScenarioConfig
 from diffusion_co_design.common.design import DesignConsumer
@@ -74,8 +75,9 @@ def create_batched_env[SC: ScenarioConfig](
     num_environments: int,
     scenario: SC,
     designer: DesignConsumer,
+    batch_mode: Literal["serial", "parallel"] = "parallel",
     device: str | None = None,
-) -> ParallelEnv:
+) -> BatchedEnvBase:
     def create_env_fn(render: bool = False):
         return create_env(
             mode,
@@ -89,9 +91,17 @@ def create_batched_env[SC: ScenarioConfig](
     for _ in range(num_environments - 1):
         eval_kwargs.append({})
 
-    return ParallelEnv(
-        num_workers=num_environments,
-        create_env_fn=create_env_fn,
-        create_env_kwargs=eval_kwargs if mode == "eval" else {},
-        device=device,
-    )
+    if batch_mode == "parallel":
+        return ParallelEnv(
+            num_workers=num_environments,
+            create_env_fn=create_env_fn,
+            create_env_kwargs=eval_kwargs if mode == "eval" else {},
+            device=device,
+        )
+    elif batch_mode == "serial":
+        return SerialEnv(
+            num_workers=num_environments,
+            create_env_fn=create_env_fn,
+            create_env_kwargs=eval_kwargs if mode == "eval" else {},
+            device=device,
+        )

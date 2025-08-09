@@ -72,8 +72,12 @@ class Generate:
                 candidate[0] = candidate[0] * self.w
                 candidate[1] = candidate[1] * self.h
 
-                dist = np.linalg.norm(np.stack(points) - candidate, axis=-1)
-                if np.all(dist >= self.occupied_radius[: dist.shape[0]]):
+                if len(points) > 0:
+                    dist = np.linalg.norm(np.stack(points) - candidate, axis=-1)
+
+                if len(points) == 0 or np.all(
+                    dist >= self.occupied_radius[: dist.shape[0]]
+                ):
                     points.append(candidate)
                     placements[i, j] = candidate
                     j += 1

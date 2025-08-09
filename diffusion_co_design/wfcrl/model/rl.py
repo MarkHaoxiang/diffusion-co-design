@@ -1,4 +1,3 @@
-from typing import Literal
 from math import prod
 
 import torch
@@ -7,14 +6,15 @@ import torch.nn as nn
 from tensordict.nn import TensorDictModule, TensorDictSequential, InteractionType
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
-from torch_geometric.utils import scatter
+from torch_geometric.data import Data, Batch
+from torch_geometric.nn import knn_graph
+from torch_geometric.nn.models import GAT
 
 from diffusion_co_design.wfcrl.schema import (
     ScenarioConfig,
     ActorCriticConfig,
     NormalisationStatistics,
 )
-from diffusion_co_design.common.nn import fully_connected
 
 
 class OutputDenormaliser(nn.Module):
@@ -32,59 +32,33 @@ class ID(nn.Module):
         return x
 
 
-class EquivariantModel(nn.Module):
+class WindFarmGNN(nn.Module):
     def __init__(
         self,
         scenario: ScenarioConfig,
         node_emb_dim: int = 64,
-        edge_emb_dim: int = 16,
-        n_layers: int = 4,
-        wind_speed_low: int | torch.Tensor = 0,
-        wind_speed_high: int | torch.Tensor = 28,
-        aggr: Literal["add", "mean", "max"] = "add",
+        out_dim: int = 64,
+        n_layers: int = 3,
+        wind_speed_low: float | torch.Tensor = 0,
+        wind_speed_high: float | torch.Tensor = 28,
+        k: int = 5,
     ):
         super().__init__()
-
-        self.edge_features_n = 5
-
         self.scenario = scenario
         self.wind_speed_low = wind_speed_low
         self.wind_speed_high = wind_speed_high
-        self.n_turbines = scenario.n_turbines  # N
+        self.k = k
+        self.out_dim = out_dim
 
-        edge_index = fully_connected(self.n_turbines)  # [2, E = (N)(N-1)/2]
-        # Remove self loops
-        self.edge_index = edge_index[:, edge_index[0] != edge_index[1]]
-
-        self.node_emb_dim = node_emb_dim
-        self.node_in = nn.Linear(1 + self.edge_features_n, node_emb_dim)
-        self.edge_in = nn.Linear(self.edge_features_n, edge_emb_dim)
-
-        self.message_mlp_list = nn.ModuleList()
-        self.upd_mlp_list = nn.ModuleList()
-        for _ in range(n_layers):
-            self.message_mlp_list.append(
-                nn.Sequential(
-                    nn.Linear(node_emb_dim * 2 + edge_emb_dim, edge_emb_dim),
-                    nn.SiLU(),
-                    nn.LayerNorm(edge_emb_dim),
-                    nn.Linear(edge_emb_dim, edge_emb_dim),
-                    nn.SiLU(),
-                )
-            )
-
-            self.upd_mlp_list.append(
-                nn.Sequential(
-                    nn.Linear(node_emb_dim + edge_emb_dim, node_emb_dim),
-                    nn.SiLU(),
-                    nn.LayerNorm(node_emb_dim),
-                    nn.Linear(node_emb_dim, node_emb_dim),
-                    nn.SiLU(),
-                )
-            )
-
-        self.att_mlp = nn.Sequential(nn.Linear(edge_emb_dim, 1), nn.Sigmoid())
-        self.aggr = aggr
+        self.model = GAT(
+            in_channels=-1,
+            edge_dim=5,
+            hidden_channels=node_emb_dim,
+            num_layers=n_layers,
+            out_channels=out_dim,
+            act="relu",
+            v2=True,
+        )
 
     def forward(
         self,
@@ -100,11 +74,8 @@ class EquivariantModel(nn.Module):
             yaw = yaw.unsqueeze(0)
             layout = layout.unsqueeze(0)
 
-        self.edge_index = self.edge_index.to(device=wind_speed.device)
         B_all = wind_direction.shape[:-2]
-        B = prod(B_all)
-        N = self.n_turbines
-        E = len(self.edge_index[0])
+        B, N = prod(B_all), self.scenario.n_turbines
 
         # Shape checks
         wind_direction = wind_direction.reshape(-1, N, 1)
@@ -116,92 +87,77 @@ class EquivariantModel(nn.Module):
         layout = layout.reshape(-1, N, 2)
         assert layout.shape == (B, N, 2), layout.shape
 
-        # To radians
+        # Normalisation and feature engineering
         wind_direction = torch.deg2rad(wind_direction)
-
-        # Max-min normalise wind speed
         wind_speed = (wind_speed - self.wind_speed_low) / (
             self.wind_speed_high - self.wind_speed_low
         )
-
-        # Calculate Cartesian wind vector
         wind_x = wind_speed * torch.cos(wind_direction)
         wind_y = wind_speed * torch.sin(wind_direction)
         wind = torch.cat([wind_x, wind_y], dim=-1)  # [B, N, 2]
-
-        # Normalise yaw
         yaw = torch.deg2rad(yaw)
-
-        # (-1|1) Normalise Layout
         layout = layout.clone()
         layout[:, :, 0] = (layout[:, :, 0] / self.scenario.map_x_length) * 2 - 1
         layout[:, :, 1] = (layout[:, :, 1] / self.scenario.map_y_length) * 2 - 1
 
-        # Fully connected graph
-        src, dst = self.edge_index[0], self.edge_index[1]
-        pos_diff = layout[:, dst] - layout[:, src]  # [B, E, 2]
-        radial = torch.norm(pos_diff, dim=-1, keepdim=True)  # [B, E, 1]
+        # Construct graph
+        data_list: list[Data] = []
 
-        # Feature engineering
-        wind_src = wind[:, src]
-        wind_dot = torch.sum(wind_src * pos_diff, dim=-1, keepdim=True)  # [B, E, 1]
-        wind_cross = (
-            wind_src[..., 0:1] * pos_diff[..., 1:2]
-            - wind_src[..., 1:2] * pos_diff[..., 0:1]
-        )  # [B, E, 1]
+        for i in range(B):
+            # Build KNN graph
+            pos = layout[i]  # [N, 2]
+            edge_index = knn_graph(pos, k=self.k, loop=False)  # [2, E]
 
-        assert radial.shape == (B, E, 1), radial.shape
-        assert wind_dot.shape == (B, E, 1), wind_dot.shape
-        assert wind_cross.shape == (B, E, 1), wind_cross.shape
+            # Node features
+            x = torch.cat([wind_speed[i], yaw[i]], dim=-1)
 
-        # In layers
-        edge_features = torch.cat(
-            [radial, wind_speed[:, src], wind_dot, wind_cross, yaw[:, src]], dim=-1
-        )  # [B, E, 5]
-        assert edge_features.shape == (B, E, self.edge_features_n), edge_features.shape
-        e = self.edge_in(edge_features)  # [B, E, edge_emb_dim]
-        node_features = torch.cat(
-            [
-                wind_speed,
-                scatter(edge_features, src, dim=1, dim_size=N, reduce=self.aggr),
-            ],
-            dim=-1,
-        )  # [B, N, 1 + 5]
-        assert node_features.shape == (B, N, 1 + self.edge_features_n), (
-            node_features.shape
+            # Edge features
+            src, dst = edge_index
+            pos_diff = pos[dst] - pos[src]  # [E, 2]
+            radial = torch.norm(pos_diff, dim=-1, keepdim=True)  # [E, 1]
+            wind_src = wind[i][src]  # [E, 2]
+
+            # Geometric interpretation of wind
+            wind_dot_src = torch.sum(wind_src * pos_diff, dim=-1, keepdim=True)
+            wind_cross_src = (
+                wind_src[:, 0:1] * pos_diff[:, 1:2]
+                - wind_src[:, 1:2] * pos_diff[:, 0:1]
+            )
+            wind_dst = wind[i][dst]
+            wind_dot_dst = torch.sum(wind_dst * pos_diff, dim=-1, keepdim=True)
+            wind_cross_dst = (
+                wind_dst[:, 0:1] * pos_diff[:, 1:2]
+                - wind_dst[:, 1:2] * pos_diff[:, 0:1]
+            )
+
+            edge_attr = torch.cat(
+                [
+                    radial,
+                    wind_dot_src,
+                    wind_cross_src,
+                    wind_dot_dst,
+                    wind_cross_dst,
+                ],
+                dim=-1,
+            )  # [E, 5]
+
+            data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, pos=pos)
+            data_list.append(data)
+
+        data = Batch.from_data_list(data_list)
+
+        out = self.model(
+            x=data.x,
+            edge_index=data.edge_index,
+            edge_attr=data.edge_attr,
+            batch=data.batch,
         )
-        h = self.node_in(node_features)  # [B, N, node_emb_dim]
 
-        # Message passing
-        for i, (message_mlp, upd_mlp) in enumerate(
-            zip(self.message_mlp_list, self.upd_mlp_list)
-        ):
-            is_final_layer = i == len(self.message_mlp_list) - 1
-
-            # Message
-            msg = message_mlp(
-                torch.cat([h[:, src], h[:, dst], e], dim=-1)
-            )  # [B, E, edge_emb_dim]
-
-            # Attention
-            msg = msg * self.att_mlp(msg)
-
-            h_aggr = scatter(
-                msg, src, dim=1, dim_size=N, reduce=self.aggr
-            )  # [B, N, edge_emb_dim]
-            h_aggr = upd_mlp(torch.cat([h, h_aggr], dim=-1))  # [B, N, node_emb_dim]
-
-            # Residual connections
-            h = h + h_aggr
-            if not is_final_layer:
-                e = e + msg
-
-        assert h.shape == (B, N, self.node_emb_dim)
-        h = h.reshape(*B_all, N, self.node_emb_dim)
+        out = out.view(*B_all, N, self.out_dim)
         if not has_batch:
-            h = h.squeeze(0)
+            out = out.squeeze(0)
 
-        return h
+        return out
 
 
 class CriticHead(nn.Module):
@@ -423,15 +379,16 @@ def wfcrl_models_gnn(
         for x in ["wind_direction", "wind_speed", "yaw", "layout"]
     ]
 
-    policy_gnn = EquivariantModel(
+    policy_gnn = WindFarmGNN(
         scenario=env._env._scenario_cfg,
         node_emb_dim=cfg.policy_node_hidden_size,
-        edge_emb_dim=cfg.policy_edge_hidden_size,
+        out_dim=cfg.policy_node_hidden_size,
         n_layers=cfg.policy_gnn_depth,
         wind_speed_low=env.observation_spec["turbine", "observation", "wind_speed"].low,
         wind_speed_high=env.observation_spec[
             "turbine", "observation", "wind_speed"
         ].high,
+        k=cfg.policy_graph_k,
     ).to(device=device)
     policy_gnn_key = [("turbine", "observation", "policy_gnn_features")]
     policy_gnn_module = TensorDictModule(
@@ -480,15 +437,16 @@ def wfcrl_models_gnn(
         log_prob_key=("turbine", "sample_log_prob"),
     )
 
-    critic_gnn = EquivariantModel(
+    critic_gnn = WindFarmGNN(
         scenario=env._env._scenario_cfg,
         node_emb_dim=cfg.critic_node_hidden_size,
-        edge_emb_dim=cfg.critic_edge_hidden_size,
+        out_dim=cfg.critic_node_hidden_size,
         n_layers=cfg.critic_gnn_depth,
         wind_speed_low=env.observation_spec["turbine", "observation", "wind_speed"].low,
         wind_speed_high=env.observation_spec[
             "turbine", "observation", "wind_speed"
         ].high,
+        k=cfg.critic_graph_k,
     ).to(device=device)
     critic_gnn_key = [("turbine", "observation", "critic_gnn_features")]
     critic_gnn_module = TensorDictModule(

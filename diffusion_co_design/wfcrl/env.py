@@ -314,7 +314,6 @@ def create_env(
     env = WfcrlCoDesignWrapper(
         env=env,
         reset_policy=designer.to_td_module(),
-        environment_objective=None,
         scenario_cfg=scenario,
         return_state=True,
         device=device,

@@ -18,6 +18,7 @@ from torchrl.objectives.value.functional import reward2go
 
 from diffusion_co_design.common.design.base import (
     DesignProducer,
+    LiveDesignConsumer,
     ENVIRONMENT_DESIGN_KEY,
 )
 from diffusion_co_design.common.env import ScenarioConfig
@@ -68,6 +69,9 @@ class Designer[SC: ScenarioConfig](DesignProducer):
             designer_setting.environment_repeats,
         )
         self.scenario = designer_setting.scenario
+
+    def get_placeholder(self) -> LiveDesignConsumer:
+        return LiveDesignConsumer(self)
 
 
 class RandomDesigner[SC: ScenarioConfig](Designer[SC]):

@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 from torch_geometric.utils import scatter
 
-from diffusion_co_design.common.nn import EnvCritic as _EnvCritic, fully_connected
+from diffusion_co_design.common.nn.geometric import fully_connected
+from diffusion_co_design.common.nn import EnvCritic as _EnvCritic
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
 
 
