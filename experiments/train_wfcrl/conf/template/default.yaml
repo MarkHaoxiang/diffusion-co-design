@@ -4,12 +4,10 @@ policy:
   mlp_hidden_size: 64
   mlp_depth: 2
   policy_node_hidden_size: 64
-  policy_edge_hidden_size: 32
   policy_head_hidden_size: 64
   policy_gnn_depth: 1
   policy_head_depth: 2
   critic_node_hidden_size: 64
-  critic_edge_hidden_size: 32
   critic_gnn_depth: 3
 ppo:
   n_iters: 301
