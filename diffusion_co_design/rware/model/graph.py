@@ -7,7 +7,7 @@ import networkx as nx
 from torch_scatter import scatter
 
 from rware.rendering import _SHELF_COLORS
-from diffusion_co_design.common.nn import fully_connected
+from diffusion_co_design.common.nn.geometric import fully_connected
 from diffusion_co_design.rware.schema import ScenarioConfig
 from diffusion_co_design.rware.diffusion.generate import get_position
 
