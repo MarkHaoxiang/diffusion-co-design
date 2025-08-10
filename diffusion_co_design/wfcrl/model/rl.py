@@ -106,7 +106,7 @@ class WindFarmGNN(nn.Module):
         for i in range(B):
             # Build KNN graph
             pos = layout[i]  # [N, 2]
-            edge_index = knn_graph(pos, k=self.k, loop=False)  # [2, E]
+            edge_index = knn_graph(pos, k=self.k, loop=True)  # [2, E]
 
             # Node features
             x = torch.cat([wind_speed[i], yaw[i]], dim=-1)
