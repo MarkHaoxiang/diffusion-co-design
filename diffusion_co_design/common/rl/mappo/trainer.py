@@ -207,7 +207,7 @@ class MAPPOCoDesign[
                 sampling_td = sampling_td.reshape(
                     -1, self.cfg.scenario.get_episode_steps()
                 )
-                assert sampling_td[("next", "agents", "done")][:, -1].all()
+                assert sampling_td[("next", self.group_name, "done")][:, -1].all()
 
                 loss_module.to(device=device.storage_device)
                 self.minibatch_advantage_calculation(
