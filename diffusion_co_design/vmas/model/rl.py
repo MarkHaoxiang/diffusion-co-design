@@ -106,7 +106,7 @@ class E3Critic(torch.nn.Module):
         # Graph topology
         pos = torch.cat([agent_pos, goal_pos, obstacle_pos], dim=-1)
         assert pos.shape == (N, 2), pos.shape
-        edge_index = knn_graph(pos, k=self.k, loop=False)
+        edge_index = knn_graph(pos, k=self.k, loop=True)
         # add direct edges between agents and their goals
         agent_goal_edges = torch.arange(self.n_obstacles, device=pos.device)
         agent_goal_edges = torch.stack(

@@ -26,7 +26,13 @@ dependencies = [
 ]
 
 # VMAS and RWARE are incompatible with each other
-# Manually modify this configuration file to select one of them
+[project.optional-dependencies]
+rware = [ # Pyglet 2.1
+  "rware[pettingzoo, dev]",
+]
+vmas = [
+  "vmas[render]"
+]
 
 [dependency-groups]
 dev = [
@@ -35,13 +41,6 @@ dev = [
     "ruff>=0.9.3",
     "expecttest>=0.3.0",
 ]
-rware = [ # Pyglet 2.1
-  "rware[pettingzoo, dev]",
-]
-vmas = [
-  "vmas[render]"
-]
-
 
 
 [build-system]
@@ -53,7 +52,6 @@ members = [
   ".",
   "packages/guided_diffusion",
   "packages/wfcrl-env",
-  # "packages/robotic_warehouse",
   "experiments/*",
   "packages/segnn",
 ]
@@ -61,14 +59,11 @@ members = [
 [tool.uv]
 conflicts = [
   [
-    { group = "rware" },
-    { group = "vmas" },
+    { extra = "rware" },
+    { extra = "vmas" },
   ]
 ]
 
-# Modify here, and uncomment rware in the sources section.
-default-groups = ["dev", "vmas"] 
-# default-groups = ["dev", "rware"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -86,5 +81,5 @@ diffusion_co_design = { workspace = true }
 guided_diffusion = { workspace = true }
 wfcrl = { workspace = true }
 vmas = { git = "https://github.com/MarkHaoxiang/VectorizedMultiAgentSimulator", branch = "dicode" }
+rware = { git = "https://github.com/MarkHaoxiang/robotic-warehouse.git" }
 segnn = { workspace = true }
-# rware = { workspace = true }
