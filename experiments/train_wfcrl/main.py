@@ -1,3 +1,5 @@
+import warnings
+
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
@@ -9,6 +11,13 @@ import diffusion_co_design.wfcrl.schema as schema
 import diffusion_co_design.wfcrl.design as design
 from diffusion_co_design.wfcrl.env import create_env
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models
+
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*performance drop because we have not yet implemented the batching rule.*",
+)
+warnings.filterwarnings("ignore", message=".*torch_cluster::knn.*")
 
 
 class Trainer(

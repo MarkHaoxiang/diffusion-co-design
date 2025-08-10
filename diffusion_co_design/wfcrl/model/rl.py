@@ -57,6 +57,7 @@ class WindFarmGNN(nn.Module):
             num_layers=n_layers,
             out_channels=out_dim,
             act="relu",
+            add_self_loops=False,
             v2=True,
         )
 

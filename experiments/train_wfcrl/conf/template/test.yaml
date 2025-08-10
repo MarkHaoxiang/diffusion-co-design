@@ -1,0 +1,31 @@
+policy:
+  model_type: "gnn"
+  initial_std: 0.3
+  mlp_hidden_size: 16
+  mlp_depth: 2
+  policy_node_hidden_size: 16
+  policy_head_hidden_size: 16
+  policy_gnn_depth: 1
+  policy_head_depth: 2
+  critic_node_hidden_size: 16
+  critic_gnn_depth: 2
+ppo:
+  n_iters: 11
+  n_epochs: 1
+  minibatch_size: 150
+  n_mini_batches: 2
+  clip_epsilon: 0.2
+  gamma: 0.99
+  lmbda: 0.95
+  actor_lr: 3e-4
+  critic_lr: 3e-4
+  min_critic_lr: 1e-4
+  lr_scheduler_enabled: true
+  max_grad_norm: 1.0
+  entropy_eps: 0.0
+  normalise_advantage: true
+logging:
+  mode: disabled
+  evaluation_interval: 50
+  evaluation_episodes: 1
+  checkpoint_interval: 50
