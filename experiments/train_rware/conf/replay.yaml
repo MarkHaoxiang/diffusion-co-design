@@ -3,11 +3,11 @@ defaults:
   - template/default@_here_
   - _self_
 
-experiment_name: corners_agent_random_210525
+experiment_name: corners_agent_replay
 scenario_name: rware_16_50_5_4_corners
 device:
   device_management: "gpu"
-  gpu_id: 0
+  gpu_id: 2
   max_gpu_memory: 1.0
 designer:
   kind: replay
