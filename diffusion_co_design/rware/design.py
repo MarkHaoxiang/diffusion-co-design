@@ -545,7 +545,6 @@ class ReplayDesigner(design.ReplayDesigner[SC]):
                     empty_locations.append(idx)
                 else:
                     has_shelf_locations.append(idx)
-                empty_locations.append(idx)
 
         new_idxs = np.random.choice(
             empty_locations,
@@ -568,7 +567,9 @@ class ReplayDesigner(design.ReplayDesigner[SC]):
             env[color, *pos] = 1
 
         # Sanity check: check number of shelves
-        assert self.scenario.n_shelves == env.sum()
+        assert self.scenario.n_shelves == env.sum(), (
+            f"Expected shelves {self.scenario.n_shelves} != {env.sum()}"
+        )
 
         return env
 

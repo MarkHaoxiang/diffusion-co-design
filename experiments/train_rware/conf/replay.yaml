@@ -6,7 +6,7 @@ defaults:
 experiment_name: corners_agent_replay
 scenario_name: rware_16_50_5_4_corners
 device:
-  device_management: "gpu"
+  device_management: gpu
   gpu_id: 2
   max_gpu_memory: 1.0
 designer:

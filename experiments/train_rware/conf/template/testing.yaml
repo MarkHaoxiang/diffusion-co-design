@@ -23,7 +23,3 @@ logging:
   checkpoint_interval: 999
 policy:
   version: "v1"
-  kernel_sizes: 2
-  num_cells: [16, 32]
-  hidden_size: 32
-  depth: 1
