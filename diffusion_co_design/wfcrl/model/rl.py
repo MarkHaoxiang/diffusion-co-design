@@ -7,12 +7,14 @@ from tensordict.nn import TensorDictModule, TensorDictSequential, InteractionTyp
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 from torch_geometric.data import Data, Batch
-from torch_geometric.nn import knn_graph
 from torch_geometric.nn.models import GAT
 
+from diffusion_co_design.common.nn.geometric import Connectivity, KNN, graph_topology
 from diffusion_co_design.wfcrl.schema import (
     ScenarioConfig,
     ActorCriticConfig,
+    MLPActorCriticConfig,
+    GNNActorCriticConfig,
     NormalisationStatistics,
 )
 
@@ -41,13 +43,13 @@ class WindFarmGNN(nn.Module):
         n_layers: int = 3,
         wind_speed_low: float | torch.Tensor = 0,
         wind_speed_high: float | torch.Tensor = 28,
-        k: int = 5,
+        connectivity: Connectivity = KNN(k=5),
     ):
         super().__init__()
         self.scenario = scenario
         self.wind_speed_low = wind_speed_low
         self.wind_speed_high = wind_speed_high
-        self.k = k
+        self.connectivity = connectivity
         self.out_dim = out_dim
 
         self.model = GAT(
@@ -107,7 +109,7 @@ class WindFarmGNN(nn.Module):
         for i in range(B):
             # Build KNN graph
             pos = layout[i]  # [N, 2]
-            edge_index = knn_graph(pos, k=self.k, loop=True)  # [2, E]
+            edge_index = graph_topology(pos=pos, connectivity=self.connectivity)
 
             # Node features
             x = torch.cat([wind_speed[i], yaw[i]], dim=-1)
@@ -255,7 +257,7 @@ class MLPObservationNormalizer(nn.Module):
 
 def wfcrl_models_mlp(
     env,
-    cfg: ActorCriticConfig,
+    cfg: MLPActorCriticConfig,
     normalisation: NormalisationStatistics | None,
     device: str,
 ):
@@ -282,8 +284,8 @@ def wfcrl_models_mlp(
     policy_mlp = nn.Sequential(
         MLPPolicy(
             in_dim=5,
-            depth=cfg.mlp_depth,
-            num_cells=cfg.mlp_hidden_size,
+            depth=cfg.depth,
+            num_cells=cfg.hidden_size,
             action_dim=env.action_spec.shape[-1],
             n_agents=env.num_agents,
             share_params=False,
@@ -326,8 +328,8 @@ def wfcrl_models_mlp(
             centralised=True,
             share_params=True,
             device=device,
-            depth=cfg.mlp_depth,
-            num_cells=cfg.mlp_hidden_size,
+            depth=cfg.depth,
+            num_cells=cfg.hidden_size,
             activation_class=torch.nn.Tanh,
         ),
         critic_denormaliser,
@@ -371,7 +373,7 @@ def maybe_make_denormaliser(normalisation: NormalisationStatistics | None):
 
 def wfcrl_models_gnn(
     env,
-    cfg: ActorCriticConfig,
+    cfg: GNNActorCriticConfig,
     normalisation: NormalisationStatistics | None,
     device: str,
 ):
@@ -389,7 +391,7 @@ def wfcrl_models_gnn(
         wind_speed_high=env.observation_spec[
             "turbine", "observation", "wind_speed"
         ].high,
-        k=cfg.policy_graph_k,
+        connectivity=cfg.policy_connectivity,
     ).to(device=device)
     policy_gnn_key = [("turbine", "observation", "policy_gnn_features")]
     policy_gnn_module = TensorDictModule(
@@ -447,7 +449,7 @@ def wfcrl_models_gnn(
         wind_speed_high=env.observation_spec[
             "turbine", "observation", "wind_speed"
         ].high,
-        k=cfg.critic_graph_k,
+        connectivity=cfg.critic_connectivity,
     ).to(device=device)
     critic_gnn_key = [("turbine", "observation", "critic_gnn_features")]
     critic_gnn_module = TensorDictModule(

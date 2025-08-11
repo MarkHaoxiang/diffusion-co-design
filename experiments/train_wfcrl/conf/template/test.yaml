@@ -1,14 +1,16 @@
 policy:
   model_type: "gnn"
   initial_std: 0.3
-  mlp_hidden_size: 16
-  mlp_depth: 2
   policy_node_hidden_size: 16
   policy_head_hidden_size: 16
   policy_gnn_depth: 1
   policy_head_depth: 2
+  policy_connectivity: 
+    kind: fully_connected
   critic_node_hidden_size: 16
   critic_gnn_depth: 2
+  critic_connectivity:
+    kind: fully_connected
 ppo:
   n_iters: 11
   n_epochs: 1

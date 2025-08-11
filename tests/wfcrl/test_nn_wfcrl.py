@@ -7,7 +7,7 @@ from diffusion_co_design.common.design import DesignerParams
 from diffusion_co_design.wfcrl.design import FixedDesigner
 from diffusion_co_design.wfcrl.env import create_env
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models_gnn
-from diffusion_co_design.wfcrl.schema import ActorCriticConfig, ScenarioConfig
+from diffusion_co_design.wfcrl.schema import GNNActorCriticConfig, ScenarioConfig
 
 seed = 42
 device = torch.device("cpu")
@@ -22,7 +22,7 @@ test_scenario = ScenarioConfig(
 )
 
 
-actor_critic_config = ActorCriticConfig(
+actor_critic_config = GNNActorCriticConfig(
     model_type="gnn",
     policy_node_hidden_size=16,
     policy_gnn_depth=2,

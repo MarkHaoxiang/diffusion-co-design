@@ -6,6 +6,8 @@ from diffusion_co_design.common import Config, DiffusionOperation
 from diffusion_co_design.common.rl.mappo.schema import TrainingConfig as _TrainingConfig
 from diffusion_co_design.common.rl.mappo.schema import ScenarioConfig as _ScenarioConfig
 from diffusion_co_design.common.design import DesignerConfig as _Designer
+from diffusion_co_design.common.nn.geometric import Connectivity, KNN
+
 from diffusion_co_design.wfcrl.static import ENV_NAME
 
 
@@ -84,21 +86,31 @@ DesignerConfig = Annotated[
 # ====
 
 
-class ActorCriticConfig(Config):
-    model_type: Literal["mlp", "gnn"]
+class _ActorCritic(Config):
     initial_std: float = 0.3
-    # MLP
-    mlp_hidden_size: int = 64
-    mlp_depth: int = 2
-    # GNN
+
+
+class MLPActorCriticConfig(_ActorCritic):
+    model_type: Literal["mlp"] = "mlp"
+    hidden_size: int = 64
+    depth: int = 2
+
+
+class GNNActorCriticConfig(_ActorCritic):
+    model_type: Literal["gnn"] = "gnn"
     policy_node_hidden_size: int = 64
     policy_head_hidden_size: int = 64
     policy_gnn_depth: int = 3
     policy_head_depth: int = 2
-    policy_graph_k: int = 5
+    policy_connectivity: Connectivity = KNN(k=5)
     critic_node_hidden_size: int = 64
     critic_gnn_depth: int = 3
-    critic_graph_k: int = 5
+    critic_connectivity: Connectivity = KNN(k=5)
+
+
+ActorCriticConfig = Annotated[
+    MLPActorCriticConfig | GNNActorCriticConfig, Field(discriminator="model_type")
+]
 
 
 class TrainingConfig(

@@ -1,7 +1,35 @@
+from typing import Annotated, Literal
+
 import torch
 import torch.nn as nn
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn import MessagePassing, knn_graph
 from torch_scatter import scatter
+from pydantic import Field
+
+from diffusion_co_design.common.pydra import Config
+
+
+class FullyConnected(Config):
+    kind: Literal["fully_connected"] = "fully_connected"
+
+
+class KNN(Config):
+    kind: Literal["knn"] = "knn"
+    k: int = 2
+
+
+Connectivity = Annotated[FullyConnected | KNN, Field(discriminator="kind")]
+
+
+def graph_topology(pos: torch.Tensor, connectivity: Connectivity) -> torch.Tensor:
+    if isinstance(connectivity, FullyConnected):
+        edge_index = fully_connected(pos.shape[0])
+    elif isinstance(connectivity, KNN):
+        edge_index = knn_graph(pos, k=connectivity.k, loop=True)
+    else:
+        raise ValueError(f"Unsupported connectivity type: {connectivity.kind}")
+    assert edge_index.shape[0] == 2, "Edge index should have shape [2, num_edges]"
+    return edge_index
 
 
 def fully_connected(n):

@@ -120,10 +120,56 @@ class E3Critic(torch.nn.Module):
         # Node features:
         # One-hot encoding of node types
         # Velocity norm
-        x = torch.zeros((N, 3 + 1), device=pos.device)
-        x[: self.n_obstacles, 0] = 1.0
-        x[self.n_obstacles : self.n_obstacles + self.scenario.get_num_agents(), 1] = 1.0
-        x[self.n_obstacles + self.scenario.get_num_agents() :, 2] = 1.0
+        # Radius
+        x = torch.zeros((N, 3 + 1 + 1), device=pos.device)
+        x[: self.scenario.get_num_agents(), 0] = 1.0
+        x[self.scenario.get_num_agents() : self.scenario.get_num_agents() * 2, 1] = 1.0
+        x[self.scenario.get_num_agents() * 2 :, 2] = 1.0
+
+        x[: self.scenario.get_num_agents(), 3] = torch.linalg.vector_norm(
+            agent_vel, dim=-1
+        )
+        entity_radius = torch.zeros(N)
+        entity_radius[: self.scenario.get_num_agents()] = 0.05
+        entity_radius[self.scenario.get_num_agents() * 2 :] = torch.tensor(
+            self.scenario.obstacle_sizes, device=pos.device
+        )
+        x[:, 4] = entity_radius
+
+        # Edge features:
+        # Boolean indicating if the edge is between an agent and its goal
+        # Absolute distance
+        # Absolute collision distance
+        # Vel dot and prod
+        edge_attr = torch.zeros((edge_index.shape[1], 1 + 1 + 1 + 2), device=pos.device)
+
+        agent_goal_edges = torch.logical_and(
+            edge_index[0, :] < self.scenario.get_num_agents(),
+            edge_index[1, :] == edge_index[0, :] + self.scenario.get_num_agents(),
+        )
+        edge_attr[agent_goal_edges, 0] = 1.0
+
+        from_pos = pos[edge_index[0, :]]
+        to_pos = pos[edge_index[1, :]]
+
+        dist = torch.linalg.vector_norm(from_pos - to_pos, dim=-1)
+        edge_attr[:, 1] = dist
+
+        radius_sum = entity_radius[edge_index[0, :]] + entity_radius[edge_index[1, :]]
+        edge_attr[:, 2] = dist - radius_sum
+
+        vel = torch.zeros(N, 2, device=pos.device)
+        vel[: self.scenario.get_num_agents()] = agent_vel
+        from_vel = vel[edge_index[0, :]]
+        to_vel = vel[edge_index[1, :]]
+        rel_vel = from_vel - to_vel
+        pos_diff = from_pos - to_pos
+        pos_diff = pos_diff / dist
+
+        edge_attr[:, 3] = torch.sum(rel_vel * pos_diff, dim=-1)
+        edge_attr[:, 4] = (
+            rel_vel[:, 0] * pos_diff[:, 1] - rel_vel[:, 1] * pos_diff[:, 0]
+        )
 
 
 def create_critic(

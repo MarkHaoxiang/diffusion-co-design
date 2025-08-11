@@ -8,10 +8,18 @@ from diffusion_co_design.vmas.schema import (
     ScenarioConfig,
 )
 
-from diffusion_co_design.common.design import DesignerParams
-from diffusion_co_design.vmas.design import FixedDesigner
-from diffusion_co_design.vmas.scenario.env import create_env
-from diffusion_co_design.vmas.model.rl import vmas_models
+try:
+    import vmas
+
+    from diffusion_co_design.common.design import DesignerParams
+    from diffusion_co_design.vmas.design import FixedDesigner
+    from diffusion_co_design.vmas.scenario.env import create_env
+    from diffusion_co_design.vmas.model.rl import vmas_models
+
+    vmas_available = True
+except ImportError:
+    vmas_available = False
+
 
 seed = 42
 device = torch.device("cpu")
