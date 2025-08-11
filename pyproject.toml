@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib>=3.10.0",
     "numpy>=2.2.2",
     "guided-diffusion",
+    "tensordict==0.7.1",
     "torchrl==0.7.1",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
