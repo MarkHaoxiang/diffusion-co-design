@@ -29,7 +29,7 @@ def graph_topology(pos: torch.Tensor, connectivity: Connectivity) -> torch.Tenso
     else:
         raise ValueError(f"Unsupported connectivity type: {connectivity.kind}")
     assert edge_index.shape[0] == 2, "Edge index should have shape [2, num_edges]"
-    return edge_index
+    return edge_index.to(device=pos.device)
 
 
 def fully_connected(n):
