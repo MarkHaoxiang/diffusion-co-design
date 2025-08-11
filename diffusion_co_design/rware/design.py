@@ -560,10 +560,15 @@ class ReplayDesigner(design.ReplayDesigner[SC]):
         )
 
         for new_idx, from_idx in zip(new_idxs, from_idxs):
-            pos = get_position(new_idx, self.scenario.size)
+            pos = get_position(from_idx, self.scenario.size)
             color = env[:, *pos].argmax(dim=0)
             env[color, *pos] = 0
+
+            pos = get_position(new_idx, self.scenario.size)
             env[color, *pos] = 1
+
+        # Sanity check: check number of shelves
+        assert self.scenario.n_shelves == env.sum()
 
         return env
 
