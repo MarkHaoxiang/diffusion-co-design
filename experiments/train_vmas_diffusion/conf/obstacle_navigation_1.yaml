@@ -1,5 +1,5 @@
 # Figure 7, optimised environment 1
-name: vmas_1
+name: obstacle_navigation_1
 world_spawning_x: 1
 world_spawning_y: 1
 episode_steps: 100

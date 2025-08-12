@@ -18,7 +18,6 @@ ppo:
 logging:
   type: wandb
   mode: online
-  # mode: disabled
   evaluation_interval: 50
   evaluation_episodes: 5
   checkpoint_interval: 200
