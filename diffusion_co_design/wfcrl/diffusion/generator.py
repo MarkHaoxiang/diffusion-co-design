@@ -1,7 +1,6 @@
 import warnings
 
 import torch
-from torch import nn
 import numpy as np
 
 from scipy.optimize import minimize

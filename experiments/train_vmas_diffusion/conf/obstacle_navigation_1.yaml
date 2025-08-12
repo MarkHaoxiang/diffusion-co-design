@@ -1,0 +1,24 @@
+# Figure 7, optimised environment 1
+name: vmas_1
+world_spawning_x: 1
+world_spawning_y: 1
+episode_steps: 100
+agent_spawns:
+  - [-0.9, -0.9]
+  - [-0.75, -0.9]
+  - [0.75, -0.9]
+  - [0.9, -0.9]
+agent_goals:
+  - [-0.9, 0.9]
+  - [-0.75, 0.9]
+  - [0.75, 0.9]
+  - [0.9, 0.9]
+obstacle_sizes:
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1

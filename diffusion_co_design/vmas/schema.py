@@ -22,6 +22,10 @@ class ScenarioConfig(_ScenarioConfig):
     def get_num_agents(self):
         return len(self.agent_spawns)
 
+    @property
+    def n_obstacles(self):
+        return len(self.obstacle_sizes)
+
     @model_validator(mode="after")
     def check_agent_numbers(self):
         if len(self.agent_spawns) != len(self.agent_goals):
