@@ -130,10 +130,12 @@ def test_gnn_invariance(actor_critic, env):
     initial_critic_out = critic(td)["turbine", "state_value"]
 
     # Rotate the layout
-    r = torch.rand(1) * 2 * torch.pi
-    R = torch.tensor([[torch.cos(r), -torch.sin(r)], [torch.sin(r), torch.cos(r)]])
+    theta = torch.rand(1) * 2 * torch.pi
+    R = torch.tensor(
+        [[torch.cos(theta), -torch.sin(theta)], [torch.sin(theta), torch.cos(theta)]]
+    )
     rotated_layout = layout @ R.T
-    wind_direction = (torch.rad2deg(torch.deg2rad(wind_direction) - r) + 360) % 360
+    wind_direction = (torch.rad2deg(torch.deg2rad(wind_direction) - theta) + 360) % 360
 
     td["turbine", "observation", "layout"] = rotated_layout
     td["turbine", "observation", "wind_direction"] = wind_direction

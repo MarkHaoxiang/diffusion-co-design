@@ -6,7 +6,8 @@ from torchrl.data.utils import DEVICE_TYPING
 from torchrl.modules import ProbabilisticActor, MultiAgentMLP
 from torchrl.modules import NormalParamExtractor, TanhNormal
 from torch_geometric.data import Data, Batch
-from torch_geometric.nn import knn_graph
+from torch_geometric.nn import knn_graph, global_add_pool
+from torch_geometric.nn.models import GAT
 
 from diffusion_co_design.vmas.schema import (
     ActorConfig,
@@ -65,7 +66,6 @@ class E3Critic(torch.nn.Module):
         self,
         scenario: ScenarioConfig,
         node_emb_dim: int = 128,
-        out_dim: int = 128,
         num_layers: int = 3,
         k: int = 5,
     ):
@@ -80,6 +80,17 @@ class E3Critic(torch.nn.Module):
         # State
         # obstacle_pos (n_obstacles, 2)
 
+        self.model = GAT(
+            in_channels=-1,
+            edge_dim=5,
+            hidden_channels=node_emb_dim,
+            num_layers=num_layers,
+            out_channels=1,
+            act="relu",
+            add_self_loops=False,
+            v2=True,
+        )
+
     def forward(self, obs, state):
         B_all = obs.shape[:-2]
         B, N = prod(B_all), self.scenario.get_num_agents()
@@ -87,7 +98,7 @@ class E3Critic(torch.nn.Module):
         # Shape checks
         obs = obs.reshape(-1, N, obs.shape[-1])
         assert obs.shape == (B, N, 18), obs.shape
-        state = state.reshape(-1, N, state.shape[-1])
+        state = state.reshape(-1, self.n_obstacles, state.shape[-1])
         assert state.shape == (B, self.n_obstacles, 2), state.shape
 
         # Construct graph
@@ -100,11 +111,36 @@ class E3Critic(torch.nn.Module):
             # Note: discard lidar for now, position information should be sufficient
             agent_vel = obs[i, :, 2:4]
 
+            data_list.append(
+                self.construct_graph(
+                    obstacle_pos=obstacle_pos,
+                    agent_pos=agent_pos,
+                    goal_pos=goal_pos,
+                    agent_vel=agent_vel,
+                )
+            )
+
+        data = Batch.from_data_list(data_list)
+
+        out = self.model(
+            x=data.x,
+            edge_index=data.edge_index,
+            edge_attr=data.edge_attr,
+            batch=data.batch,
+        )
+
+        is_agent = data.x[:, 0] == 1.0
+        out = out[is_agent]
+        out = global_add_pool(out, data.batch[is_agent])
+
+        out = out.view(*B_all, 1).expand(-1, self.scenario.get_num_agents())
+        return out
+
     def construct_graph(self, obstacle_pos, agent_pos, goal_pos, agent_vel):
         N = self.scenario.get_num_agents() * 2 + self.n_obstacles
 
         # Graph topology
-        pos = torch.cat([agent_pos, goal_pos, obstacle_pos], dim=-1)
+        pos = torch.cat([agent_pos, goal_pos, obstacle_pos], dim=-2)
         assert pos.shape == (N, 2), pos.shape
         edge_index = knn_graph(pos, k=self.k, loop=True)
         # add direct edges between agents and their goals
@@ -164,12 +200,15 @@ class E3Critic(torch.nn.Module):
         to_vel = vel[edge_index[1, :]]
         rel_vel = from_vel - to_vel
         pos_diff = from_pos - to_pos
-        pos_diff = pos_diff / dist
+        pos_diff = pos_diff / dist.unsqueeze(-1).clamp_min(1e-6)
 
         edge_attr[:, 3] = torch.sum(rel_vel * pos_diff, dim=-1)
         edge_attr[:, 4] = (
             rel_vel[:, 0] * pos_diff[:, 1] - rel_vel[:, 1] * pos_diff[:, 0]
         )
+
+        data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, pos=pos)
+        return data
 
 
 def create_critic(
@@ -178,7 +217,18 @@ def create_critic(
     cfg: CriticConfig,
     device: DEVICE_TYPING,
 ):
-    raise NotImplementedError()
+    critic_net = E3Critic(
+        scenario=scenario,
+        node_emb_dim=cfg.hidden_size,
+        num_layers=cfg.depth,
+    ).to(device=device)
+
+    critic = TensorDictModule(
+        critic_net,
+        in_keys=[(GROUP_NAME, "observation"), "state"],
+        out_keys=[(GROUP_NAME, "state_value")],
+    )
+    return critic
 
 
 def vmas_models(
