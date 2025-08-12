@@ -1,11 +1,11 @@
 defaults:
-  - template/default@_here_
+  - template/test@_here_
   - _self_
   - metadata/training@_here_
 
 experiment_name: wfcrl_fixed
 device:
-  device_management: gpu
+  device_management: cpu
   gpu_id: 1
   max_gpu_memory: 1.0
 scenario_name: wfcrl_10

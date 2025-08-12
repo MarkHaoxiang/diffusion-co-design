@@ -28,6 +28,7 @@ members = [
     "train-rware-classifier",
     "train-rware-diffusion",
     "train-vmas",
+    "train-vmas-diffusion",
     "train-wfcrl-classifier",
     "train-wfcrl-diffusion",
     "wfcrl",
@@ -2600,6 +2601,11 @@ source = { virtual = "experiments/train_rware_diffusion" }
 name = "train-vmas"
 version = "0.1.0"
 source = { virtual = "experiments/train_vmas" }
+
+[[package]]
+name = "train-vmas-diffusion"
+version = "0.1.0"
+source = { virtual = "experiments/train_vmas_diffusion" }
 
 [[package]]
 name = "train-wfcrl-classifier"

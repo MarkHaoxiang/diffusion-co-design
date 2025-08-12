@@ -44,6 +44,8 @@ class MAPPOCoDesign[
     ACC: Config,
     TC: TrainingConfig,
 ](ABC):
+    support_vmap = True
+
     def __init__(self, cfg: TC, project_name: str):
         super().__init__()
         self.cfg = cfg
@@ -81,21 +83,14 @@ class MAPPOCoDesign[
                 device=self.device.env_device,
             )
 
-        train_env = create_batched_env(
-            create_env=self.create_env,
-            mode="train",
-            designer=make_design_consumer(),
-            num_environments=n_train_envs,
-            scenario=self.cfg.scenario,
-            device=device.env_device,
+        train_env = self.create_batched_env(
+            make_design_consumer=make_design_consumer, n_envs=n_train_envs, mode="train"
         )
-        eval_env = create_batched_env(
-            create_env=self.create_env,
+
+        eval_env = self.create_batched_env(
+            make_design_consumer=make_design_consumer,
+            n_envs=cfg.logging.evaluation_episodes,
             mode="eval",
-            designer=make_design_consumer(),
-            num_environments=cfg.logging.evaluation_episodes,
-            scenario=self.cfg.scenario,
-            device=device.env_device,
         )
 
         policy, critic = self.create_actor_critic_models(
@@ -110,13 +105,10 @@ class MAPPOCoDesign[
             )
         elif isinstance(designer, ReinforceDesigner):
             designer.initialise(
-                train_env=create_batched_env(
-                    create_env=self.create_env,
+                train_env=self.create_batched_env(
+                    make_design_consumer=make_design_consumer,
+                    n_envs=n_train_envs,
                     mode="train",
-                    num_environments=n_train_envs,
-                    designer=placeholder_designer,
-                    scenario=cfg.scenario,
-                    device=device.env_device,
                 ),
                 train_env_batch_size=n_train_envs,
                 agent_policy=policy,
@@ -415,6 +407,16 @@ class MAPPOCoDesign[
 
         sampling_td.update({key: value for key, value in zip(keys_list, buffer)})
         return sampling_td
+
+    def create_batched_env(self, make_design_consumer, n_envs, mode):
+        return create_batched_env(
+            create_env=self.create_env,
+            mode=mode,
+            designer=make_design_consumer(),
+            num_environments=n_envs,
+            scenario=self.cfg.scenario,
+            device=self.device.env_device,
+        )
 
     @abstractmethod
     def create_env(

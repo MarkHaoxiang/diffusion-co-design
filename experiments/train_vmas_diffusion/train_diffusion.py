@@ -18,8 +18,7 @@ from guided_diffusion.train_util import TrainLoop
 from diffusion_co_design.common import OUTPUT_DIR
 from diffusion_co_design.vmas.schema import ScenarioConfig
 from diffusion_co_design.vmas.model.diffusion import diffusion_setup
-
-name = "vmas"
+from diffusion_co_design.vmas.static import ENV_NAME
 
 
 def main():
@@ -32,10 +31,10 @@ def main():
     scenario = ScenarioConfig.from_file(
         os.path.join("conf", f"{args.experiment_name}.yaml")
     )
-    data_dir = os.path.join(OUTPUT_DIR, name, "scenario", args.experiment_name)
+    data_dir = os.path.join(OUTPUT_DIR, ENV_NAME, "scenario", args.experiment_name)
     scenario = scenario.from_file(os.path.join(data_dir, "config.yaml"))
 
-    log_dir = os.path.join(OUTPUT_DIR, name, "diffusion", args.experiment_name)
+    log_dir = os.path.join(OUTPUT_DIR, ENV_NAME, "diffusion", args.experiment_name)
 
     dist_util.setup_dist()
     logger.configure(dir=log_dir)

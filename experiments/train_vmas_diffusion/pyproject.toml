@@ -1,5 +1,5 @@
 [project]
-name = "train-wfcrl-diffusion"
+name = "train-vmas-diffusion"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"

@@ -1,8 +1,16 @@
+from typing import Callable
+from pathlib import Path
 import torch
 
 from diffusion_co_design.common import design, np_list_to_tensor_list
+from diffusion_co_design.common.rl.mappo.schema import PPOConfig
 from diffusion_co_design.vmas.diffusion.generate import Generate
-from diffusion_co_design.vmas.schema import ScenarioConfig as SC
+from diffusion_co_design.vmas.schema import (
+    ScenarioConfig as SC,
+    Random,
+    Fixed,
+    DesignerConfig,
+)
 
 
 class RandomDesigner(design.RandomDesigner[SC]):
@@ -32,3 +40,33 @@ class FixedDesigner(design.FixedDesigner[SC]):
                 )[0]
             ),
         )
+
+
+def create_designer(
+    scenario: SC,
+    designer: DesignerConfig,
+    ppo_cfg: PPOConfig,
+    artifact_dir: str | Path,
+    device: torch.device,
+) -> tuple[design.Designer[SC], Callable[[], design.DesignConsumer]]:
+    lock = torch.multiprocessing.Lock()
+    if isinstance(artifact_dir, str):
+        artifact_dir_path = Path(artifact_dir)
+    else:
+        artifact_dir_path = artifact_dir
+    designer_setting = design.DesignerParams(
+        scenario=scenario,
+        artifact_dir=artifact_dir_path,
+        lock=lock,
+        environment_repeats=designer.environment_repeats,
+    )
+
+    def design_consumer_fn():
+        return design.DesignConsumer(artifact_dir_path, lock)
+
+    if isinstance(designer, Fixed):
+        designer_producer: design.Designer[SC] = FixedDesigner(designer_setting)
+    elif isinstance(designer, Random):
+        designer_producer = RandomDesigner(designer_setting)
+
+    return designer_producer, design_consumer_fn

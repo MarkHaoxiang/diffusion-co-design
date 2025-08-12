@@ -1,7 +1,11 @@
-from pydantic import model_validator
+from typing import Annotated, Literal
+from pydantic import model_validator, Field
 
 from diffusion_co_design.common import Config
+from diffusion_co_design.common.design import DesignerConfig as _Designer
 from diffusion_co_design.common.env import ScenarioConfig as _ScenarioConfig
+from diffusion_co_design.common.rl.mappo.schema import TrainingConfig as _TrainingConfig
+from diffusion_co_design.vmas.static import ENV_NAME
 
 
 class ScenarioConfig(_ScenarioConfig):
@@ -46,3 +50,28 @@ class CriticConfig(Config):
 class ActorCriticConfig(Config):
     actor: ActorConfig
     critic: CriticConfig
+
+
+# ====
+# Designer registry
+class Random(_Designer):
+    kind: Literal["random"]
+
+
+class Fixed(_Designer):
+    kind: Literal["fixed"]
+
+
+DesignerConfig = Annotated[Random | Fixed, Field(discriminator="kind")]
+
+
+class TrainingConfig(
+    _TrainingConfig[DesignerConfig, ScenarioConfig, ActorCriticConfig]
+):
+    @property
+    def env_name(self) -> str:
+        return ENV_NAME
+
+    @property
+    def _scenario_cfg_cls(self) -> type[ScenarioConfig]:
+        return ScenarioConfig

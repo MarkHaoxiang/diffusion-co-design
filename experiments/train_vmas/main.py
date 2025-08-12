@@ -30,27 +30,35 @@ class Trainer(
             device=device,
         )
 
+    def create_batched_env(self, make_design_consumer, n_envs, mode):
+        return create_env(
+            mode=mode,
+            scenario=self.cfg.scenario,
+            designer=make_design_consumer(),
+            num_environments=n_envs,
+            device=self.device.env_device,
+        )
+
     def create_env(self, mode, scenario, designer, device, render=False):
         return create_env(
             mode=mode,
             scenario=scenario,
             designer=designer,
-            representation=self.cfg.designer.representation,
+            num_environments=1,
             device=device,
-            render=render,
         )
 
     def create_actor_critic_models(self, reference_env, actor_critic_config, device):
         return vmas_models(
             env=reference_env,
+            scenario=self.cfg.scenario,
             cfg=actor_critic_config,
             device=device,
         )
 
     def create_placeholder_designer(self, scenario):
         return design.RandomDesigner(
-            designer_setting=DesignerParams.placeholder(scenario=scenario),
-            representation=self.cfg.designer.representation,
+            designer_setting=DesignerParams.placeholder(scenario=scenario)
         )
 
     @property
