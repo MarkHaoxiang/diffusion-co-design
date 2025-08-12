@@ -9,8 +9,8 @@ dependencies = [
     "matplotlib>=3.10.0",
     "numpy>=2.2.2",
     "guided-diffusion",
-    "tensordict==0.7.1",
-    "torchrl==0.7.1",
+    "tensordict>0.9,<0.10",
+    "torchrl>0.9,<0.10",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
     "moviepy==1.0.3", # Temp pin as until wandb updates

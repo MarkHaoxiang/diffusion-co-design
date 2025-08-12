@@ -207,7 +207,6 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
         env=None,
         reset_policy: TensorDictModule | None = None,
         scenario_cfg=None,
-        return_state=False,
         group_map=None,
         use_mask=False,
         categorical_actions=True,
@@ -217,12 +216,12 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
     ):
         super().__init__(
             env,
-            return_state,
-            group_map,
-            use_mask,
-            categorical_actions,
-            seed,
-            done_on_any,
+            return_state=False,
+            group_map=group_map,
+            use_mask=use_mask,
+            categorical_actions=categorical_actions,
+            seed=seed,
+            done_on_any=done_on_any,
             **kwargs,
         )
         self._env._reset_policy = reset_policy
@@ -252,15 +251,13 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
 
         tensordict_out = super()._reset(tensordict, options=options, **kwargs)
 
-        if self.return_state:
-            tensordict_out["state"] = self._env.state()
+        tensordict_out["state"] = self._env.state()
 
         return tensordict_out
 
     def _step(self, tensordict):
         tensordict_out = super()._step(tensordict)
-        if self.return_state:
-            tensordict_out["state"] = self._env.state()
+        tensordict_out["state"] = self._env.state()
         return tensordict_out
 
 
@@ -315,7 +312,6 @@ def create_env(
         env=env,
         reset_policy=designer.to_td_module(),
         scenario_cfg=scenario,
-        return_state=True,
         device=device,
     )
 

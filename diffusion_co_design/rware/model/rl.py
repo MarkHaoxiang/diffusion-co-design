@@ -64,7 +64,7 @@ def rware_models_v1(
     )
     policy_mlp_net = MultiAgentMLP(
         n_agent_inputs=None,  # Lazy instantiation
-        n_agent_outputs=env.action_spec.space.n,  # n_actions_per_agents
+        n_agent_outputs=env.action_spec[env.action_key].space.n,  # n_actions_per_agents
         n_agents=env.num_agents,
         depth=cfg.depth,
         num_cells=cfg.hidden_size,
@@ -179,7 +179,7 @@ def rware_models_v2(
     )
     policy_mlp_net = MultiAgentMLP(
         n_agent_inputs=None,  # Lazy instantiation
-        n_agent_outputs=env.action_spec.space.n,  # n_actions_per_agents
+        n_agent_outputs=env.action_spec[env.action_key].space.n,  # n_actions_per_agents
         n_agents=env.num_agents,
         depth=cfg.depth,
         num_cells=cfg.hidden_size,
