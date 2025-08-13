@@ -133,7 +133,11 @@ class E3Critic(torch.nn.Module):
         out = out[is_agent]
         out = global_add_pool(out, data.batch[is_agent])
 
-        out = out.view(*B_all, 1).expand(-1, self.scenario.get_num_agents())
+        out = (
+            out.view(*B_all, 1)
+            .expand(*B_all, self.scenario.get_num_agents())
+            .unsqueeze(-1)
+        )
         return out
 
     def construct_graph(self, obstacle_pos, agent_pos, goal_pos, agent_vel):

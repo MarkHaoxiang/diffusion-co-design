@@ -83,20 +83,20 @@ class MAPPOCoDesign[
                 device=self.device.env_device,
             )
 
-        train_env = self.create_batched_env(
+        self.train_env = self.create_batched_env(
             make_design_consumer=make_design_consumer, n_envs=n_train_envs, mode="train"
         )
 
-        eval_env = self.create_batched_env(
+        self.eval_env = self.create_batched_env(
             make_design_consumer=make_design_consumer,
             n_envs=cfg.logging.evaluation_episodes,
             mode="eval",
         )
 
-        ref_env = create_reference_env()
+        self.ref_env = create_reference_env()
 
         policy, critic = self.create_actor_critic_models(
-            reference_env=ref_env,
+            reference_env=self.ref_env,
             actor_critic_config=cfg.policy,
             device=device.train_device,
         )
@@ -117,7 +117,7 @@ class MAPPOCoDesign[
             )
 
         collector = SyncDataCollector(
-            train_env,
+            self.train_env,
             policy,
             device=device.train_device,
             storing_device=device.storage_device,
@@ -145,8 +145,8 @@ class MAPPOCoDesign[
         )
 
         loss_module.set_keys(
-            reward=train_env.reward_key,
-            action=train_env.action_key,
+            reward=self.train_env.reward_key,
+            action=self.train_env.action_key,
             sample_log_prob=(self.group_name, "sample_log_prob"),
             value=(self.group_name, "state_value"),
             terminated=(self.group_name, "terminated"),
@@ -154,7 +154,10 @@ class MAPPOCoDesign[
         )
 
         loss_module.make_value_estimator(
-            ValueEstimators.GAE, gamma=cfg.ppo.gamma, lmbda=cfg.ppo.lmbda
+            ValueEstimators.GAE,
+            gamma=cfg.ppo.gamma,
+            lmbda=cfg.ppo.lmbda,
+            deactivate_vmap=not self.support_vmap,
         )
         optim_step, scheduler_step = make_optimiser_and_lr_scheduler(
             actor=policy,
@@ -201,7 +204,9 @@ class MAPPOCoDesign[
                 sampling_td = sampling_td.reshape(
                     -1, self.cfg.scenario.get_episode_steps()
                 )
-                assert sampling_td["next"][ref_env.done_keys[0]][:, -1].all()
+                assert sampling_td["next"][self.ref_env.done_keys[0]][:, -1].all()
+
+                sampling_td = self.post_sample_hook(sampling_td)
 
                 loss_module.to(device=device.storage_device)
                 self.minibatch_advantage_calculation(
@@ -291,7 +296,7 @@ class MAPPOCoDesign[
                         def callback(env, td):
                             return frames.append(env.render()[0])
 
-                        rollouts = eval_env.rollout(
+                        rollouts = self.eval_env.rollout(
                             max_steps=self.cfg.scenario.get_episode_steps(),
                             policy=policy,
                             callback=callback,
@@ -353,7 +358,7 @@ class MAPPOCoDesign[
             # Cleaup
             logger.close()
             collector.shutdown()
-            for env in (train_env, eval_env):
+            for env in (self.train_env, self.eval_env):
                 if not env.is_closed:
                     env.close()
 
@@ -408,6 +413,9 @@ class MAPPOCoDesign[
                     buffer[j][start:end] = eb.get(key)
 
         sampling_td.update({key: value for key, value in zip(keys_list, buffer)})
+        return sampling_td
+
+    def post_sample_hook(self, sampling_td: TensorDict) -> TensorDict:
         return sampling_td
 
     def create_batched_env(self, make_design_consumer, n_envs, mode):

@@ -18,6 +18,8 @@ class Trainer(
         schema.TrainingConfig,
     ]
 ):
+    support_vmap = False
+
     def __init__(self, cfg: schema.TrainingConfig):
         super().__init__(cfg, "diffusion-co-design-vmas")
 
@@ -60,6 +62,23 @@ class Trainer(
         return design.RandomDesigner(
             designer_setting=DesignerParams.placeholder(scenario=scenario)
         )
+
+    def post_sample_hook(self, sampling_td):
+        sampling_td.set(
+            ("next", self.group_name, "done"),
+            sampling_td.get(("next", "done"))
+            .unsqueeze(-1)
+            .expand(sampling_td.get_item_shape(("next", self.train_env.reward_key))),
+        )
+
+        sampling_td.set(
+            ("next", self.group_name, "terminated"),
+            sampling_td.get(("next", "terminated"))
+            .unsqueeze(-1)
+            .expand(sampling_td.get_item_shape(("next", self.train_env.reward_key))),
+        )
+
+        return sampling_td
 
     @property
     def group_name(self):

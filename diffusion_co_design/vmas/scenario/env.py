@@ -1,5 +1,5 @@
 import torch
-from torchrl.envs import TransformedEnv, RewardSum
+from torchrl.envs import TransformedEnv, RewardSum, StepCounter
 
 from diffusion_co_design.common.design.base import DesignConsumer
 from diffusion_co_design.common.env import ENVIRONMENT_MODE
@@ -28,7 +28,7 @@ def create_env(
         num_envs=num_environments,
         device=device,
         continuous_actions=True,
-        max_steps=scenario.get_episode_steps(),
+        max_steps=None,
         # Scenario kwargs
         shared_rew=False,
         world_spawning_x=scenario.world_spawning_x,
@@ -36,6 +36,11 @@ def create_env(
         agent_spawns=agent_spawns,
         agent_goals=agent_goals,
         obstacle_sizes=obstacle_sizes,
+    )
+
+    env = TransformedEnv(
+        env,
+        StepCounter(max_steps=scenario.get_episode_steps(), update_done=True),
     )
 
     if mode == "train":

@@ -4,6 +4,7 @@
 import warnings
 import typing
 
+import numpy as np
 import torch
 from torch import Tensor
 from torchrl.envs import VmasEnv
@@ -555,6 +556,10 @@ class DesignableVmasEnv(VmasEnv):
         tensordict_out = super()._step(tensordict)
         tensordict_out["state"] = self._env.scenario.obstacle_locations.clone()
         return tensordict_out
+
+    def render(self):
+        # Transformation to meet the convention of pettingzoo rendering with Parallel collection
+        return np.expand_dims(self._env.render(mode="rgb_array"), axis=0)
 
 
 if __name__ == "__main__":
