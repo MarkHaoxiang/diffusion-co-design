@@ -1,0 +1,13 @@
+defaults:
+  - metadata/training@_here_
+  - template/test@_here_
+  - _self_
+
+experiment_name: obstacle_navigation_fixed
+scenario_name: obstacle_navigation_1
+device:
+  device_management: cpu
+  gpu_id: 0
+  max_gpu_memory: 1.0
+designer:
+  kind: fixed

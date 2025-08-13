@@ -52,7 +52,7 @@ class Trainer(
         return vmas_models(
             env=reference_env,
             scenario=self.cfg.scenario,
-            cfg=actor_critic_config,
+            actor_critic_cfg=actor_critic_config,
             device=device,
         )
 

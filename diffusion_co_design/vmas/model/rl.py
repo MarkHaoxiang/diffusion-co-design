@@ -25,7 +25,7 @@ def create_policy(env: DesignableVmasEnv, cfg: ActorConfig, device: DEVICE_TYPIN
             n_agent_inputs=env.observation_spec[GROUP_NAME, "observation"].shape[
                 -1
             ],  # n_obs_per_agent
-            n_agent_outputs=2 * env.action_spec.shape[-1],
+            n_agent_outputs=2 * env.action_spec[env.action_key].shape[-1],
             n_agents=env.n_agents,
             centralised=False,
             share_params=True,

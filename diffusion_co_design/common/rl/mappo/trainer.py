@@ -93,8 +93,10 @@ class MAPPOCoDesign[
             mode="eval",
         )
 
+        ref_env = create_reference_env()
+
         policy, critic = self.create_actor_critic_models(
-            reference_env=create_reference_env(),
+            reference_env=ref_env,
             actor_critic_config=cfg.policy,
             device=device.train_device,
         )
@@ -199,7 +201,7 @@ class MAPPOCoDesign[
                 sampling_td = sampling_td.reshape(
                     -1, self.cfg.scenario.get_episode_steps()
                 )
-                assert sampling_td[("next", self.group_name, "done")][:, -1].all()
+                assert sampling_td["next"][ref_env.done_keys[0]][:, -1].all()
 
                 loss_module.to(device=device.storage_device)
                 self.minibatch_advantage_calculation(

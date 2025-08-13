@@ -150,20 +150,27 @@ class Scenario(BaseScenario):
         )
         self.n_obstacles = len(self.obstacle_sizes)
         obstacle_positions = kwargs.pop("obstacle_positions", None)
-        self.obstacle_locations = setup_entity_locations(
-            entity_locations=obstacle_positions,
-            entity_radius=self.obstacle_sizes + self.min_collision_distance / 2,
-            n_entities=self.n_obstacles,
-            occupied_positions=occupied_locations,
-            occupied_radius=torch.fill(
-                torch.zeros((occupied_locations.shape[0],), device=device),
-                self.agent_radius,
-            )
-            + self.min_collision_distance / 2,
-            x_bounds=(-self.world_spawning_x, self.world_spawning_x),
-            y_bounds=(-self.world_spawning_y, self.world_spawning_y),
-            device=device,
-        )[0]
+        self.obstacle_locations = torch.zeros(
+            (batch_dim, self.n_obstacles, 2), device=device
+        )
+
+        for i in range(batch_dim):
+            self.obstacle_locations[i] = setup_entity_locations(
+                entity_locations=obstacle_positions[i]
+                if obstacle_positions is not None
+                else None,
+                entity_radius=self.obstacle_sizes + self.min_collision_distance / 2,
+                n_entities=self.n_obstacles,
+                occupied_positions=occupied_locations,
+                occupied_radius=torch.fill(
+                    torch.zeros((occupied_locations.shape[0],), device=device),
+                    self.agent_radius,
+                )
+                + self.min_collision_distance / 2,
+                x_bounds=(-self.world_spawning_x, self.world_spawning_x),
+                y_bounds=(-self.world_spawning_y, self.world_spawning_y),
+                device=device,
+            )[0]
 
         # Reward settings
         self.shared_rew = kwargs.pop("shared_rew", True)
@@ -234,7 +241,7 @@ class Scenario(BaseScenario):
         self.final_rew = self.pos_rew.clone()
 
         # Add obstacles
-        self.obstacles = []
+        self.obstacles: list[Landmark] = []
         for i in range(self.n_obstacles):
             obstacle = Landmark(
                 name=f"obstacle {i}",
@@ -260,7 +267,10 @@ class Scenario(BaseScenario):
 
         # Spawn obstacles
         for i, obstacle in enumerate(self.obstacles):
-            pos = self.obstacle_locations[i].unsqueeze(0)
+            if env_index is None:
+                pos = self.obstacle_locations[:, i, :]
+            else:
+                pos = self.obstacle_locations[env_index, i, :]
             obstacle.set_pos(pos, batch_index=env_index)
 
         for i, agent in enumerate(self.world.agents):
@@ -427,40 +437,28 @@ class DesignableVmasEnv(VmasEnv):
         if "layout_override" in kwargs and kwargs["layout_override"] is not None:
             theta = kwargs.pop("layout_override")
         elif self._env._reset_policy is not None:
-            td = (
-                tensordict
-                if tensordict is not None
-                else TensorDict({}, device=self.device)
-            )
-            reset_policy_output = self._env._reset_policy(td)
-            td.update(reset_policy_output, keys_to_update=reset_policy_output.keys())
-            theta = reset_policy_output.get(("environment_design", "layout_weights"))
+            new_layouts = [self._env._reset_policy() for _ in range(self._env.num_envs)]
+            theta = torch.stack(new_layouts, dim=0)
         else:
             theta = None
 
         scenario = self._env.scenario  # vmas.simulator.environment
         if theta is not None:
             assert isinstance(theta, Tensor)
-            assert theta.shape == scenario.obstacle_locations.shape
+            assert theta.shape == scenario.obstacle_locations.shape, (
+                f"Expected theta shape {scenario.obstacle_locations.shape}, got {theta.shape}"
+            )
             theta = theta.to(scenario.obstacle_locations.device)
             scenario.obstacle_locations = theta
 
         tensordict_out = super()._reset(tensordict, **kwargs)
-        tensordict_out["state"] = (
-            scenario.obstacle_locations.unsqueeze(0)
-            .expand(scenario.world._batch_dim, -1, -1)
-            .clone()
-        )
+        tensordict_out["state"] = scenario.obstacle_locations.clone()
 
         return tensordict_out
 
     def _step(self, tensordict):
         tensordict_out = super()._step(tensordict)
-        tensordict_out["state"] = (
-            self._env.scenario.obstacle_locations.unsqueeze(0)
-            .expand(self._env.scenario.world._batch_dim, -1, -1)
-            .clone()
-        )
+        tensordict_out["state"] = self._env.scenario.obstacle_locations.clone()
         return tensordict_out
 
 

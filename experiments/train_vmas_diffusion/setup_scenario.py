@@ -8,6 +8,7 @@ import numpy as np
 from diffusion_co_design.common import OUTPUT_DIR
 from diffusion_co_design.vmas.schema import ScenarioConfig
 from diffusion_co_design.vmas.diffusion.generate import Generate
+from diffusion_co_design.vmas.static import ENV_NAME
 
 
 def generate_env(n_and_scenario):
@@ -19,7 +20,7 @@ def generate_env(n_and_scenario):
 
 def setup_scenario(scenario_name: str, n: int):
     scenario = ScenarioConfig.from_file(os.path.join("conf", f"{scenario_name}.yaml"))
-    data_dir = os.path.join(OUTPUT_DIR, "vmas", "scenario", scenario_name)
+    data_dir = os.path.join(OUTPUT_DIR, ENV_NAME, "scenario", scenario_name)
 
     # Remove existing
     if os.path.exists(data_dir):
