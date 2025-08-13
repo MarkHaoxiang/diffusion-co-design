@@ -1,5 +1,5 @@
 import torch
-from torchrl.envs import TransformedEnv, RewardSum, StepCounter
+from torchrl.envs import TransformedEnv, RewardSum
 
 from diffusion_co_design.common.design.base import DesignConsumer
 from diffusion_co_design.common.env import ENVIRONMENT_MODE
@@ -23,6 +23,7 @@ def create_env(
 
     env = DesignableVmasEnv(
         scenario=ObstacleNavigationScenario(),
+        scenario_cfg=scenario,
         reset_policy=designer,
         num_envs=num_environments,
         device=device,

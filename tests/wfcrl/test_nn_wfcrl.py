@@ -27,10 +27,8 @@ actor_critic_config = GNNActorCriticConfig(
     policy_node_hidden_size=16,
     policy_gnn_depth=2,
     policy_head_depth=2,
-    policy_graph_k=2,
     critic_node_hidden_size=16,
     critic_gnn_depth=2,
-    critic_graph_k=2,
 )
 
 

@@ -26,7 +26,6 @@ class RwareCoDesignWrapper(PettingZooWrapper):
         reset_policy: TensorDictModule | None = None,
         scenario_cfg: ScenarioConfig | None = None,
         representation=None,
-        return_state=False,
         group_map=None,
         use_mask=False,
         categorical_actions=True,
@@ -36,12 +35,12 @@ class RwareCoDesignWrapper(PettingZooWrapper):
     ):
         super().__init__(
             env,
-            return_state,
-            group_map,
-            use_mask,
-            categorical_actions,
-            seed,
-            done_on_any,
+            return_state=True,
+            group_map=group_map,
+            use_mask=use_mask,
+            categorical_actions=categorical_actions,
+            seed=seed,
+            done_on_any=done_on_any,
             **kwargs,
         )
         # Hack: TorchRL messes with object attributes, so need to set in inner environment
@@ -85,16 +84,10 @@ class RwareCoDesignWrapper(PettingZooWrapper):
             options = None
 
         tensordict_out = super()._reset(tensordict, options=options, **kwargs)
-
-        if self.return_state:
-            tensordict_out["state"] = self._env.state()
-
         return tensordict_out
 
     def _step(self, tensordict):
         tensordict_out = super()._step(tensordict)
-        if self.return_state:
-            tensordict_out["state"] = self._env.state()
         return tensordict_out
 
 
@@ -146,7 +139,6 @@ def create_env(
         representation=representation,
         group_map=MarlGroupMapType.ALL_IN_ONE_GROUP,
         scenario_cfg=scenario,
-        return_state=True,
         device=device,
     )
     if mode == "train":

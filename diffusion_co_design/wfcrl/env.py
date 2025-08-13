@@ -216,7 +216,7 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
     ):
         super().__init__(
             env,
-            return_state=False,
+            return_state=True,
             group_map=group_map,
             use_mask=use_mask,
             categorical_actions=categorical_actions,
@@ -250,7 +250,6 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
             options = None
 
         tensordict_out = super()._reset(tensordict, options=options, **kwargs)
-
         tensordict_out["state"] = self._env.state()
 
         return tensordict_out
@@ -259,6 +258,10 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
         tensordict_out = super()._step(tensordict)
         tensordict_out["state"] = self._env.state()
         return tensordict_out
+
+    def state(self):
+        # Placeholder, overrides super.state() because it doesn't support dict state spaces yet.
+        return torch.zeros(1)
 
 
 def _create_designable_windfarm(

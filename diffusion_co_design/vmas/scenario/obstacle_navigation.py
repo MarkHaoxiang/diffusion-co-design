@@ -4,15 +4,26 @@
 import warnings
 import typing
 
-from tensordict import TensorDict
 import torch
 from torch import Tensor
 from torchrl.envs import VmasEnv
+from torchrl.data.tensor_specs import BoundedContinuous
+import vmas
 from vmas import render_interactively
 from vmas.simulator.core import Agent, Entity, Landmark, Sphere, World
 from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.sensors import Lidar
 from vmas.simulator.utils import Color, ScenarioUtils
+
+from torchrl.data.tensor_specs import (
+    Categorical,
+    Composite,
+    StackedComposite,
+)
+from torchrl.envs.utils import (
+    check_marl_grouping,
+    MarlGroupMapType,
+)
 
 if typing.TYPE_CHECKING:
     from vmas.simulator.rendering import Geom
@@ -404,6 +415,7 @@ class DesignableVmasEnv(VmasEnv):
     def __init__(
         self,
         scenario,
+        scenario_cfg,
         reset_policy,
         num_envs=1,
         device="cpu",
@@ -417,6 +429,7 @@ class DesignableVmasEnv(VmasEnv):
         terminated_truncated=False,
         **kwargs,
     ):
+        scenario._scenario_cfg = scenario_cfg
         super().__init__(
             scenario=scenario,
             num_envs=num_envs,
@@ -431,7 +444,89 @@ class DesignableVmasEnv(VmasEnv):
             terminated_truncated=terminated_truncated,
             **kwargs,
         )
+
         self._env._reset_policy = reset_policy
+
+    def _make_specs(
+        self,
+        env: vmas.simulator.environment.environment.Environment,  # noqa
+    ) -> None:
+        # Create and check group map
+        self.agent_names = [agent.name for agent in self.agents]
+        self.agent_names_to_indices_map = {
+            agent.name: i for i, agent in enumerate(self.agents)
+        }
+        if self.group_map is None:
+            self.group_map = self._get_default_group_map(self.agent_names)
+        elif isinstance(self.group_map, MarlGroupMapType):
+            self.group_map = self.group_map.get_group_map(self.agent_names)
+        check_marl_grouping(self.group_map, self.agent_names)
+
+        full_action_spec_unbatched = Composite(device=self.device)
+        full_observation_spec_unbatched = Composite(device=self.device)
+        full_reward_spec_unbatched = Composite(device=self.device)
+
+        self.het_specs = False
+        self.het_specs_map = {}
+        for group in self.group_map.keys():
+            (
+                group_observation_spec,
+                group_action_spec,
+                group_reward_spec,
+                group_info_spec,
+            ) = self._make_unbatched_group_specs(group)
+            full_action_spec_unbatched[group] = group_action_spec
+            full_observation_spec_unbatched[group] = group_observation_spec
+            full_reward_spec_unbatched[group] = group_reward_spec
+            if group_info_spec is not None:
+                full_observation_spec_unbatched[(group, "info")] = group_info_spec
+            group_het_specs = isinstance(
+                group_observation_spec, StackedComposite
+            ) or isinstance(group_action_spec, StackedComposite)
+            self.het_specs_map[group] = group_het_specs
+            self.het_specs = self.het_specs or group_het_specs
+
+        full_done_spec_unbatched = Composite(
+            {
+                "done": Categorical(
+                    n=2,
+                    shape=torch.Size((1,)),
+                    dtype=torch.bool,
+                    device=self.device,
+                ),
+            },
+        )
+
+        # ===
+        # Add state
+
+        full_observation_spec_unbatched["state"] = BoundedContinuous(
+            low=-torch.tensor(
+                [
+                    env.scenario._scenario_cfg.world_spawning_x,
+                    env.scenario._scenario_cfg.world_spawning_y,
+                ]
+            )
+            .unsqueeze(0)
+            .expand(self._env.scenario._scenario_cfg.n_obstacles, 2),
+            high=torch.tensor(
+                [
+                    env.scenario._scenario_cfg.world_spawning_x,
+                    env.scenario._scenario_cfg.world_spawning_y,
+                ]
+            )
+            .unsqueeze(0)
+            .expand(env.scenario._scenario_cfg.n_obstacles, 2),
+            device=self.device,
+            dtype=torch.float32,
+        )
+
+        # ===
+
+        self.full_action_spec_unbatched = full_action_spec_unbatched
+        self.full_observation_spec_unbatched = full_observation_spec_unbatched
+        self.full_reward_spec_unbatched = full_reward_spec_unbatched
+        self.full_done_spec_unbatched = full_done_spec_unbatched
 
     def _reset(self, tensordict=None, **kwargs):
         if "layout_override" in kwargs and kwargs["layout_override"] is not None:
