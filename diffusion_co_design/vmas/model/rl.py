@@ -169,7 +169,7 @@ class E3Critic(torch.nn.Module):
         x[: self.scenario.get_num_agents(), 3] = torch.linalg.vector_norm(
             agent_vel, dim=-1
         )
-        entity_radius = torch.zeros(N)
+        entity_radius = torch.zeros(N, device=pos.device)
         entity_radius[: self.scenario.get_num_agents()] = 0.05
         entity_radius[self.scenario.get_num_agents() * 2 :] = torch.tensor(
             self.scenario.obstacle_sizes, device=pos.device
