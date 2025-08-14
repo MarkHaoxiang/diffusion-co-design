@@ -61,7 +61,7 @@ class WindFarmGNN(nn.Module):
 
         self.model = PNA(
             aggregators=["sum", "mean", "min", "max", "std"],
-            scalers=["identity", "amplification", "attenuation"],
+            scalers=["identity"],
             deg=deg,
             in_channels=2,
             edge_dim=5,
