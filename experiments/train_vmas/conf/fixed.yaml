@@ -6,8 +6,8 @@ defaults:
 experiment_name: obstacle_navigation_fixed
 scenario_name: obstacle_navigation_1
 device:
-  device_management: cpu
-  gpu_id: 0
+  device_management: gpu
+  gpu_id: 2
   max_gpu_memory: 1.0
 designer:
   kind: fixed
