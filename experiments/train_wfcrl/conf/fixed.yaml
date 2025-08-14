@@ -1,5 +1,5 @@
 defaults:
-  - template/default@_here_
+  - template/test@_here_
   - _self_
   - metadata/training@_here_
 

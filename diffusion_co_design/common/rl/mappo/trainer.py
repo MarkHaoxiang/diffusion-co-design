@@ -83,20 +83,20 @@ class MAPPOCoDesign[
                 device=self.device.env_device,
             )
 
-        self.train_env = self.create_batched_env(
+        train_env = self.create_batched_env(
             make_design_consumer=make_design_consumer, n_envs=n_train_envs, mode="train"
         )
 
-        self.eval_env = self.create_batched_env(
+        eval_env = self.create_batched_env(
             make_design_consumer=make_design_consumer,
             n_envs=cfg.logging.evaluation_episodes,
             mode="eval",
         )
 
-        self.ref_env = create_reference_env()
+        ref_env = create_reference_env()
 
         policy, critic = self.create_actor_critic_models(
-            reference_env=self.ref_env,
+            reference_env=ref_env,
             actor_critic_config=cfg.policy,
             device=device.train_device,
         )
@@ -117,7 +117,7 @@ class MAPPOCoDesign[
             )
 
         collector = SyncDataCollector(
-            self.train_env,
+            train_env,
             policy,
             device=device.train_device,
             storing_device=device.storage_device,
@@ -145,8 +145,8 @@ class MAPPOCoDesign[
         )
 
         loss_module.set_keys(
-            reward=self.train_env.reward_key,
-            action=self.train_env.action_key,
+            reward=train_env.reward_key,
+            action=train_env.action_key,
             sample_log_prob=(self.group_name, "sample_log_prob"),
             value=(self.group_name, "state_value"),
             terminated=(self.group_name, "terminated"),
@@ -159,6 +159,7 @@ class MAPPOCoDesign[
             lmbda=cfg.ppo.lmbda,
             deactivate_vmap=not self.support_vmap,
         )
+
         optim_step, scheduler_step = make_optimiser_and_lr_scheduler(
             actor=policy,
             critic=critic,
@@ -204,8 +205,7 @@ class MAPPOCoDesign[
                 sampling_td = sampling_td.reshape(
                     -1, self.cfg.scenario.get_episode_steps()
                 )
-                assert sampling_td["next"][self.ref_env.done_keys[0]][:, -1].all()
-
+                assert sampling_td["next"][ref_env.done_keys[0]][:, -1].all()
                 sampling_td = self.post_sample_hook(sampling_td)
 
                 loss_module.to(device=device.storage_device)
@@ -296,7 +296,7 @@ class MAPPOCoDesign[
                         def callback(env, td):
                             return frames.append(env.render()[0])
 
-                        rollouts = self.eval_env.rollout(
+                        rollouts = eval_env.rollout(
                             max_steps=self.cfg.scenario.get_episode_steps(),
                             policy=policy,
                             callback=callback,
@@ -358,7 +358,7 @@ class MAPPOCoDesign[
             # Cleaup
             logger.close()
             collector.shutdown()
-            for env in (self.train_env, self.eval_env):
+            for env in (train_env, eval_env):
                 if not env.is_closed:
                     env.close()
 

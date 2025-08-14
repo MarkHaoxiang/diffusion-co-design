@@ -68,14 +68,14 @@ class Trainer(
             ("next", self.group_name, "done"),
             sampling_td.get(("next", "done"))
             .unsqueeze(-1)
-            .expand(sampling_td.get_item_shape(("next", self.train_env.reward_key))),
+            .expand(sampling_td.get_item_shape(("next", "agents", "reward"))),
         )
 
         sampling_td.set(
             ("next", self.group_name, "terminated"),
             sampling_td.get(("next", "terminated"))
             .unsqueeze(-1)
-            .expand(sampling_td.get_item_shape(("next", self.train_env.reward_key))),
+            .expand(sampling_td.get_item_shape(("next", "agents", "reward"))),
         )
 
         return sampling_td
