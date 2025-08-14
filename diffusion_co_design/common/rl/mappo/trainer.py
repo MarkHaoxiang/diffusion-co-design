@@ -193,8 +193,9 @@ class MAPPOCoDesign[
 
         designer.reset()
         training_episodes_per_batch = (
-            cfg.ppo.frames_per_batch // cfg.scenario.get_episode_steps(),
+            cfg.ppo.frames_per_batch // cfg.scenario.get_episode_steps()
         )
+
         designer.replenish_layout_buffer(training_episodes_per_batch)
         try:
             logger.begin()
