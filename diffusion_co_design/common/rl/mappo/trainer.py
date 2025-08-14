@@ -192,7 +192,10 @@ class MAPPOCoDesign[
         )
 
         designer.reset()
-        designer.replenish_layout_buffer(n_train_envs)
+        training_episodes_per_batch = (
+            cfg.ppo.frames_per_batch // cfg.scenario.get_episode_steps(),
+        )
+        designer.replenish_layout_buffer(training_episodes_per_batch)
         try:
             logger.begin()
             total_time, total_frames = 0.0, 0
@@ -349,11 +352,9 @@ class MAPPOCoDesign[
                 pbar.update()
                 sampling_start = time.time()
                 designer.replenish_training_set(
-                    training_episodes_per_batch=cfg.ppo.frames_per_batch
-                    // cfg.scenario.get_episode_steps(),
+                    training_episodes_per_batch=training_episodes_per_batch,
                     num_different_envs_in_parallel=n_train_envs,
                 )
-
         finally:
             # Cleaup
             logger.close()
