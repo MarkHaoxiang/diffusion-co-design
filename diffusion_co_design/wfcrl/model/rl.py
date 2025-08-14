@@ -7,7 +7,7 @@ from tensordict.nn import TensorDictModule, TensorDictSequential, InteractionTyp
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 from torch_geometric.data import Data, Batch
-from torch_geometric.nn.models import GAT
+from torch_geometric.nn.models import PNA
 
 from diffusion_co_design.common.nn.geometric import Connectivity, KNN, graph_topology
 from diffusion_co_design.wfcrl.schema import (
@@ -52,15 +52,23 @@ class WindFarmGNN(nn.Module):
         self.connectivity = connectivity
         self.out_dim = out_dim
 
-        self.model = GAT(
-            in_channels=-1,
+        if isinstance(connectivity, KNN):
+            deg = torch.zeros(connectivity.k + 1, dtype=torch.long)
+            deg[-1] = scenario.get_num_agents()
+        else:
+            deg = torch.zeros(scenario.get_num_agents() + 1, dtype=torch.long)
+            deg[-1] = scenario.get_num_agents()
+
+        self.model = PNA(
+            aggregators=["sum", "mean", "min", "max", "std"],
+            scalers=["identity", "amplification", "attenuation"],
+            deg=deg,
+            in_channels=2,
             edge_dim=5,
             hidden_channels=node_emb_dim,
             num_layers=n_layers,
             out_channels=out_dim,
             act="relu",
-            add_self_loops=False,
-            v2=True,
         )
 
     def forward(
