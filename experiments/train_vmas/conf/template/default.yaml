@@ -1,5 +1,5 @@
 ppo:
-  n_iters: 1000
+  n_iters: 200
   n_epochs: 10
   minibatch_size: 400
   n_mini_batches: 10
