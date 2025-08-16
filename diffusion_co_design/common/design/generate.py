@@ -67,6 +67,7 @@ class Generate:
             backtrack_attempts = 0
             points: list = self.occupied_locations.copy()
             j = 0
+            backtrack_amount = 3
             while j < self.n_placements:
                 candidate = self._get_random_point()
                 candidate[0] = candidate[0] * self.w
@@ -91,7 +92,7 @@ class Generate:
                             backtrack_attempts += 1
                             points.pop()
                         else:
-                            j = 0
+                            j = max(0, j - backtrack_amount)
                             backtrack_attempts = 0
                             points = []
                         attempts = 0
