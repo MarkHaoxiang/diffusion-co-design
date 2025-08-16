@@ -74,10 +74,9 @@ class Generate:
 
                 if len(points) > 0:
                     dist = np.linalg.norm(np.stack(points) - candidate, axis=-1)
-
-                min_dist = (
-                    self.placement_radius[j] + self.occupied_radius[: dist.shape[0]]
-                )
+                    min_dist = (
+                        self.placement_radius[j] + self.occupied_radius[: dist.shape[0]]
+                    )
 
                 if len(points) == 0 or np.all(dist >= min_dist):
                     points.append(candidate)
