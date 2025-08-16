@@ -1,5 +1,5 @@
 ppo:
-  n_iters: 200
+  n_iters: 201
   n_epochs: 10
   minibatch_size: 400
   n_mini_batches: 10
@@ -18,7 +18,7 @@ ppo:
 logging:
   type: wandb
   mode: online
-  evaluation_interval: 50
+  evaluation_interval: 25
   evaluation_episodes: 5
   checkpoint_interval: 200
 policy:
