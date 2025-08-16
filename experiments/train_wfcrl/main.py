@@ -29,7 +29,7 @@ class Trainer(
     ]
 ):
     def __init__(self, cfg: schema.TrainingConfig):
-        super().__init__(cfg, "diffusion-co-design-wfcrl")
+        super().__init__(cfg, f"diffusion-co-design-wfcrl-{cfg.scenario_name}")
 
     def create_designer(self, scenario, designer, ppo, artifact_dir, device):
         return design.create_designer(
