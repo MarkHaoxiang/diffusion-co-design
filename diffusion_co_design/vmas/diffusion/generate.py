@@ -9,10 +9,15 @@ class Generate(_Generate):
         scenario: ScenarioConfig,
         rng: np.random.Generator | int | None = None,
     ):
+        occupied_locations = scenario.agent_spawns + scenario.agent_goals
+        occupied_locations = [
+            (x + scenario.world_spawning_x, y + scenario.world_spawning_y)
+            for (x, y) in occupied_locations
+        ]
         super().__init__(
             radius=scenario.obstacle_sizes,
-            occupied_locations=scenario.agent_spawns + scenario.agent_goals,
-            occupied_radius=[0.1] * len(scenario.agent_spawns) * 2,
+            occupied_locations=occupied_locations,
+            occupied_radius=[0.05] * len(scenario.agent_spawns) * 2,
             map_x_length=scenario.world_spawning_x * 2,
             map_y_length=scenario.world_spawning_y * 2,
             additional_minimum_distance=0.005,

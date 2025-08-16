@@ -4,6 +4,7 @@ from torchrl.envs import TransformedEnv, RewardSum, StepCounter
 from diffusion_co_design.common.design.base import DesignConsumer
 from diffusion_co_design.common.env import ENVIRONMENT_MODE
 from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.vmas.diffusion.generate import Generate
 from .obstacle_navigation import (
     Scenario as ObstacleNavigationScenario,
     DesignableVmasEnv,
@@ -21,6 +22,13 @@ def create_env(
     agent_goals = torch.tensor(scenario.agent_goals, device=device)
     obstacle_sizes = torch.tensor(scenario.obstacle_sizes, device=device)
 
+    # Use this to generate the initial environment
+    # Because the VMAS generation logic is poor with many objects
+    generate = Generate(scenario=scenario)
+    obstacle_positions = torch.tensor(generate(), device=device).expand(
+        (num_environments, scenario.n_obstacles, 2)
+    )
+
     env = DesignableVmasEnv(
         scenario=ObstacleNavigationScenario(),
         scenario_cfg=scenario,
@@ -36,6 +44,7 @@ def create_env(
         agent_spawns=agent_spawns,
         agent_goals=agent_goals,
         obstacle_sizes=obstacle_sizes,
+        obstacle_positions=obstacle_positions,
     )
 
     env = TransformedEnv(

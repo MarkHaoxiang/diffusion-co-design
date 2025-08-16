@@ -28,7 +28,7 @@ class Generate:
             + additional_minimum_distance / 2
         )
         self.occupied_radius = np.concatenate(
-            [self.placement_radius, self.occupied_radius], axis=0
+            [self.occupied_radius, self.placement_radius], axis=0
         )
 
     def _get_random_point(self):
@@ -75,9 +75,11 @@ class Generate:
                 if len(points) > 0:
                     dist = np.linalg.norm(np.stack(points) - candidate, axis=-1)
 
-                if len(points) == 0 or np.all(
-                    dist >= self.occupied_radius[: dist.shape[0]]
-                ):
+                min_dist = (
+                    self.placement_radius[j] + self.occupied_radius[: dist.shape[0]]
+                )
+
+                if len(points) == 0 or np.all(dist >= min_dist):
                     points.append(candidate)
                     placements[i, j] = candidate
                     j += 1

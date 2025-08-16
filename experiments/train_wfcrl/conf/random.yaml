@@ -13,5 +13,3 @@ designer:
   kind: random
   environment_repeats: 1
 start_from_checkpoint: null
-logging:
-  mode: online
