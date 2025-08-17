@@ -90,7 +90,7 @@ def test_construct_graph(critic):
     obstacle_pos = torch.rand(3, 2, device=device)
     agent_vel = torch.rand(4, 2, device=device)
 
-    graph_1 = critic.construct_graph(
+    graph_1 = critic.model.construct_graph(
         obstacle_pos=obstacle_pos,
         agent_pos=agent_pos,
         goal_pos=goal_pos,
@@ -108,7 +108,7 @@ def test_construct_graph(critic):
     obstacle_pos_rot = obstacle_pos @ R.T + t
     agent_vel_rot = agent_vel @ R.T
 
-    graph_2 = critic.construct_graph(
+    graph_2 = critic.model.construct_graph(
         obstacle_pos=obstacle_pos_rot,
         agent_pos=agent_pos_rot,
         goal_pos=goal_pos_rot,
@@ -145,7 +145,7 @@ TensorDict(
         observation: Tensor(shape=torch.Size([1, 4, 18]), device=cpu, dtype=torch.float32, is_shared=False),
         sample_log_prob: Tensor(shape=torch.Size([1, 4]), device=cpu, dtype=torch.float32, is_shared=False),
         scale: Tensor(shape=torch.Size([1, 4, 2]), device=cpu, dtype=torch.float32, is_shared=False),
-        state_value: Tensor(shape=torch.Size([1, 4]), device=cpu, dtype=torch.float32, is_shared=False)},
+        state_value: Tensor(shape=torch.Size([1, 4, 1]), device=cpu, dtype=torch.float32, is_shared=False)},
     batch_size=torch.Size([1, 4]),
     device=cpu,
     is_shared=False)""",

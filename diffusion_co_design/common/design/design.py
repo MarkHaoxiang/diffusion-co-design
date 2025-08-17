@@ -229,6 +229,7 @@ class ValueLearner[SC: ScenarioConfig]:
             },
             batch_size=len(y),
         )
+        print(X, X_post)
         self.env_buffer.extend(data)
 
         assert self.initialised_critic or not self.use_critic_distillation, (

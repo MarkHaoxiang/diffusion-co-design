@@ -9,8 +9,10 @@ from diffusion_co_design.wfcrl.schema import (
     ScenarioConfig,
     NormalisationStatistics,
 )
-from diffusion_co_design.wfcrl.design import RandomDesigner, get_env_from_td
+from diffusion_co_design.wfcrl.static import GROUP_NAME
+from diffusion_co_design.wfcrl.design import RandomDesigner
 from diffusion_co_design.wfcrl.env import create_env
+from diffusion_co_design.common.design import DesignerParams, get_training_pair_from_td
 from diffusion_co_design.common import OUTPUT_DIR
 
 
@@ -32,14 +34,14 @@ def main(scenario_name: str, n_episodes: int, gamma: float = 0.99):
     env = create_env(
         mode="train",
         scenario=scenario,
-        designer=RandomDesigner(scenario=scenario),
+        designer=RandomDesigner(DesignerParams.placeholder(scenario)).get_placeholder(),
         device=device,
         render=False,
     )
 
     policy = TensorDictModule(
         Policy(),
-        in_keys=[("turbine", "observation", "layout")],
+        in_keys=[(GROUP_NAME, "observation", "layout")],
         out_keys=[env.action_key],
     )
 
@@ -50,10 +52,18 @@ def main(scenario_name: str, n_episodes: int, gamma: float = 0.99):
             policy=policy,
             max_steps=scenario.max_steps,
         )
-        _, y = get_env_from_td(td, scenario, gamma=gamma)
+        _, y = get_training_pair_from_td(
+            td=td,
+            group_name=GROUP_NAME,
+            group_aggregation="mean",
+            gamma=gamma,
+            get_layout_from_state=lambda x: x["layout"],
+            episode_steps=scenario.get_episode_steps(),
+        )
+
         assert y.shape == (1,)
         _episode_returns.append(y)
-        _rewards.append(td[("next", "turbine", "reward")])
+        _rewards.append(td[("next", GROUP_NAME, "reward")])
 
     episode_returns = torch.stack(_episode_returns)
     rewards = torch.stack(_rewards)

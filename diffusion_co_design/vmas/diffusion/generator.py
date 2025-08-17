@@ -11,6 +11,12 @@ def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig):
     return env
 
 
+def eval_to_train(env: torch.Tensor, cfg: ScenarioConfig):
+    env[:, :, 0] = env[:, :, 0] / cfg.world_spawning_x
+    env[:, :, 1] = env[:, :, 1] / cfg.world_spawning_y
+    return env
+
+
 def soft_penalty(
     existing_pos: torch.Tensor,  # [N, 2]
     existing_radius: torch.Tensor,  # [N]

@@ -104,7 +104,7 @@ class ValueLearner(design.ValueLearner):
                 post_hook=maybe_make_denormaliser(normalisation_statistics),
             ),
             group_name=GROUP_NAME,
-            episode_steps=scenario.max_steps,
+            episode_steps=scenario.get_episode_steps(),
             hyperparameters=hyperparameters,
             gamma=gamma,
             group_aggregation="mean",

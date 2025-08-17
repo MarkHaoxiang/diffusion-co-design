@@ -45,11 +45,18 @@ class ActorConfig(Config):
 class CriticConfig(Config):
     depth: int = 3
     hidden_size: int = 128
+    k: int = 5
 
 
 class ActorCriticConfig(Config):
     actor: ActorConfig
     critic: CriticConfig
+
+
+class EnvCriticConfig(Config):
+    depth: int = 3
+    hidden_size: int = 128
+    k: int = 5
 
 
 # ====

@@ -57,14 +57,25 @@ def create_policy(env: DesignableVmasEnv, cfg: ActorConfig, device: DEVICE_TYPIN
     return policy
 
 
-class E3RLCritic(E3Critic):
+class E3RLCritic(torch.nn.Module):
+    def __init__(
+        self, scenario: ScenarioConfig, node_emb_dim: int, num_layers: int, k: int
+    ):
+        super().__init__()
+        self.scenario = scenario
+        self.n_obstacles = len(scenario.obstacle_sizes)
+
+        self.model = E3Critic(
+            scenario=scenario, node_emb_dim=node_emb_dim, num_layers=num_layers, k=k
+        )
+
     def forward(self, obs, state):
         obstacle_pos = state
         agent_pos = obs[..., :2]
         goal_pos = obs[..., 4:6]
         agent_vel = obs[..., 2:4]
 
-        return super().forward(obstacle_pos, agent_pos, goal_pos, agent_vel)
+        return self.model(obstacle_pos, agent_pos, goal_pos, agent_vel)
 
 
 def create_critic(
@@ -73,10 +84,8 @@ def create_critic(
     cfg: CriticConfig,
     device: DEVICE_TYPING,
 ):
-    critic_net = E3Critic(
-        scenario=scenario,
-        node_emb_dim=cfg.hidden_size,
-        num_layers=cfg.depth,
+    critic_net = E3RLCritic(
+        scenario=scenario, node_emb_dim=cfg.hidden_size, num_layers=cfg.depth, k=cfg.k
     ).to(device=device)
 
     critic = TensorDictModule(
