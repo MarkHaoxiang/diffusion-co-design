@@ -6,12 +6,14 @@ from diffusion_co_design.vmas.schema import ScenarioConfig
 
 
 def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig):
+    env = env.clone()
     env[:, :, 0] = env[:, :, 0] * cfg.world_spawning_x
     env[:, :, 1] = env[:, :, 1] * cfg.world_spawning_y
     return env
 
 
 def eval_to_train(env: torch.Tensor, cfg: ScenarioConfig):
+    env = env.clone()
     env[:, :, 0] = env[:, :, 0] / cfg.world_spawning_x
     env[:, :, 1] = env[:, :, 1] / cfg.world_spawning_y
     return env
@@ -30,6 +32,7 @@ def soft_penalty(
     B, M, _ = pos.shape
     N = existing_pos.shape[0]
 
+    pos = pos.clone()
     pos[:, :, 0] = pos[:, :, 0] * x_scale
     pos[:, :, 1] = pos[:, :, 1] * y_scale
 

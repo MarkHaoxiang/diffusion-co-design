@@ -1,11 +1,19 @@
+import os
 from typing import Callable
 from pathlib import Path
 import torch
 
-from diffusion_co_design.common import design, np_list_to_tensor_list
+from diffusion_co_design.common import (
+    DiffusionOperation,
+    design,
+    np_list_to_tensor_list,
+    get_latest_model,
+    OUTPUT_DIR,
+)
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
-from diffusion_co_design.vmas.static import GROUP_NAME
+from diffusion_co_design.vmas.static import GROUP_NAME, ENV_NAME
 from diffusion_co_design.vmas.diffusion.generate import Generate
+from diffusion_co_design.vmas.diffusion.generator import Generator, eval_to_train
 from diffusion_co_design.vmas.schema import (
     ScenarioConfig as SC,
     Random,
@@ -81,32 +89,54 @@ class ValueLearner(design.ValueLearner):
             random_designer=RandomDesigner(design.DesignerParams.placeholder(scenario)),
             device=device,
         )
+        self.scenario = scenario
 
     def _get_layout_from_state(self, state):
         return state
 
     def _eval_to_train(self, theta):
-        pass
+        return eval_to_train(env=theta, cfg=self.scenario)
 
 
-# class DicodeDesigner(design.DicodeDesigner[SC]):
-#     def __init__(
-#         self,
-#         designer_setting,
-#         value_learner,
-#         diffusion_generator,
-#         diffusion_setting,
-#         random_generation_early_start=0,
-#         total_annealing_iters=1000,
-#     ):
-#         super().__init__(
-#             designer_setting=designer_setting,
-#             value_learner,
-#             diffusion_generator,
-#             diffusion_setting,
-#             random_generation_early_start,
-#             total_annealing_iters,
-#         )
+class DicodeDesigner(design.DicodeDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        classifier: EnvCriticConfig,
+        diffusion: DiffusionOperation,
+        value_learner_hyperparameters: design.ValueLearnerHyperparameters = default_value_learner_hyperparameters,
+        random_generation_early_start=0,
+        gamma: float = 0.99,
+        total_annealing_iters=1000,
+        device: torch.device = torch.device("cpu"),
+    ):
+        sc = designer_setting.scenario
+        super().__init__(
+            designer_setting=designer_setting,
+            value_learner=ValueLearner(
+                scenario=designer_setting.scenario,
+                classifier=classifier,
+                hyperparameters=value_learner_hyperparameters,
+                gamma=gamma,
+                device=device,
+            ),
+            diffusion_generator=Generator(
+                generator_model_path=get_latest_model(
+                    os.path.join(OUTPUT_DIR, ENV_NAME, "diffusion", sc.name),
+                    "model",
+                ),
+                scenario=sc,
+                default_guidance_wt=diffusion.forward_guidance_wt,
+                device=device,
+            ),
+            diffusion_setting=diffusion,
+            random_generation_early_start=random_generation_early_start,
+            total_annealing_iters=total_annealing_iters,
+        )
+        self.generate = RandomDesigner(designer_setting)
+
+    def _generate_random_layout_batch(self, batch_size):
+        return self.generate.generate_random_layouts(batch_size)
 
 
 def create_designer(
