@@ -1,6 +1,6 @@
 name: wfcrl_30
 n_turbines: 30
 max_steps: 150
-map_x_length: 2400
-map_y_length: 2400
+map_x_length: 3000
+map_y_length: 3000
 min_distance_between_turbines: 400

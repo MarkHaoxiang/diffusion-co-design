@@ -1,3 +1,4 @@
+from typing import Literal
 import numpy as np
 from diffusion_co_design.common.design.generate import Generate as _Generate
 from diffusion_co_design.vmas.schema import ScenarioConfig
@@ -8,12 +9,15 @@ class Generate(_Generate):
         self,
         scenario: ScenarioConfig,
         rng: np.random.Generator | int | None = None,
+        sampling_method: Literal["projection", "sampling"] = "projection",
+        **kwargs,
     ):
         occupied_locations = scenario.agent_spawns + scenario.agent_goals
         occupied_locations = [
             (x + scenario.world_spawning_x, y + scenario.world_spawning_y)
             for (x, y) in occupied_locations
         ]
+
         super().__init__(
             radius=scenario.obstacle_sizes,
             occupied_locations=occupied_locations,
@@ -22,23 +26,17 @@ class Generate(_Generate):
             map_y_length=scenario.world_spawning_y * 2,
             additional_minimum_distance=0.005,
             rng=rng,
+            sampling_method=sampling_method,
+            **kwargs,
         )
 
     def __call__(
         self,
         n=1,
         training_dataset=False,
-        max_attempts_per_environment=100,
-        max_backtrack_attempts=1,
         disable_tqdm=True,
     ):
-        res = super().__call__(
-            n,
-            training_dataset,
-            max_attempts_per_environment,
-            max_backtrack_attempts,
-            disable_tqdm,
-        )
+        res = super().__call__(n, training_dataset, disable_tqdm)
 
         if not training_dataset:
             res[:, :, 0] -= self.w / 2

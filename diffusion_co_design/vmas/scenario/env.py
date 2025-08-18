@@ -90,7 +90,6 @@ def render_layout(x, scenario: ScenarioConfig):
         ax.add_patch(circ)
 
     for pos, size in zip(obstacle_radius, obstacle_sizes):
-        print(pos, size)
         circ = plt.Circle(pos, size, color="red", alpha=0.5, label="Obstacle")
         ax.add_patch(circ)
 

@@ -1,8 +1,11 @@
 import torch
 
-from diffusion_co_design.common.design import OptimizerDetails, BaseGenerator
 from diffusion_co_design.vmas.model.diffusion import diffusion_setup
 from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.common.design import OptimizerDetails, BaseGenerator
+from diffusion_co_design.common.design.generate import (
+    soft_projection_constraint as _soft_projection_constraint,
+)
 
 
 def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig):
@@ -19,52 +22,6 @@ def eval_to_train(env: torch.Tensor, cfg: ScenarioConfig):
     return env
 
 
-def soft_penalty(
-    existing_pos: torch.Tensor,  # [N, 2]
-    existing_radius: torch.Tensor,  # [N]
-    pos: torch.Tensor,  # [B, M, 2]
-    radii: torch.Tensor,  # [B, M]
-    additional_collision_distance: float,
-    original_pos: torch.Tensor,  # [B, M, 2]
-    x_scale: float = 1.0,
-    y_scale: float = 1.0,
-):
-    B, M, _ = pos.shape
-    N = existing_pos.shape[0]
-
-    pos = pos.clone()
-    pos[:, :, 0] = pos[:, :, 0] * x_scale
-    pos[:, :, 1] = pos[:, :, 1] * y_scale
-
-    existing_pos_exp = existing_pos.unsqueeze(0).expand(B, N, 2)  # [B, N, 2]
-    existing_rad_exp = existing_radius.unsqueeze(0).expand(B, N)  # [B, N]
-
-    all_pos = torch.cat([pos, existing_pos_exp], dim=1)  # [B, M+N, 2]
-    all_rad = (
-        torch.cat([radii, existing_rad_exp], dim=1) + additional_collision_distance / 2
-    )
-
-    total_count = M + N
-
-    dist = torch.cdist(all_pos, all_pos, p=2)  # [B, total, total]
-    min_dist = all_rad.unsqueeze(2) + all_rad.unsqueeze(1)  # [B, total, total]
-
-    violation = (min_dist - dist).clamp(min=0.0)
-
-    mask_upper = torch.triu(
-        torch.ones(total_count, total_count, device=pos.device), diagonal=1
-    ).bool()
-    penalty = violation[:, mask_upper].sum(dim=-1)
-
-    collision_mask_new = (violation[:, :M, :] > 0).any(dim=2)  # [B, M]
-    non_colliding_mask = ~collision_mask_new  # [B, M]
-    deviation = (pos - original_pos).norm(dim=-1)  # [B, M]
-    penalty_deviation = (deviation * non_colliding_mask.float()).sum(dim=-1) * 0.05
-    penalty += penalty_deviation
-
-    return penalty
-
-
 def soft_projection_constraint(
     cfg: ScenarioConfig, projection_steps: int = 30, penalty_lr: float = 0.02
 ):
@@ -77,35 +34,16 @@ def soft_projection_constraint(
 
     def _projection_constraint(pos):
         B, M, _ = pos.shape
-        pos_0 = pos.clone()
-
-        pos = (
-            pos + torch.randn_like(pos) * 0.01
-        )  # Add some noise to avoid corners problem, where positions exactly equal from clamping
-
-        # Apply soft penalty
-        with torch.enable_grad():
-            pos.requires_grad_(True)
-            optim = torch.optim.SGD([pos], lr=penalty_lr)
-            for _ in range(projection_steps):
-                optim.zero_grad()
-                penalty = soft_penalty(
-                    existing_pos=existing_pos.to(pos.device),
-                    existing_radius=existing_radius.to(pos.device),
-                    pos=pos,
-                    radii=obstacle_sizes.expand(B, M).to(pos.device),
-                    original_pos=pos_0,
-                    additional_collision_distance=0.005,
-                    x_scale=cfg.world_spawning_x,
-                    y_scale=cfg.world_spawning_y,
-                ).sum()
-                penalty.backward()
-                optim.step()
-                pos.data[..., 0] = pos.data[..., 0].clamp(min=-1, max=1)
-                pos.data[..., 1] = pos.data[..., 1].clamp(min=-1, max=1)
-            pos = pos.detach()
-
-        return pos
+        return _soft_projection_constraint(
+            existing_pos=existing_pos.to(pos.device),
+            existing_radius=existing_radius.to(pos.device),
+            pos=pos,
+            radii=obstacle_sizes.expand(B, M).to(pos.device),
+            x_scale=cfg.world_spawning_x,
+            y_scale=cfg.world_spawning_y,
+            projection_steps=projection_steps,
+            penalty_lr=penalty_lr,
+        )
 
     return _projection_constraint
 
