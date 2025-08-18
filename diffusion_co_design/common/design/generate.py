@@ -93,8 +93,8 @@ class Generate:
                             points.pop()
                         else:
                             j = max(0, j - backtrack_amount)
+                            points = points[:j]
                             backtrack_attempts = 0
-                            points = []
                         attempts = 0
 
         if training_dataset:

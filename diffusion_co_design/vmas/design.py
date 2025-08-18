@@ -2,6 +2,7 @@ import os
 from typing import Callable
 from pathlib import Path
 import torch
+import numpy as np
 
 from diffusion_co_design.common import (
     DiffusionOperation,
@@ -13,11 +14,17 @@ from diffusion_co_design.common import (
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
 from diffusion_co_design.vmas.static import GROUP_NAME, ENV_NAME
 from diffusion_co_design.vmas.diffusion.generate import Generate
-from diffusion_co_design.vmas.diffusion.generator import Generator, eval_to_train
+from diffusion_co_design.vmas.diffusion.generator import (
+    Generator,
+    eval_to_train,
+    soft_projection_constraint,
+)
 from diffusion_co_design.vmas.schema import (
     ScenarioConfig as SC,
     Random,
     Fixed,
+    _Value,
+    Diffusion,
     DesignerConfig,
     EnvCriticConfig,
 )
@@ -98,6 +105,15 @@ class ValueLearner(design.ValueLearner):
         return eval_to_train(env=theta, cfg=self.scenario)
 
 
+def make_reference_layouts(scenario: SC, device: torch.device):
+    generate = Generate(scenario=scenario)
+    return torch.tensor(
+        np.array(generate(n=64, training_dataset=True)),
+        dtype=torch.float32,
+        device=device,
+    )
+
+
 class DicodeDesigner(design.DicodeDesigner[SC]):
     def __init__(
         self,
@@ -133,10 +149,17 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
             random_generation_early_start=random_generation_early_start,
             total_annealing_iters=total_annealing_iters,
         )
+        self.pc = soft_projection_constraint(cfg=self.scenario)
         self.generate = RandomDesigner(designer_setting)
 
+    def projection_constraint(self, x):
+        return self.pc(x)
+
     def _generate_random_layout_batch(self, batch_size):
-        return self.generate.generate_random_layouts(batch_size)
+        return list(self.generate.generate_random_layouts(batch_size))
+
+    def _make_reference_layouts(self):
+        return make_reference_layouts(self.scenario, self.value_learner.device)
 
 
 def create_designer(
@@ -165,5 +188,30 @@ def create_designer(
         designer_producer: design.Designer[SC] = FixedDesigner(designer_setting)
     elif isinstance(designer, Random):
         designer_producer = RandomDesigner(designer_setting)
+    elif isinstance(designer, _Value):
+        value_hyperparameters = design.ValueLearnerHyperparameters(
+            lr=designer.lr,
+            train_batch_size=designer.batch_size,
+            buffer_size=designer.buffer_size,
+            n_update_iterations=designer.n_update_iterations,
+            clip_grad_norm=designer.clip_grad_norm,
+            weight_decay=0.0,
+            distill_from_critic=designer.distill_enable,
+            distill_samples=designer.distill_samples,
+            loss_criterion=designer.loss_criterion,
+            train_early_start=designer.train_early_start,
+        )
+
+        if isinstance(designer, Diffusion):
+            designer_producer = DicodeDesigner(
+                diffusion=designer.diffusion,
+                classifier=designer.model,
+                designer_setting=designer_setting,
+                value_learner_hyperparameters=value_hyperparameters,
+                random_generation_early_start=designer.random_generation_early_start,
+                gamma=ppo_cfg.gamma,
+                total_annealing_iters=ppo_cfg.n_iters,
+                device=device,
+            )
 
     return designer_producer, design_consumer_fn

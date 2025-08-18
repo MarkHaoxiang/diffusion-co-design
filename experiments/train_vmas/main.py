@@ -21,7 +21,7 @@ class Trainer(
     support_vmap = False
 
     def __init__(self, cfg: schema.TrainingConfig):
-        super().__init__(cfg, "diffusion-co-design-vmas")
+        super().__init__(cfg, f"diffusion-co-design-vmas-{cfg.scenario.name}")
 
     def create_designer(self, scenario, designer, ppo, artifact_dir, device):
         return design.create_designer(

@@ -65,7 +65,9 @@ def soft_penalty(
     return penalty
 
 
-def soft_projection_constraint(cfg: ScenarioConfig):
+def soft_projection_constraint(
+    cfg: ScenarioConfig, projection_steps: int = 30, penalty_lr: float = 0.02
+):
     agent_pos = torch.tensor(cfg.agent_spawns)
     goal_pos = torch.tensor(cfg.agent_goals)
     agent_radius = 0.05  # For both agents and goals
@@ -84,8 +86,8 @@ def soft_projection_constraint(cfg: ScenarioConfig):
         # Apply soft penalty
         with torch.enable_grad():
             pos.requires_grad_(True)
-            optim = torch.optim.SGD([pos], lr=0.02)
-            for _ in range(20):
+            optim = torch.optim.SGD([pos], lr=penalty_lr)
+            for _ in range(projection_steps):
                 optim.zero_grad()
                 penalty = soft_penalty(
                     existing_pos=existing_pos.to(pos.device),

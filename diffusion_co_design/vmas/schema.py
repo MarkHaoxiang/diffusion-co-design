@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 from pydantic import model_validator, Field
 
-from diffusion_co_design.common import Config
+from diffusion_co_design.common import Config, DiffusionOperation
 from diffusion_co_design.common.design import DesignerConfig as _Designer
 from diffusion_co_design.common.env import ScenarioConfig as _ScenarioConfig
 from diffusion_co_design.common.rl.mappo.schema import TrainingConfig as _TrainingConfig
@@ -69,7 +69,27 @@ class Fixed(_Designer):
     kind: Literal["fixed"]
 
 
-DesignerConfig = Annotated[Random | Fixed, Field(discriminator="kind")]
+class _Value(_Designer):
+    model: EnvCriticConfig
+    batch_size: int = 64
+    buffer_size: int = 2048
+    lr: float = 3e-4
+    n_update_iterations: int = 10
+    clip_grad_norm: float | None = 1.0
+    weight_decay: float = 0.0
+    distill_enable: bool = False
+    distill_samples: int = 5
+    loss_criterion: Literal["mse", "huber"] = "huber"
+    random_generation_early_start: int = 0
+    train_early_start: int = 0
+
+
+class Diffusion(_Value):
+    kind: Literal["diffusion"]
+    diffusion: DiffusionOperation
+
+
+DesignerConfig = Annotated[Random | Fixed | Diffusion, Field(discriminator="kind")]
 
 
 class TrainingConfig(
