@@ -142,20 +142,20 @@ def soft_penalty(
     B, M, _ = pos.shape
     N = existing_pos.shape[0]
 
-    pos = pos.clone()
-    pos[:, :, 0] = pos[:, :, 0] * x_scale
-    pos[:, :, 1] = pos[:, :, 1] * y_scale
+    scaled_pos = pos.clone()
+    scaled_pos[:, :, 0] = scaled_pos[:, :, 0] * x_scale
+    scaled_pos[:, :, 1] = scaled_pos[:, :, 1] * y_scale
 
     existing_pos_exp = existing_pos.unsqueeze(0).expand(B, N, 2)  # [B, N, 2]
     existing_rad_exp = existing_radius.unsqueeze(0).expand(B, N)  # [B, N]
+    scale_factor = max(x_scale, y_scale)
 
-    all_pos = torch.cat([pos, existing_pos_exp], dim=1)  # [B, M+N, 2]
+    all_pos = torch.cat([scaled_pos, existing_pos_exp], dim=1)  # [B, M+N, 2]
     all_rad = (
         torch.cat([radii, existing_rad_exp], dim=1) + additional_collision_distance / 2
     )
 
     total_count = M + N
-
     dist = torch.cdist(all_pos, all_pos, p=2)  # [B, total, total]
     min_dist = all_rad.unsqueeze(2) + all_rad.unsqueeze(1)  # [B, total, total]
 
@@ -164,10 +164,11 @@ def soft_penalty(
     mask_upper = torch.triu(
         torch.ones(total_count, total_count, device=pos.device), diagonal=1
     ).bool()
-    penalty = violation[:, mask_upper].sum(dim=-1)
+    penalty = violation[:, mask_upper].sum(dim=-1) / scale_factor
 
     collision_mask_new = (violation[:, :M, :] > 0).any(dim=2)  # [B, M]
     non_colliding_mask = ~collision_mask_new  # [B, M]
+
     deviation = (pos - original_pos).norm(dim=-1)  # [B, M]
     penalty_deviation = (deviation * non_colliding_mask.float()).sum(dim=-1) * 0.05
     penalty += penalty_deviation
@@ -185,6 +186,7 @@ def soft_projection_constraint(
     y_scale: float = 1.0,
     projection_steps: int = 30,
     penalty_lr: float = 0.02,
+    rng: torch.Generator | None = None,
 ):
     B, M, _ = pos.shape
     N = existing_pos.shape[0]
@@ -194,7 +196,8 @@ def soft_projection_constraint(
     assert radii.shape == (B, M)
 
     pos_0 = pos.clone()
-    pos = pos + torch.randn_like(pos) * 0.01
+    noise = torch.randn(size=(B, M, 2), dtype=torch.float32, generator=rng) * 0.01
+    pos = pos + noise
 
     with torch.enable_grad():
         pos.requires_grad_(True)
@@ -250,9 +253,11 @@ class ProjectionGenerator(GenerationMethod):
         batch_size = 64
         placements = np.zeros((n, self.n_placements, 2), dtype=np.float32)
 
-        existing_pos = (
-            torch.tensor(self.occupied_locations) / torch.tensor([[self.w, self.h]])
-        ) * 2 - 1
+        if len(self.occupied_locations) == 0:
+            existing_pos = torch.zeros((0, 2), dtype=torch.float32)
+        else:
+            existing_pos = torch.tensor(self.occupied_locations)
+        existing_pos = existing_pos / torch.tensor([[self.w, self.h]]) * 2 - 1
 
         existing_radius = torch.tensor(self.occupied_radius[: existing_pos.shape[0]])
 
@@ -284,6 +289,7 @@ class ProjectionGenerator(GenerationMethod):
                     y_scale=self.h / 2,
                     projection_steps=self.projection_steps,
                     penalty_lr=self.penalty_lr,
+                    rng=self.torch_rng,
                 ).numpy()
 
                 pos[:, :, 0] = self.w * (pos[:, :, 0] + 1) / 2
@@ -336,6 +342,7 @@ class Generate:
                     map_y_length=map_y_length,
                     additional_minimum_distance=additional_minimum_distance,
                     rng=rng,
+                    **kwargs,
                 )
             case _:
                 raise NotImplementedError()

@@ -12,11 +12,14 @@ class Generate(_Generate):
         rng: np.random.Generator | int | None = None,
     ):
         super().__init__(
-            radius=[minimum_distance_between_turbines] * num_turbines,
+            radius=[minimum_distance_between_turbines / 2] * num_turbines,
             occupied_locations=[],
             occupied_radius=[],
             map_x_length=map_x_length,
             map_y_length=map_y_length,
             additional_minimum_distance=0.0,
+            sampling_method="projection",
+            projection_steps=20,
+            penalty_lr=0.02,
             rng=rng,
         )
