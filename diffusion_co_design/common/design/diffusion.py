@@ -102,9 +102,6 @@ class BaseGenerator(ABC):
         shape = self.shape(batch_size)
         initial_noise = torch.randn(shape, generator=self.rng, device=self.device)
 
-        # print(operation_override.__dict__)
-        # assert False
-
         if value is not None:
 
             def cond_fn(x: torch.Tensor, t):

@@ -139,7 +139,7 @@ class MAPPOCoDesign[
             critic_network=critic,
             clip_epsilon=cfg.ppo.clip_epsilon,
             entropy_bonus=True if cfg.ppo.entropy_eps > 0 else False,
-            entropy_coef=cfg.ppo.entropy_eps,
+            entropy_coeff=cfg.ppo.entropy_eps,
             normalize_advantage=cfg.ppo.normalise_advantage,
             normalize_advantage_exclude_dims=(-2,),
         )

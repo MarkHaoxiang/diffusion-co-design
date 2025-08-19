@@ -263,7 +263,6 @@ class ProjectionGenerator(GenerationMethod):
         else:
             existing_pos = torch.tensor(self.occupied_locations)
         existing_pos = existing_pos / torch.tensor([[self.w, self.h]]) * 2 - 1
-
         existing_radius = torch.tensor(self.occupied_radius[: existing_pos.shape[0]])
 
         i = 0

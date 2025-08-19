@@ -23,7 +23,7 @@ designer:
   weight_decay: 0
   lr: 1e-4
   distill_enable: true
-  distill_samples: 1
+  distill_samples: 32
   loss_criterion: mse
   diffusion:
     num_recurrences: 4

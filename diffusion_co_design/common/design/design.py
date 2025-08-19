@@ -361,7 +361,12 @@ class ValueLearner[SC: ScenarioConfig]:
                 out_keys=[ENVIRONMENT_DESIGN_KEY],
             )
             observations_tds_list.append(
-                torch.stack([self.ref_env.reset() for _ in range(self.distill_samples)])
+                torch.stack(
+                    [
+                        self.ref_env.reset().squeeze()
+                        for _ in range(self.distill_samples)
+                    ]
+                )
             )
         observations_tds = torch.stack(observations_tds_list)
         self.critic.eval()
