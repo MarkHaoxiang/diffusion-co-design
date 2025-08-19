@@ -32,5 +32,3 @@ designer:
     forward_guidance_wt: 3.0
     forward_guidance_annealing: True
 start_from_checkpoint: null
-logging:
-  mode: online

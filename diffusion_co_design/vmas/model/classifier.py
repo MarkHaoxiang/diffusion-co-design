@@ -12,7 +12,7 @@ class EnvCritic(_EnvCritic):
         num_layers: int = 3,
         k: int = 5,
     ):
-        super().__init__(scenario=scenario)
+        super().__init__()
         self.agent_pos = torch.tensor(scenario.agent_spawns)
         self.goal_pos = torch.tensor(scenario.agent_goals)
         self.agent_vel = torch.zeros_like(self.agent_pos)

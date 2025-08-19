@@ -49,4 +49,4 @@ if __name__ == "__main__":
     parser.add_argument("--scenario_name", required=True, type=str)
     args = parser.parse_args()
 
-    setup_scenario(scenario_name=args.scenario_name, n=1_000_000)
+    setup_scenario(scenario_name=args.scenario_name, n=100_000)

@@ -196,7 +196,12 @@ def soft_projection_constraint(
     assert radii.shape == (B, M)
 
     pos_0 = pos.clone()
-    noise = torch.randn(size=(B, M, 2), dtype=torch.float32, generator=rng) * 0.01
+    noise = (
+        torch.randn(
+            size=(B, M, 2), dtype=torch.float32, generator=rng, device=pos.device
+        )
+        * 0.01
+    )
     pos = pos + noise
 
     with torch.enable_grad():

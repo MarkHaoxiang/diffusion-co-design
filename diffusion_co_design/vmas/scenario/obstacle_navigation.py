@@ -39,6 +39,7 @@ def setup_entity_locations(
     x_bounds: tuple[float, float] = (-1, 1),
     y_bounds: tuple[float, float] = (-1, 1),
     device: torch.device = torch.device("cpu"),
+    constraint_violation: typing.Literal["warn", "error"] = "error",
 ):
     occupied_positions = (
         occupied_positions
@@ -87,10 +88,11 @@ def setup_entity_locations(
     )
     min_dist = occupied_radius.unsqueeze(1) + occupied_radius.unsqueeze(0)
     if torch.any(dist < min_dist):
-        raise ValueError(
-            "Entity locations are too close to each other. "
-            "Please adjust the entity radius or the occupied positions."
-        )
+        error_message = f"Entity locations are too close to each other. Please adjust the entity radius or the occupied positons. Violation amt: {torch.max(min_dist - dist)}"
+        if constraint_violation == "warn":
+            warnings.warn(error_message)
+        else:
+            raise ValueError(error_message)
 
     return entity_locations, occupied_positions
 
@@ -182,6 +184,7 @@ class Scenario(BaseScenario):
                 x_bounds=(-self.world_spawning_x, self.world_spawning_x),
                 y_bounds=(-self.world_spawning_y, self.world_spawning_y),
                 device=device,
+                constraint_violation="warn",
             )[0]
 
         # Reward settings

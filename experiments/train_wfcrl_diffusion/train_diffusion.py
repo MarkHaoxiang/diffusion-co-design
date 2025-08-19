@@ -84,7 +84,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="wfcrl_10",
+        experiment_name="wfcrl_30",
         schedule_sampler="uniform",
         lr=3e-4,
         weight_decay=0.0,

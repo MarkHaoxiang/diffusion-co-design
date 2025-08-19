@@ -91,4 +91,4 @@ class Generator(BaseGenerator):
 
     def shape(self, batch_size: int | None = None):
         B = batch_size or self.batch_size
-        return (B, self.scenario.get_num_agents(), 2)
+        return (B, self.scenario.n_obstacles, 2)
