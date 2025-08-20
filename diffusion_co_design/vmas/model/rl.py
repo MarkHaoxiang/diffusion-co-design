@@ -9,6 +9,8 @@ from diffusion_co_design.vmas.schema import (
     CriticConfig,
     ActorCriticConfig,
     ScenarioConfig,
+    GlobalPlacementScenarioConfig,
+    LocalPlacementScenarioConfig,
 )
 from diffusion_co_design.vmas.scenario.obstacle_navigation import DesignableVmasEnv
 from diffusion_co_design.vmas.static import GROUP_NAME
@@ -59,7 +61,11 @@ def create_policy(env: DesignableVmasEnv, cfg: ActorConfig, device: DEVICE_TYPIN
 
 class E3RLCritic(torch.nn.Module):
     def __init__(
-        self, scenario: ScenarioConfig, node_emb_dim: int, num_layers: int, k: int
+        self,
+        scenario: GlobalPlacementScenarioConfig,
+        node_emb_dim: int,
+        num_layers: int,
+        k: int,
     ):
         super().__init__()
         self.scenario = scenario
@@ -78,15 +84,58 @@ class E3RLCritic(torch.nn.Module):
         return self.model(obstacle_pos, agent_pos, goal_pos, agent_vel)
 
 
+class RLCritic(torch.nn.Module):
+    def __init__(
+        self, scenario: LocalPlacementScenarioConfig, hidden_dim: int, num_layers: int
+    ):
+        super().__init__()
+        self.scenario = scenario
+        self.n_obstacles = len(scenario.obstacle_sizes)
+
+        layers: list[torch.nn.Module] = []
+        dim_in = scenario.get_num_agents() * 6 + scenario.diffusion_shape[0]
+        for i in range(num_layers - 1):
+            layers.append(torch.nn.Linear(dim_in, hidden_dim))
+            layers.append(torch.nn.ReLU())
+            dim_in = hidden_dim
+        layers.append(torch.nn.Linear(dim_in, scenario.get_num_agents()))
+
+        self.model = torch.nn.Sequential(*layers)
+
+    def forward(self, obs, state):
+        # Share agent observations
+        agent_pos = obs[..., :2]
+        goal_pos = obs[..., 4:6]
+        agent_vel = obs[..., 2:4]
+
+        shared_obs = torch.cat((agent_pos, goal_pos, agent_vel), dim=-1).flatten(
+            start_dim=-2, end_dim=-1
+        )  # [B_all, feature_dim]
+        layout = state
+        x_in = torch.cat([shared_obs, layout], dim=-1)
+
+        return self.model(x_in).unsqueeze(-1)
+
+
 def create_critic(
     env: DesignableVmasEnv,
     scenario: ScenarioConfig,
     cfg: CriticConfig,
     device: DEVICE_TYPING,
 ):
-    critic_net = E3RLCritic(
-        scenario=scenario, node_emb_dim=cfg.hidden_size, num_layers=cfg.depth, k=cfg.k
-    ).to(device=device)
+    if isinstance(scenario, GlobalPlacementScenarioConfig):
+        critic_net: torch.nn.Module = E3RLCritic(
+            scenario=scenario,
+            node_emb_dim=cfg.hidden_size,
+            num_layers=cfg.depth,
+            k=cfg.k,
+        ).to(device=device)
+    elif isinstance(scenario, LocalPlacementScenarioConfig):
+        critic_net = RLCritic(
+            scenario=scenario,
+            hidden_dim=cfg.hidden_size,
+            num_layers=cfg.depth,
+        )
 
     critic = TensorDictModule(
         critic_net,

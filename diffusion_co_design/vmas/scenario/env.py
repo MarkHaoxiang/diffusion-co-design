@@ -41,6 +41,7 @@ def create_env(
         continuous_actions=True,
         max_steps=None,
         # Scenario kwargs
+        n_agents=len(agent_spawns),
         shared_rew=False,
         world_spawning_x=scenario.world_spawning_x,
         world_spawning_y=scenario.world_spawning_y,

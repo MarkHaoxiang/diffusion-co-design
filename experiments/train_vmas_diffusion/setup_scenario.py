@@ -7,13 +7,13 @@ import numpy as np
 
 from diffusion_co_design.common import OUTPUT_DIR
 from diffusion_co_design.vmas.schema import ScenarioConfig
-from diffusion_co_design.vmas.diffusion.generate import Generate
+from diffusion_co_design.vmas.diffusion.generate import create_generate
 from diffusion_co_design.vmas.static import ENV_NAME
 
 
 def generate_env(n_and_scenario):
     n, scenario = n_and_scenario
-    generate = Generate(scenario=scenario, rng=np.random.default_rng())
+    generate = create_generate(scenario=scenario, rng=np.random.default_rng())
     dataset = generate(n=n, training_dataset=True, disable_tqdm=False)
     return dataset
 

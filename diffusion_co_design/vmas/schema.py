@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
 from abc import ABC, abstractmethod
-from pydantic import model_validator, Field
+from pydantic import model_validator, Field, TypeAdapter
+from omegaconf import OmegaConf, DictConfig
 
 import torch
 
@@ -77,11 +78,34 @@ class LocalPlacementScenarioConfig(_ScenarioConfig):
         return torch.ones((n,))
 
 
-ScenarioConfig = Annotated[
-    GlobalPlacementScenarioConfig,
-    LocalPlacementScenarioConfig,
+ScenarioConfigType = Annotated[
+    GlobalPlacementScenarioConfig | LocalPlacementScenarioConfig,
     Field(discriminator="placement_area"),
 ]
+
+
+class ScenarioConfig:
+    _adapter: TypeAdapter = TypeAdapter(ScenarioConfigType)
+
+    @classmethod
+    def parse(cls, data) -> ScenarioConfigType:
+        return cls._adapter.validate_python(data)
+
+    @classmethod
+    def json_parse(cls, data: str) -> ScenarioConfigType:
+        return cls._adapter.validate_json(data)
+
+    @classmethod
+    def from_raw(cls, config):
+        return cls.parse(config)
+
+    @classmethod
+    def from_file(cls, path: str):
+        with open(path, "r") as f:
+            raw = OmegaConf.load(f)
+            assert isinstance(raw, DictConfig)
+            config = cls.from_raw(raw)
+        return config
 
 
 class ActorConfig(Config):
@@ -140,12 +164,12 @@ DesignerConfig = Annotated[Random | Fixed | Diffusion, Field(discriminator="kind
 
 
 class TrainingConfig(
-    _TrainingConfig[DesignerConfig, ScenarioConfig, ActorCriticConfig]
+    _TrainingConfig[DesignerConfig, ScenarioConfigType, ActorCriticConfig]
 ):
     @property
     def env_name(self) -> str:
         return ENV_NAME
 
     @property
-    def _scenario_cfg_cls(self) -> type[ScenarioConfig]:
+    def _scenario_cfg_cls(self) -> type[ScenarioConfig]:  # type: ignore
         return ScenarioConfig
