@@ -70,6 +70,12 @@ class Designer[SC: ScenarioConfig](DesignProducer):
         )
         self.scenario = designer_setting.scenario
 
+    @classmethod
+    def make_placeholder(cls, scenario: SC, **kwargs):
+        return cls(
+            designer_setting=DesignerParams.placeholder(scenario), **kwargs
+        ).get_placeholder()
+
     def get_placeholder(self) -> LiveDesignConsumer:
         return LiveDesignConsumer(self)
 

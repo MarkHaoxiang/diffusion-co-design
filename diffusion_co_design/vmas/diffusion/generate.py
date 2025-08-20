@@ -1,13 +1,18 @@
 from typing import Literal
 import numpy as np
+import torch
 from diffusion_co_design.common.design.generate import Generate as _Generate
-from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.vmas.schema import (
+    ScenarioConfig,
+    GlobalPlacementScenarioConfig,
+    LocalPlacementScenarioConfig,
+)
 
 
-class Generate(_Generate):
+class GlobalGenerate(_Generate):
     def __init__(
         self,
-        scenario: ScenarioConfig,
+        scenario: GlobalPlacementScenarioConfig,
         rng: np.random.Generator | int | None = None,
         sampling_method: Literal["projection", "sampling"] = "projection",
         **kwargs,
@@ -43,3 +48,35 @@ class Generate(_Generate):
             res[:, :, 1] -= self.h / 2
 
         return res
+
+
+class LocalGenerate:
+    def __init__(
+        self,
+        scenario: LocalPlacementScenarioConfig,
+        rng: np.random.Generator | int | None = None,
+    ):
+        self.scenario = scenario
+        if isinstance(rng, np.random.Generator):
+            self._rng = rng
+        else:
+            self._rng = np.random.default_rng(rng)
+
+    def __call__(
+        self,
+        n=1,
+        training_dataset=False,
+        disable_tqdm=True,
+    ):
+        return self._rng.random(
+            size=(n, *self.scenario.diffusion_shape), dtype=np.float32
+        )
+
+
+def create_generate(
+    scenario: ScenarioConfig, rng: np.random.Generator | int | None = None, **kwargs
+):
+    if isinstance(scenario, GlobalPlacementScenarioConfig):
+        return GlobalGenerate(scenario, rng, **kwargs)
+    elif isinstance(scenario, LocalPlacementScenarioConfig):
+        return LocalGenerate(scenario, rng)

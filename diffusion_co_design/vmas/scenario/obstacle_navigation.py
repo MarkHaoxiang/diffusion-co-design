@@ -26,6 +26,12 @@ from torchrl.envs.utils import (
     MarlGroupMapType,
 )
 
+from diffusion_co_design.vmas.schema import (
+    ScenarioConfig,
+    LocalPlacementScenarioConfig,
+    GlobalPlacementScenarioConfig,
+)
+
 if typing.TYPE_CHECKING:
     from vmas.simulator.rendering import Geom
 
@@ -418,8 +424,8 @@ class Scenario(BaseScenario):
 class DesignableVmasEnv(VmasEnv):
     def __init__(
         self,
-        scenario,
-        scenario_cfg,
+        scenario: Scenario,
+        scenario_cfg: ScenarioConfig,
         reset_policy,
         num_envs=1,
         device="cpu",
@@ -450,6 +456,21 @@ class DesignableVmasEnv(VmasEnv):
         )
 
         self._env._reset_policy = reset_policy
+        if isinstance(scenario_cfg, LocalPlacementScenarioConfig):
+            is_theta_mask = torch.zeros(
+                (scenario_cfg.n_obstacles, 2), dtype=torch.bool, device=device
+            )
+            for i, ((x_low, x_high), (y_low, y_high)) in enumerate(
+                scenario_cfg.obstacle_bounds
+            ):
+                if x_low != x_high:
+                    is_theta_mask[i, 0] = 1
+                if y_low != y_high:
+                    is_theta_mask[i, 1] = 1
+            self._env._is_theta_mask = is_theta_mask
+            self._env.bounds_tensor = torch.tensor(
+                scenario_cfg.obstacle_bounds, device=device
+            )  # [M, 2, 2]
 
     def _make_specs(
         self,
@@ -504,23 +525,10 @@ class DesignableVmasEnv(VmasEnv):
         # ===
         # Add state
 
+        sc: ScenarioConfig = env.scenario._scenario_cfg
         full_observation_spec_unbatched["state"] = BoundedContinuous(
-            low=-torch.tensor(
-                [
-                    env.scenario._scenario_cfg.world_spawning_x,
-                    env.scenario._scenario_cfg.world_spawning_y,
-                ]
-            )
-            .unsqueeze(0)
-            .expand(self._env.scenario._scenario_cfg.n_obstacles, 2),
-            high=torch.tensor(
-                [
-                    env.scenario._scenario_cfg.world_spawning_x,
-                    env.scenario._scenario_cfg.world_spawning_y,
-                ]
-            )
-            .unsqueeze(0)
-            .expand(env.scenario._scenario_cfg.n_obstacles, 2),
+            low=sc.layout_space_low,
+            high=sc.layout_space_high,
             device=self.device,
             dtype=torch.float32,
         )
@@ -533,15 +541,40 @@ class DesignableVmasEnv(VmasEnv):
         self.full_done_spec_unbatched = full_done_spec_unbatched
 
     def _reset(self, tensordict=None, **kwargs):
+        scenario: Scenario = self._env.scenario  # vmas.simulator.environment
+        sc: ScenarioConfig = scenario._scenario_cfg
+
         if "layout_override" in kwargs and kwargs["layout_override"] is not None:
             theta = kwargs.pop("layout_override")
         elif self._env._reset_policy is not None:
             new_layouts = [self._env._reset_policy() for _ in range(self._env.num_envs)]
-            theta = torch.stack(new_layouts, dim=0)
+            if isinstance(sc, LocalPlacementScenarioConfig):
+                B, M, _ = scenario.obstacle_locations.shape
+                theta = torch.zeros_like(scenario.obstacle_locations)  # [B, M, 2]
+                bounds_tensor = self._env.bounds_tensor
+
+                idx = []
+                for i, ((x_low, x_high), (y_low, y_high)) in enumerate(
+                    sc.obstacle_bounds
+                ):
+                    if x_low != x_high:
+                        idx.append((i, 0))
+                    if y_low != y_high:
+                        idx.append((i, 1))
+                idx = torch.tensor(idx, device=theta.device, dtype=torch.int64)
+
+                for i, layout in enumerate(new_layouts):
+                    z = torch.zeros((M, 2), device=theta.device)  # [M, 2]
+                    z[idx[:, 0], idx[:, 1]] = (layout + 1) / 2
+                    theta[i] = (
+                        bounds_tensor[:, :, 0]
+                        + (bounds_tensor[:, :, 1] - bounds_tensor[:, :, 0]) * z
+                    )
+            else:
+                theta = torch.stack(new_layouts, dim=0)
         else:
             theta = None
 
-        scenario = self._env.scenario  # vmas.simulator.environment
         if theta is not None:
             assert isinstance(theta, Tensor)
             assert theta.shape == scenario.obstacle_locations.shape, (
@@ -551,18 +584,33 @@ class DesignableVmasEnv(VmasEnv):
             scenario.obstacle_locations = theta
 
         tensordict_out = super()._reset(tensordict, **kwargs)
-        tensordict_out["state"] = scenario.obstacle_locations.clone()
+        tensordict_out["state"] = self._get_scenario_state()
 
         return tensordict_out
 
     def _step(self, tensordict):
         tensordict_out = super()._step(tensordict)
-        tensordict_out["state"] = self._env.scenario.obstacle_locations.clone()
+        tensordict_out["state"] = self._get_scenario_state()
         return tensordict_out
 
     def render(self):
         # Transformation to meet the convention of pettingzoo rendering with Parallel collection
         return np.expand_dims(self._env.render(mode="rgb_array"), axis=0)
+
+    def _get_scenario_state(self):
+        layout = self._env.scenario.obstacle_locations.clone()
+        if isinstance(self._env.scenario._scenario_cfg, GlobalPlacementScenarioConfig):
+            return layout
+        elif isinstance(self._env.scenario._scenario_cfg, LocalPlacementScenarioConfig):
+            layouts_of_interest = layout[:, self._env._is_theta_mask]  # [B, M, 2]
+            # Normalise
+            bounds_tensor = self._env.bounds_tensor[self._env._is_theta_mask].unsqueeze(
+                0
+            )
+            layouts_of_interest = (layouts_of_interest - bounds_tensor[:, :, 0]) / (
+                bounds_tensor[:, :, 1] - bounds_tensor[:, :, 0]
+            ) * 2 - 1
+            return layouts_of_interest
 
 
 if __name__ == "__main__":

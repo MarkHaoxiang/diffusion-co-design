@@ -13,7 +13,7 @@ from diffusion_co_design.common import (
 )
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
 from diffusion_co_design.vmas.static import GROUP_NAME, ENV_NAME
-from diffusion_co_design.vmas.diffusion.generate import Generate
+from diffusion_co_design.vmas.diffusion.generate import create_generate
 from diffusion_co_design.vmas.diffusion.generator import (
     Generator,
     eval_to_train,
@@ -38,7 +38,7 @@ class RandomDesigner(design.RandomDesigner[SC]):
         seed: int | None = None,
     ):
         super().__init__(designer_setting=designer_setting)
-        self.generate = Generate(scenario=self.scenario, rng=seed)
+        self.generate = create_generate(scenario=self.scenario, rng=seed)
 
     def generate_random_layouts(self, batch_size):
         return np_list_to_tensor_list(
@@ -53,7 +53,7 @@ class FixedDesigner(design.FixedDesigner[SC]):
         super().__init__(
             designer_setting=designer_setting,
             layout=torch.tensor(
-                Generate(scenario=designer_setting.scenario, rng=seed)(
+                create_generate(scenario=designer_setting.scenario, rng=seed)(
                     n=1, training_dataset=False
                 )[0]
             ),
@@ -106,7 +106,7 @@ class ValueLearner(design.ValueLearner):
 
 
 def make_reference_layouts(scenario: SC, device: torch.device):
-    generate = Generate(scenario=scenario)
+    generate = create_generate(scenario=scenario)
     return torch.tensor(
         np.array(generate(n=64, training_dataset=True)),
         dtype=torch.float32,

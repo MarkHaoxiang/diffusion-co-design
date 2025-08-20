@@ -7,7 +7,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from diffusion_co_design.common.design.base import DesignConsumer
 from diffusion_co_design.common.env import ENVIRONMENT_MODE
 from diffusion_co_design.vmas.schema import ScenarioConfig
-from diffusion_co_design.vmas.diffusion.generate import Generate
+from diffusion_co_design.vmas.diffusion.generate import GlobalGenerate
 from .obstacle_navigation import (
     Scenario as ObstacleNavigationScenario,
     DesignableVmasEnv,
@@ -27,7 +27,7 @@ def create_env(
 
     # Use this to generate the initial environment
     # Because the VMAS generation logic is poor with many objects
-    generate = Generate(scenario=scenario)
+    generate = GlobalGenerate(scenario=scenario)
     obstacle_positions = torch.tensor(generate(), device=device).expand(
         (num_environments, scenario.n_obstacles, 2)
     )
@@ -68,6 +68,7 @@ def create_env(
 
 
 def render_layout(x, scenario: ScenarioConfig):
+    assert scenario.placement_area == "global"
     agent_and_goal_radius = 0.05
     agent_spawns = scenario.agent_spawns
     agent_goals = scenario.agent_goals

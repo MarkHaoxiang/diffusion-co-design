@@ -6,7 +6,7 @@ from diffusion_co_design.vmas.schema import (
     ActorCriticConfig,
     ActorConfig,
     CriticConfig,
-    ScenarioConfig,
+    GlobalPlacementScenarioConfig,
 )
 
 try:
@@ -27,7 +27,7 @@ from diffusion_co_design.common.design import DesignerParams
 seed = 42
 device = torch.device("cpu")
 
-test_scenario = ScenarioConfig(
+test_scenario = GlobalPlacementScenarioConfig(
     name="test_scenario",
     world_spawning_x=1,
     world_spawning_y=1,

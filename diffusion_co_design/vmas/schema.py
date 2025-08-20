@@ -1,14 +1,17 @@
 from typing import Annotated, Literal
+from abc import ABC, abstractmethod
 from pydantic import model_validator, Field
+
+import torch
 
 from diffusion_co_design.common import Config, DiffusionOperation
 from diffusion_co_design.common.design import DesignerConfig as _Designer
-from diffusion_co_design.common.env import ScenarioConfig as _ScenarioConfig
+from diffusion_co_design.common.env import ScenarioConfig as BaseScenarioConfig
 from diffusion_co_design.common.rl.mappo.schema import TrainingConfig as _TrainingConfig
 from diffusion_co_design.vmas.static import ENV_NAME
 
 
-class ScenarioConfig(_ScenarioConfig):
+class _ScenarioConfig(BaseScenarioConfig, ABC):
     name: str
     world_spawning_x: float
     world_spawning_y: float
@@ -26,15 +29,59 @@ class ScenarioConfig(_ScenarioConfig):
     def get_num_agents(self):
         return len(self.agent_spawns)
 
-    @property
-    def n_obstacles(self):
-        return len(self.obstacle_sizes)
-
     @model_validator(mode="after")
     def check_agent_numbers(self):
         if len(self.agent_spawns) != len(self.agent_goals):
             raise ValueError("Number of agent spawns must match number of agent goals.")
         return self
+
+    @property
+    def n_obstacles(self):
+        return len(self.obstacle_sizes)
+
+    @property
+    @abstractmethod
+    def layout_space_high(self) -> torch.Tensor:
+        raise NotImplementedError()
+
+    @property
+    def layout_space_low(self) -> torch.Tensor:
+        return -self.layout_space_high
+
+    @property
+    def diffusion_shape(self):
+        return self.layout_space_high.shape
+
+
+class GlobalPlacementScenarioConfig(_ScenarioConfig):
+    placement_area: Literal["global"] = "global"
+
+    @property
+    def layout_space_high(self) -> torch.Tensor:
+        return (
+            torch.tensor([self.world_spawning_x, self.world_spawning_y])
+            .unsqueeze(0)
+            .expand(self.n_obstacles, 2)
+        )
+
+
+class LocalPlacementScenarioConfig(_ScenarioConfig):
+    placement_area: Literal["local"] = "local"
+    obstacle_bounds: list[tuple[tuple[float, float], tuple[float, float]]]
+
+    @property
+    def layout_space_high(self) -> torch.Tensor:
+        n = 0
+        for (x_low, x_high), (y_low, y_high) in self.obstacle_bounds:
+            n += 2 - (x_low == x_high) - (y_low == y_high)
+        return torch.ones((n,))
+
+
+ScenarioConfig = Annotated[
+    GlobalPlacementScenarioConfig,
+    LocalPlacementScenarioConfig,
+    Field(discriminator="placement_area"),
+]
 
 
 class ActorConfig(Config):
