@@ -1,17 +1,18 @@
+from math import prod
 import torch
 import torch.nn as nn
 from guided_diffusion.unet import SimpleFlowModel
 from guided_diffusion.script_util import diffusion_defaults, create_gaussian_diffusion
 
-from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.vmas.schema import ScenarioConfigType
 
 
 class DiffusionMLP(nn.Module):
-    def __init__(self, scenario: ScenarioConfig):
+    def __init__(self, scenario: ScenarioConfigType):
         super().__init__()
         self.scenario = scenario
         self.model = SimpleFlowModel(
-            data_shape=(2 * scenario.n_obstacles, 1),
+            data_shape=(prod(scenario.diffusion_shape), 1),
             hidden_dim=512,
         )
 
@@ -19,11 +20,11 @@ class DiffusionMLP(nn.Module):
         B = pos.shape[0]
         pos = pos.reshape(B, -1)
         out = self.model(pos, timesteps)
-        return out.reshape(B, self.scenario.n_obstacles, 2)
+        return out.reshape(B, *self.scenario.diffusion_shape)
 
 
 def diffusion_setup(
-    scenario: ScenarioConfig,
+    scenario: ScenarioConfigType,
     diffusion_steps: int = 1000,
 ):
     diffusion_args = diffusion_defaults()

@@ -129,13 +129,14 @@ def create_critic(
             node_emb_dim=cfg.hidden_size,
             num_layers=cfg.depth,
             k=cfg.k,
-        ).to(device=device)
+        )
     elif isinstance(scenario, LocalPlacementScenarioConfig):
         critic_net = RLCritic(
             scenario=scenario,
             hidden_dim=cfg.hidden_size,
             num_layers=cfg.depth,
         )
+    critic_net = critic_net.to(device=device)
 
     critic = TensorDictModule(
         critic_net,

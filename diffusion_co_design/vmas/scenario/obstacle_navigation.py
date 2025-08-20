@@ -374,17 +374,9 @@ class Scenario(BaseScenario):
         )
 
     def done(self):
-        return torch.stack(
-            [
-                torch.linalg.vector_norm(
-                    agent.state.pos - agent.goal.state.pos,
-                    dim=-1,
-                )
-                < agent.shape.radius
-                for agent in self.world.agents
-            ],
-            dim=-1,
-        ).all(-1)
+        return torch.zeros(
+            (self.world.batch_dim, 1), dtype=torch.bool, device=self.world.device
+        )
 
     def info(self, agent: Agent) -> dict[str, Tensor]:
         return {
@@ -565,7 +557,9 @@ class DesignableVmasEnv(VmasEnv):
 
                 for i, layout in enumerate(new_layouts):
                     z = torch.zeros((M, 2), device=theta.device)  # [M, 2]
-                    z[idx[:, 0], idx[:, 1]] = (layout + 1) / 2
+                    z[idx[:, 0], idx[:, 1]] = torch.tensor(
+                        (layout + 1) / 2, device=theta.device
+                    )
                     theta[i] = (
                         bounds_tensor[:, :, 0]
                         + (bounds_tensor[:, :, 1] - bounds_tensor[:, :, 0]) * z
