@@ -12,6 +12,7 @@ from diffusion_co_design.common import (
     OUTPUT_DIR,
 )
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
+from diffusion_co_design.common.design import EnvCritic
 from diffusion_co_design.vmas.static import GROUP_NAME, ENV_NAME
 from diffusion_co_design.vmas.diffusion.generate import create_generate
 from diffusion_co_design.vmas.diffusion.generator import (
@@ -20,7 +21,9 @@ from diffusion_co_design.vmas.diffusion.generator import (
     soft_projection_constraint,
 )
 from diffusion_co_design.vmas.schema import (
-    ScenarioConfig as SC,
+    ScenarioConfigType as SC,
+    GlobalPlacementScenarioConfig,
+    LocalPlacementScenarioConfig,
     Random,
     Fixed,
     _Value,
@@ -28,7 +31,7 @@ from diffusion_co_design.vmas.schema import (
     DesignerConfig,
     EnvCriticConfig,
 )
-from diffusion_co_design.vmas.model.classifier import EnvCritic
+from diffusion_co_design.vmas.model.classifier import GNNEnvCritic, MLPEnvCritic
 
 
 class RandomDesigner(design.RandomDesigner[SC]):
@@ -81,13 +84,22 @@ class ValueLearner(design.ValueLearner):
         hyperparameters=default_value_learner_hyperparameters,
         device=torch.device("cpu"),
     ):
-        super().__init__(
-            model=EnvCritic(
+        if isinstance(scenario, GlobalPlacementScenarioConfig):
+            model: EnvCritic = GNNEnvCritic(
                 scenario=scenario,
                 node_emb_dim=classifier.hidden_size,
                 num_layers=classifier.depth,
                 k=classifier.k,
-            ),
+            )
+        elif isinstance(scenario, LocalPlacementScenarioConfig):
+            model = MLPEnvCritic(
+                scenario=scenario,
+                hidden_dim=classifier.hidden_size,
+                num_layers=classifier.depth,
+            )
+
+        super().__init__(
+            model=model,
             group_name=GROUP_NAME,
             episode_steps=scenario.get_episode_steps(),
             gamma=gamma,
@@ -149,7 +161,11 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
             random_generation_early_start=random_generation_early_start,
             total_annealing_iters=total_annealing_iters,
         )
-        self.pc = soft_projection_constraint(cfg=self.scenario)
+        self.pc = (
+            soft_projection_constraint(cfg=self.scenario)
+            if self.scenario.placement_area == "global"
+            else lambda x: x
+        )
         self.generate = RandomDesigner(designer_setting)
 
     def projection_constraint(self, x):

@@ -5,13 +5,13 @@ from torch_geometric.data import Data, Batch
 from torch_geometric.nn import knn_graph, global_add_pool
 from torch_geometric.nn.models import GAT
 
-from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.vmas.schema import ScenarioConfigType
 
 
 class E3Critic(torch.nn.Module):
     def __init__(
         self,
-        scenario: ScenarioConfig,
+        scenario: ScenarioConfigType,
         node_emb_dim: int = 128,
         num_layers: int = 3,
         k: int = 5,

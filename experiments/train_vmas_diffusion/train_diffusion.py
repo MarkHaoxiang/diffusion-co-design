@@ -82,7 +82,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="obstacle_navigation_1",
+        experiment_name="obstacle_navigation_2",
         schedule_sampler="uniform",
         lr=3e-4,
         weight_decay=0.0,

@@ -1,9 +1,8 @@
 from typing import Literal
 import numpy as np
-import torch
 from diffusion_co_design.common.design.generate import Generate as _Generate
 from diffusion_co_design.vmas.schema import (
-    ScenarioConfig,
+    ScenarioConfigType,
     GlobalPlacementScenarioConfig,
     LocalPlacementScenarioConfig,
 )
@@ -74,7 +73,7 @@ class LocalGenerate:
 
 
 def create_generate(
-    scenario: ScenarioConfig, rng: np.random.Generator | int | None = None, **kwargs
+    scenario: ScenarioConfigType, rng: np.random.Generator | int | None = None, **kwargs
 ):
     if isinstance(scenario, GlobalPlacementScenarioConfig):
         return GlobalGenerate(scenario, rng, **kwargs)

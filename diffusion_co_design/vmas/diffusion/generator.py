@@ -1,29 +1,43 @@
 import torch
 
 from diffusion_co_design.vmas.model.diffusion import diffusion_setup
-from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.vmas.schema import (
+    ScenarioConfigType,
+    LocalPlacementScenarioConfig,
+    GlobalPlacementScenarioConfig,
+)
 from diffusion_co_design.common.design import OptimizerDetails, BaseGenerator
 from diffusion_co_design.common.design.generate import (
     soft_projection_constraint as _soft_projection_constraint,
 )
 
 
-def train_to_eval(env: torch.Tensor, cfg: ScenarioConfig):
+def train_to_eval(env: torch.Tensor, cfg: ScenarioConfigType):
     env = env.clone()
-    env[:, :, 0] = env[:, :, 0] * cfg.world_spawning_x
-    env[:, :, 1] = env[:, :, 1] * cfg.world_spawning_y
-    return env
+    if isinstance(cfg, LocalPlacementScenarioConfig):
+        return env
+    elif isinstance(cfg, GlobalPlacementScenarioConfig):
+        env[:, :, 0] = env[:, :, 0] * cfg.world_spawning_x
+        env[:, :, 1] = env[:, :, 1] * cfg.world_spawning_y
+        return env
+    else:
+        assert False
 
 
-def eval_to_train(env: torch.Tensor, cfg: ScenarioConfig):
+def eval_to_train(env: torch.Tensor, cfg: ScenarioConfigType):
     env = env.clone()
-    env[:, :, 0] = env[:, :, 0] / cfg.world_spawning_x
-    env[:, :, 1] = env[:, :, 1] / cfg.world_spawning_y
-    return env
+    if isinstance(cfg, LocalPlacementScenarioConfig):
+        return env
+    elif isinstance(cfg, GlobalPlacementScenarioConfig):
+        env[:, :, 0] = env[:, :, 0] / cfg.world_spawning_x
+        env[:, :, 1] = env[:, :, 1] / cfg.world_spawning_y
+        return env
+    else:
+        assert False
 
 
 def soft_projection_constraint(
-    cfg: ScenarioConfig, projection_steps: int = 30, penalty_lr: float = 0.02
+    cfg: ScenarioConfigType, projection_steps: int = 30, penalty_lr: float = 0.02
 ):
     agent_pos = torch.tensor(cfg.agent_spawns)
     goal_pos = torch.tensor(cfg.agent_goals)
@@ -52,7 +66,7 @@ class Generator(BaseGenerator):
     def __init__(
         self,
         generator_model_path: str,
-        scenario: ScenarioConfig,
+        scenario: ScenarioConfigType,
         batch_size: int = 32,
         rng: torch.Generator | None = None,
         default_guidance_wt: float = 50.0,
@@ -91,4 +105,4 @@ class Generator(BaseGenerator):
 
     def shape(self, batch_size: int | None = None):
         B = batch_size or self.batch_size
-        return (B, self.scenario.n_obstacles, 2)
+        return (B, *self.scenario.diffusion_shape)

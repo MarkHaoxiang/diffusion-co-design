@@ -27,4 +27,4 @@ policy:
     hidden_size: 64
   critic:
     depth: 3
-    hidden_size: 64
+    hidden_size: 128
