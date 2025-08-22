@@ -153,6 +153,7 @@ class _Value(_Designer):
     loss_criterion: Literal["mse", "huber"] = "huber"
     random_generation_early_start: int = 0
     train_early_start: int = 0
+    duplicate_agent_critic_weights: bool = False
 
 
 class Diffusion(_Value):

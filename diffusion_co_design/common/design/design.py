@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from dataclasses import dataclass
 import math
 from pathlib import Path
@@ -421,6 +421,27 @@ class ValueLearner[SC: ScenarioConfig]:
     def _make_hint_loss(self, device: torch.device) -> nn.Module:
         raise NotImplementedError()
 
+    def get_logs(self) -> dict:
+        logs = {
+            "sampling_y_pred_mean": self.sampling_y_pred_mean,
+            "sampling_y_pred_max": self.sampling_y_pred_max,
+            "sampling_y_pred_min": self.sampling_y_pred_min,
+        }
+        if self.is_training:
+            logs.update(
+                {
+                    "train_y_mean": self.train_y_mean,
+                    "train_y_max": self.train_y_max,
+                    "train_y_min": self.train_y_min,
+                    "prediction_loss": self.running_prediction_loss,
+                }
+            )
+            if self.clip_grad_norm is not None:
+                logs["grad_norm"] = self.grad_norm
+            if self.use_critic_distillation:
+                logs["distillation_loss"] = self.running_distillation_loss
+        return logs
+
 
 class ValueDesigner[SC: ScenarioConfig](Designer[SC]):
     def __init__(
@@ -448,13 +469,6 @@ class ValueDesigner[SC: ScenarioConfig](Designer[SC]):
 
     def get_logs(self):
         logs = super().get_logs()
-        logs.update(
-            {
-                "sampling_y_pred_mean": self.value_learner.sampling_y_pred_mean,
-                "sampling_y_pred_max": self.value_learner.sampling_y_pred_max,
-                "sampling_y_pred_min": self.value_learner.sampling_y_pred_min,
-            }
-        )
         if self.ref_layouts is not None:
             self.model.eval()
             ref_y_pred = self.model.predict_theta_value(self.ref_layouts)
@@ -466,19 +480,7 @@ class ValueDesigner[SC: ScenarioConfig](Designer[SC]):
                 }
             )
 
-        if self.value_learner.is_training:
-            logs.update(
-                {
-                    "train_y_mean": self.value_learner.train_y_mean,
-                    "train_y_max": self.value_learner.train_y_max,
-                    "train_y_min": self.value_learner.train_y_min,
-                    "prediction_loss": self.value_learner.running_prediction_loss,
-                }
-            )
-            if self.value_learner.clip_grad_norm is not None:
-                logs["grad_norm"] = self.value_learner.grad_norm
-            if self.value_learner.use_critic_distillation is not None:
-                logs["distillation_loss"] = self.value_learner.running_distillation_loss
+        logs.update(self.value_learner.get_logs())
 
         return logs
 

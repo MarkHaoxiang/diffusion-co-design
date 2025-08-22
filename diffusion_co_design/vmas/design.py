@@ -82,6 +82,7 @@ class ValueLearner(design.ValueLearner):
         classifier: EnvCriticConfig,
         gamma=0.99,
         hyperparameters=default_value_learner_hyperparameters,
+        duplicate_agent_critic_weights: bool = False,
         device=torch.device("cpu"),
     ):
         if isinstance(scenario, GlobalPlacementScenarioConfig):
@@ -109,12 +110,26 @@ class ValueLearner(design.ValueLearner):
             device=device,
         )
         self.scenario = scenario
+        self.duplicate_agent_weights = duplicate_agent_critic_weights
+
+    def update(self, td):
+        if self.duplicate_agent_weights:
+            assert self.initialised_critic
+            self.model.load_state_dict(self.critic.module.state_dict())
+        else:
+            super().update(td)
 
     def _get_layout_from_state(self, state):
         return state
 
     def _eval_to_train(self, theta):
         return eval_to_train(env=theta, cfg=self.scenario)
+
+    def get_logs(self):
+        if not self.duplicate_agent_weights:
+            return super().get_logs()
+        else:
+            return {}
 
 
 def make_reference_layouts(scenario: SC, device: torch.device):
@@ -136,6 +151,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
         random_generation_early_start=0,
         gamma: float = 0.99,
         total_annealing_iters=1000,
+        duplicate_agent_critic_weights: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
         sc = designer_setting.scenario
@@ -146,6 +162,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
                 classifier=classifier,
                 hyperparameters=value_learner_hyperparameters,
                 gamma=gamma,
+                duplicate_agent_critic_weights=duplicate_agent_critic_weights,
                 device=device,
             ),
             diffusion_generator=Generator(
@@ -226,7 +243,8 @@ def create_designer(
                 value_learner_hyperparameters=value_hyperparameters,
                 random_generation_early_start=designer.random_generation_early_start,
                 gamma=ppo_cfg.gamma,
-                total_annealing_iters=ppo_cfg.n_iters,
+                total_annealing_iters=int(ppo_cfg.n_iters // 2),
+                duplicate_agent_critic_weights=designer.duplicate_agent_critic_weights,
                 device=device,
             )
 

@@ -3,7 +3,7 @@ defaults:
   - _self_
   - metadata/training@_here_
 
-experiment_name: vmas_diffusion_distill
+experiment_name: vmas_diffusion_duplicate
 device:
   device_management: gpu
   gpu_id: 0
@@ -13,23 +13,14 @@ designer:
   kind: diffusion
   environment_repeats: 1
   model:
-    hidden_size: 64
+    hidden_size: 128
     depth: 3
     k: 5
-  buffer_size: 8096
-  diffusion_early_start: 400
-  train_early_start: 400
-  batch_size: 32
-  weight_decay: 0
-  lr: 1e-4
-  distill_enable: true
-  distill_samples: 32
-  loss_criterion: mse
   diffusion:
     num_recurrences: 4
     backward_lr: 0.01
     backward_steps: 0
     forward_guidance_wt: 3.0
     forward_guidance_annealing: True
-  duplicate_agent_critic_weights: False
+  duplicate_agent_critic_weights: True
 start_from_checkpoint: null

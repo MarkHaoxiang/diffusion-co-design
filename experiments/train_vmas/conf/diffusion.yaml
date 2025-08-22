@@ -1,5 +1,5 @@
 defaults:
-  - template/default@_here_
+  - template/training@_here_
   - _self_
   - metadata/training@_here_
 
@@ -8,7 +8,7 @@ device:
   device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: obstacle_navigation_1
+scenario_name: obstacle_navigation_2
 designer:
   kind: diffusion
   environment_repeats: 1
@@ -30,4 +30,5 @@ designer:
     backward_steps: 0
     forward_guidance_wt: 3.0
     forward_guidance_annealing: True
+  duplicate_agent_critic_weights: False
 start_from_checkpoint: null

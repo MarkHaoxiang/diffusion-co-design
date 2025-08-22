@@ -27,7 +27,7 @@ from torchrl.envs.utils import (
 )
 
 from diffusion_co_design.vmas.schema import (
-    ScenarioConfig,
+    ScenarioConfigType,
     LocalPlacementScenarioConfig,
     GlobalPlacementScenarioConfig,
 )
@@ -354,7 +354,8 @@ class Scenario(BaseScenario):
         pos_shaping = agent.distance_to_goal * self.pos_shaping_factor
         agent.pos_rew = agent.pos_shaping - pos_shaping
         agent.pos_shaping = pos_shaping
-        return agent.pos_rew
+
+        return agent.pos_rew - torch.where(agent.on_goal, 0.0, 0.01)
 
     def observation(self, agent: Agent):
         goal_poses = []
@@ -417,7 +418,7 @@ class DesignableVmasEnv(VmasEnv):
     def __init__(
         self,
         scenario: Scenario,
-        scenario_cfg: ScenarioConfig,
+        scenario_cfg: ScenarioConfigType,
         reset_policy,
         num_envs=1,
         device="cpu",
@@ -517,7 +518,7 @@ class DesignableVmasEnv(VmasEnv):
         # ===
         # Add state
 
-        sc: ScenarioConfig = env.scenario._scenario_cfg
+        sc: ScenarioConfigType = env.scenario._scenario_cfg
         full_observation_spec_unbatched["state"] = BoundedContinuous(
             low=sc.layout_space_low,
             high=sc.layout_space_high,
@@ -534,7 +535,7 @@ class DesignableVmasEnv(VmasEnv):
 
     def _reset(self, tensordict=None, **kwargs):
         scenario: Scenario = self._env.scenario  # vmas.simulator.environment
-        sc: ScenarioConfig = scenario._scenario_cfg
+        sc: ScenarioConfigType = scenario._scenario_cfg
 
         if "layout_override" in kwargs and kwargs["layout_override"] is not None:
             theta = kwargs.pop("layout_override")
