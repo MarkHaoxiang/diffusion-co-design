@@ -87,7 +87,7 @@ class Reinforce(_Designer):
 
 
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion | Sampling, Field(discriminator="kind")
+    Random | Fixed | Diffusion | Sampling | Reinforce, Field(discriminator="kind")
 ]
 
 # ====

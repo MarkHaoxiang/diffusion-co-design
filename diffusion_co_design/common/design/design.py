@@ -734,9 +734,7 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
             # Reinforce
             self.policy.train()
             self.reinforce_loss += self.reinforce(actions, rewards)
-
             self.reinforce_loss /= self.train_epochs
-            self.train_env.reset()
 
     def reinforce(self, actions: torch.Tensor, rewards: torch.Tensor):
         B = rewards.shape[0]

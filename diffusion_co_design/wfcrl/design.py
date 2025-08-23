@@ -19,6 +19,7 @@ from diffusion_co_design.wfcrl.schema import (
     Random,
     Diffusion,
     Sampling,
+    Reinforce,
 )
 from diffusion_co_design.wfcrl.model.classifier import GNNCritic
 from diffusion_co_design.wfcrl.model.rl import maybe_make_denormaliser
@@ -339,5 +340,14 @@ def create_designer(
                 total_annealing_iters=ppo_cfg.n_iters,
                 device=device,
             )
+    elif isinstance(designer, Reinforce):
+        designer_producer = ReinforceDesigner(
+            designer_setting=designer_setting,
+            lr=designer.lr,
+            train_batch_size=designer.train_batch_size,
+            train_epochs=designer.train_epochs,
+            gamma=ppo_cfg.gamma,
+            device=device,
+        )
 
     return designer_producer, design_consumer_fn

@@ -231,7 +231,11 @@ class WfcrlCoDesignWrapper(PettingZooWrapper):
     def _reset(self, tensordict: TensorDict | None = None, **kwargs):
         """Extract the layout from tensordict and pass to env"""
 
-        if self._env._reset_policy is not None:
+        if "layout_override" in kwargs and kwargs["layout_override"] is not None:
+            theta = kwargs.pop("layout_override").numpy(force=True)
+            xcoords, ycoords = theta[:, 0], theta[:, 1]
+            options = {"xcoords": xcoords, "ycoords": ycoords}
+        elif self._env._reset_policy is not None:
             # Should recompute layout
             td = (
                 tensordict
