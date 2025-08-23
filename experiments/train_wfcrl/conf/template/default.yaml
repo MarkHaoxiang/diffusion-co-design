@@ -6,11 +6,13 @@ policy:
   policy_gnn_depth: 1
   policy_head_depth: 2
   policy_connectivity:
-    kind: fully_connected
+    kind: knn
+    k: 5
   critic_node_hidden_size: 128
   critic_gnn_depth: 3
   critic_connectivity:
-    kind: fully_connected
+    kind: knn
+    k: 5
 ppo:
   n_iters: 301
   n_epochs: 8

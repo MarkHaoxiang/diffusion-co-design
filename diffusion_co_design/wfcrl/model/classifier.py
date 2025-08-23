@@ -5,8 +5,10 @@ from math import prod
 import torch
 import torch.nn as nn
 from torch_geometric.utils import scatter
+from torch_geometric.data import Data, Batch
+from torch_geometric.nn.models import PNA
 
-from diffusion_co_design.common.nn.geometric import fully_connected
+from diffusion_co_design.common.nn.geometric import Connectivity, KNN, graph_topology
 from diffusion_co_design.common.nn import EnvCritic as _EnvCritic
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
 
@@ -61,50 +63,39 @@ class GNNCritic(EnvCritic):
         self,
         cfg: ScenarioConfig,
         node_emb_dim: int = 64,
-        edge_emb_dim: int = 16,
         n_layers: int = 4,
-        aggr: Literal["add", "mean", "max"] = "add",
         post_hook: torch.nn.Module | None = None,
+        connectivity: Connectivity = KNN(k=5),
     ):
         super().__init__(post_hook=post_hook)
         self.scenario = cfg
         self.n_turbines = self.scenario.n_turbines  # N
 
-        edge_index = fully_connected(self.n_turbines)  # [2, E = (N)(N-1)/2]
-        # Remove self loops
-        self.edge_index = edge_index[:, edge_index[0] != edge_index[1]]
+        if isinstance(connectivity, KNN):
+            deg = torch.zeros(connectivity.k + 1, dtype=torch.long)
+            deg[-1] = cfg.get_num_agents()
+        else:
+            deg = torch.zeros(cfg.get_num_agents() + 1, dtype=torch.long)
+            deg[-1] = cfg.get_num_agents()
+        self.connectivity = connectivity
 
-        self.node_emb_dim = node_emb_dim
-        self.node_in = nn.Linear(3, node_emb_dim)
-        self.edge_in = nn.Linear(3, edge_emb_dim)
+        self.model = PNA(
+            aggregators=["sum", "mean", "min", "max", "std"],
+            scalers=["identity"],
+            deg=deg,
+            in_channels=2,
+            edge_dim=5,
+            hidden_channels=node_emb_dim,
+            num_layers=n_layers,
+            out_channels=node_emb_dim,
+            act="relu",
+        )
 
-        self.message_mlp_list = nn.ModuleList()
-        self.upd_mlp_list = nn.ModuleList()
-        for _ in range(n_layers):
-            self.message_mlp_list.append(
-                nn.Sequential(
-                    nn.Linear(node_emb_dim * 2 + edge_emb_dim, edge_emb_dim),
-                    nn.SiLU(),
-                    nn.LayerNorm(edge_emb_dim),
-                    nn.Linear(edge_emb_dim, edge_emb_dim),
-                    nn.SiLU(),
-                )
-            )
-
-            self.upd_mlp_list.append(
-                nn.Sequential(
-                    nn.Linear(node_emb_dim + edge_emb_dim, node_emb_dim),
-                    nn.SiLU(),
-                    nn.LayerNorm(node_emb_dim),
-                    nn.Linear(node_emb_dim, node_emb_dim),
-                    nn.SiLU(),
-                )
-            )
-
-        self.att_mlp = nn.Sequential(nn.Linear(edge_emb_dim, 1), nn.Sigmoid())
-        self.aggr = aggr
-
-        self.out_mlp = nn.Linear(node_emb_dim, 1)
+        self.out_mlp = nn.Sequential(
+            nn.Linear(node_emb_dim, node_emb_dim),
+            nn.ReLU(),
+            nn.Linear(node_emb_dim, 1),
+        )
 
     def _forward(
         self,
@@ -115,60 +106,42 @@ class GNNCritic(EnvCritic):
         if not has_batch:
             layout = layout.unsqueeze(0)
 
-        self.edge_index = self.edge_index.to(device=device)
         B_all = layout.shape[:-2]
-        B = prod(B_all)
-        N = self.n_turbines
-        E = len(self.edge_index[0])
+        B, N = prod(B_all), self.n_turbines
 
         # Shape checks
         layout = layout.reshape(-1, N, 2)
         assert layout.shape == (B, N, 2), layout.shape
 
-        # Fully connected graph
-        src, dst = self.edge_index[0], self.edge_index[1]
+        data_list: list[Data] = []
+        for i in range(B):
+            pos = layout[i]
+            edge_index = graph_topology(pos, connectivity=KNN(k=5)).to(device)
+
+            src, dst = edge_index
+            pos_diff = pos[dst] - pos[src]
+            radial = torch.norm(pos_diff, dim=-1, keepdim=True)
+
+            edge_attr = torch.cat([radial, pos_diff], dim=-1)  # [E, 3]
+            x = torch.cat(
+                [scatter(edge_attr, src, dim=0, dim_size=N, reduce="mean"), pos], dim=-1
+            )
+
+            assert edge_attr.shape == (edge_index.shape[1], 3), edge_attr.shape
+            assert x.shape == (N, 3), x.shape
+
+            data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, pos=pos)
+            data_list.append(data)
+
+        data = Batch.from_data_list(data_list)
 
         # Feature engineering
-        pos_diff = layout[:, dst] - layout[:, src]  # [B, E, 2]
-        radial = torch.norm(pos_diff, dim=-1, keepdim=True)  # [B, E, 1]
-
-        assert pos_diff.shape == (B, E, 2), pos_diff.shape
-        assert radial.shape == (B, E, 1), radial.shape
-
-        # In layers
-        edge_features = torch.cat([radial, pos_diff], dim=-1)  # [B, E, 3]
-        assert edge_features.shape == (B, E, 3), edge_features.shape
-        e = self.edge_in(edge_features)  # [B, E, edge_emb_dim]
-        node_features = torch.cat(
-            [scatter(edge_features, src, dim=1, dim_size=N, reduce=self.aggr)], dim=-1
-        )  # [B, N, 3]
-        assert node_features.shape == (B, N, 3), node_features.shape
-        h = self.node_in(node_features)  # [B, N, node_emb_dim]
-
-        # Message passing
-        for i, (message_mlp, upd_mlp) in enumerate(
-            zip(self.message_mlp_list, self.upd_mlp_list)
-        ):
-            is_final_layer = i == len(self.message_mlp_list) - 1
-
-            # Message
-            msg = message_mlp(
-                torch.cat([h[:, src], h[:, dst], e], dim=-1)
-            )  # [B, E, edge_emb_dim]
-
-            # Attention
-            msg = msg * self.att_mlp(msg)
-
-            h_aggr = scatter(
-                msg, src, dim=1, dim_size=N, reduce=self.aggr
-            )  # [B, N, edge_emb_dim]
-            h_aggr = upd_mlp(torch.cat([h, h_aggr], dim=-1))  # [B, N, node_emb_dim]
-
-            # Residual connections
-            h = h + h_aggr
-            if not is_final_layer:
-                e = e + msg
-
+        h = self.model(
+            x=data.x,
+            edge_index=data.edge_index,
+            edge_attr=data.edge_attr,
+            batch=data.batch,
+        )
         assert h.shape == (B, N, self.node_emb_dim)
         h = h.reshape(*B_all, N, self.node_emb_dim)
         h = self.out_mlp(h)  # [*B, N, 1]

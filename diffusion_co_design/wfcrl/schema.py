@@ -38,8 +38,8 @@ class NormalisationStatistics(Config):
 
 class EnvCriticConfig(Config):
     node_emb_size: int = 64
-    edge_emb_size: int = 32
     depth: int = 2
+    connectivity: Connectivity = KNN(k=5)
 
 
 # ====

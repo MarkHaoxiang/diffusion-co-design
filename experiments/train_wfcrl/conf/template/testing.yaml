@@ -1,5 +1,5 @@
 policy:
-  model_type: "gnn"
+  model_type: gnn
   initial_std: 0.3
   policy_node_hidden_size: 16
   policy_head_hidden_size: 16

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 from diffusion_co_design.common import design
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
@@ -25,6 +26,7 @@ from diffusion_co_design.wfcrl.diffusion.generate import Generate
 from diffusion_co_design.wfcrl.diffusion.generator import (
     Generator,
     eval_to_train,
+    train_to_eval,
     soft_projection_constraint,
 )
 from diffusion_co_design.common import (
@@ -99,9 +101,9 @@ class ValueLearner(design.ValueLearner):
             model=GNNCritic(
                 cfg=scenario,
                 node_emb_dim=classifier.node_emb_size,
-                edge_emb_dim=classifier.edge_emb_size,
                 n_layers=classifier.depth,
                 post_hook=maybe_make_denormaliser(normalisation_statistics),
+                connectivity=classifier.connectivity,
             ),
             group_name=GROUP_NAME,
             episode_steps=scenario.get_episode_steps(),
@@ -219,6 +221,58 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
 
     def _generate_random_layout_batch(self, batch_size: int):
         return self.generate.generate_random_layouts(batch_size)
+
+
+class ReinforceModel(nn.Module):
+    def __init__(self, sc: SC):
+        super().__init__()
+        self.mu = nn.Parameter(torch.zeros(sc.n_turbines, 2))
+        self.log_std = nn.Parameter(torch.zeros(sc.n_turbines, 2))
+
+    def get_distribution(self):
+        mu = nn.functional.tanh(self.mu)  # Between -1 and 1
+        std = torch.exp(self.log_std) * 0.1
+        return torch.distributions.Normal(mu, std)
+
+    def forward(self, batch_size: int):
+        dist = self.get_distribution()
+        return torch.clamp(dist.sample((batch_size,)), -1.0, 1.0)
+
+
+class ReinforceDesigner(design.ReinforceDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        lr: float = 1e-4,
+        train_batch_size: int = 64,
+        train_epochs: int = 5,
+        gamma: float = 0.99,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(
+            designer_setting,
+            group_name=GROUP_NAME,
+            group_aggregation="mean",
+            lr=lr,
+            train_batch_size=train_batch_size,
+            train_epochs=train_epochs,
+            gamma=gamma,
+            device=device,
+        )
+        self.pc = soft_projection_constraint(self.scenario)
+
+    def _create_policy(self):
+        return ReinforceModel(self.scenario).to(self.device)
+
+    def _generate_env_action_batch(self, batch_size: int):
+        actions = self.policy(batch_size)
+        envs = train_to_eval(actions, cfg=self.scenario, constraint_fn=self.pc)
+        return envs, actions
+
+    def _calculate_action_log_probs(self, actions):
+        dist: torch.distributions.Normal = self.policy.get_distribution()
+        log_probs = dist.log_prob(actions)  # [B, n_turbines, 2]
+        return log_probs.sum(dim=(-1, -2)).unsqueeze(-1)  # [B]
 
 
 def create_designer(

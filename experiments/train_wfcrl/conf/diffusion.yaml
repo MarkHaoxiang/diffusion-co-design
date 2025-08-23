@@ -14,8 +14,10 @@ designer:
   environment_repeats: 1
   model:
     node_emb_size: 64
-    edge_emb_size: 32
     depth: 2
+    connectivity:
+      kind: knn
+      k: 5
   buffer_size: 8096
   diffusion_early_start: 400
   train_early_start: 400
