@@ -28,6 +28,8 @@ class Trainer(
         schema.TrainingConfig,
     ]
 ):
+    support_vmap = False
+
     def __init__(self, cfg: schema.TrainingConfig):
         super().__init__(cfg, f"diffusion-co-design-wfcrl-{cfg.scenario_name}")
 
