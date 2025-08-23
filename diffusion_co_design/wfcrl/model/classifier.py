@@ -84,7 +84,7 @@ class GNNCritic(EnvCritic):
             scalers=["identity"],
             deg=deg,
             in_channels=5,
-            edge_dim=5,
+            edge_dim=3,
             hidden_channels=node_emb_dim,
             num_layers=n_layers,
             out_channels=node_emb_dim,
