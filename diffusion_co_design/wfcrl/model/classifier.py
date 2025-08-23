@@ -128,7 +128,7 @@ class GNNCritic(EnvCritic):
             )
 
             assert edge_attr.shape == (edge_index.shape[1], 3), edge_attr.shape
-            assert x.shape == (N, 3), x.shape
+            assert x.shape == (N, 5), x.shape
 
             data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, pos=pos)
             data_list.append(data)

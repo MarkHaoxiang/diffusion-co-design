@@ -79,6 +79,10 @@ class Diffusion(_Value):
     diffusion: DiffusionOperation
 
 
+class Replay:
+    pass
+
+
 DesignerConfig = Annotated[
     Random | Fixed | Diffusion | Sampling, Field(discriminator="kind")
 ]
