@@ -143,7 +143,6 @@ class GNNCritic(EnvCritic):
             edge_attr=data.edge_attr,
             batch=data.batch,
         )
-        assert h.shape == (B, N, self.node_emb_dim)
         h = h.reshape(*B_all, N, self.node_emb_dim)
         h = self.out_mlp(h)  # [*B, N, 1]
         h = h.mean(dim=-2)  # [*B, 1]
