@@ -83,7 +83,7 @@ class GNNCritic(EnvCritic):
             aggregators=["sum", "mean", "min", "max", "std"],
             scalers=["identity"],
             deg=deg,
-            in_channels=2,
+            in_channels=5,
             edge_dim=5,
             hidden_channels=node_emb_dim,
             num_layers=n_layers,
