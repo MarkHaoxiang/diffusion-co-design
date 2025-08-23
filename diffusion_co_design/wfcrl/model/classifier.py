@@ -96,6 +96,7 @@ class GNNCritic(EnvCritic):
             nn.ReLU(),
             nn.Linear(node_emb_dim, 1),
         )
+        self.node_emb_dim = node_emb_dim
 
     def _forward(
         self,

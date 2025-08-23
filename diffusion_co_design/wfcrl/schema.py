@@ -79,8 +79,11 @@ class Diffusion(_Value):
     diffusion: DiffusionOperation
 
 
-class Replay:
-    pass
+class Reinforce(_Designer):
+    kind: Literal["reinforce"] = "reinforce"
+    lr: float = 1e-4
+    train_batch_size: int = 20
+    train_epochs: int = 3
 
 
 DesignerConfig = Annotated[
