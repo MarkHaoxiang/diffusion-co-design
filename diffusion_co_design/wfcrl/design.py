@@ -29,7 +29,10 @@ from diffusion_co_design.wfcrl.diffusion.generator import (
     eval_to_train,
     train_to_eval,
 )
-from diffusion_co_design.wfcrl.diffusion.constraints import slsqp_projection_constraint
+from diffusion_co_design.wfcrl.diffusion.constraints import (
+    slsqp_projection_constraint,
+    soft_projection_constraint,
+)
 from diffusion_co_design.common import (
     DiffusionOperation,
     OUTPUT_DIR,
@@ -233,7 +236,7 @@ class ReinforceModel(nn.Module):
 
     def get_distribution(self):
         mu = nn.functional.tanh(self.mu)  # Between -1 and 1
-        std = torch.exp(self.log_std) * 0.1
+        std = torch.exp(self.log_std) * 0.5
         return torch.distributions.Normal(mu, std)
 
     def forward(self, batch_size: int):
