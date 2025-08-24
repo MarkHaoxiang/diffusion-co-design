@@ -16,8 +16,7 @@ designer:
     node_emb_size: 64
     depth: 2
     connectivity:
-      kind: knn
-      k: 5
+      kind: fully_connected
   buffer_size: 8096
   diffusion_early_start: 400
   train_early_start: 400
