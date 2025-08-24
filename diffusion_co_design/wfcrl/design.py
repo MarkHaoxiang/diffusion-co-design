@@ -29,7 +29,7 @@ from diffusion_co_design.wfcrl.diffusion.generator import (
     eval_to_train,
     train_to_eval,
 )
-from diffusion_co_design.wfcrl.diffusion.constraints import soft_projection_constraint
+from diffusion_co_design.wfcrl.diffusion.constraints import slsqp_projection_constraint
 from diffusion_co_design.common import (
     DiffusionOperation,
     OUTPUT_DIR,
@@ -261,7 +261,7 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
             gamma=gamma,
             device=device,
         )
-        self.pc = soft_projection_constraint(self.scenario)
+        self.pc = slsqp_projection_constraint(self.scenario)
 
     def _create_policy(self):
         return ReinforceModel(self.scenario).to(self.device)

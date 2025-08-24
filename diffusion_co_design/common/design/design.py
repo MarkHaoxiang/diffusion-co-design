@@ -740,9 +740,7 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
         B = rewards.shape[0]
         assert rewards.shape == (B,), rewards.shape
 
-        action_log_probs = self._calculate_action_log_probs(
-            actions
-        )  # [B, Steps, Probability]
+        action_log_probs = self._calculate_action_log_probs(actions)  # [B, Steps]
 
         loss = -(action_log_probs * rewards.unsqueeze(-1)).sum(dim=1).mean()
         self.optim.zero_grad()
