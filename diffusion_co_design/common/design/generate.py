@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Literal
+from functools import partial
+
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -128,14 +130,12 @@ class SamplingGeneration(GenerationMethod):
         return placements
 
 
-# Pos between [-1, 1], pre-scaling
-def soft_penalty(
+def dist_penalty(
     existing_pos: torch.Tensor,  # [N, 2]
     existing_radius: torch.Tensor,  # [N]
     pos: torch.Tensor,  # [B, M, 2]
     radii: torch.Tensor,  # [B, M]
     additional_collision_distance: float,
-    original_pos: torch.Tensor,  # [B, M, 2]
     x_scale: float = 1.0,
     y_scale: float = 1.0,
 ):
@@ -165,15 +165,45 @@ def soft_penalty(
         torch.ones(total_count, total_count, device=pos.device), diagonal=1
     ).bool()
     penalty = violation[:, mask_upper].sum(dim=-1) / scale_factor
+    return penalty, violation
 
+
+def deviation_penalty(
+    pos: torch.Tensor, original_pos: torch.Tensor, violation: torch.Tensor
+):
+    M = pos.shape[1]
     collision_mask_new = (violation[:, :M, :] > 0).any(dim=2)  # [B, M]
     non_colliding_mask = ~collision_mask_new  # [B, M]
 
     deviation = (pos - original_pos).norm(dim=-1)  # [B, M]
     penalty_deviation = (deviation * non_colliding_mask.float()).sum(dim=-1) * 0.05
-    penalty += penalty_deviation
+    return penalty_deviation
 
-    return penalty
+
+# Pos between [-1, 1], pre-scaling
+def soft_penalty(
+    existing_pos: torch.Tensor,  # [N, 2]
+    existing_radius: torch.Tensor,  # [N]
+    pos: torch.Tensor,  # [B, M, 2]
+    radii: torch.Tensor,  # [B, M]
+    additional_collision_distance: float,
+    original_pos: torch.Tensor,  # [B, M, 2]
+    x_scale: float = 1.0,
+    y_scale: float = 1.0,
+):
+    penalty_distance, violation = dist_penalty(
+        existing_pos=existing_pos,
+        existing_radius=existing_radius,
+        pos=pos,
+        radii=radii,
+        additional_collision_distance=additional_collision_distance,
+        x_scale=x_scale,
+        y_scale=y_scale,
+    )
+
+    penalty_deviation = deviation_penalty(pos, original_pos, violation)
+
+    return penalty_distance + penalty_deviation
 
 
 def soft_projection_constraint(

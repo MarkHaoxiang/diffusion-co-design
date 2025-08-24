@@ -28,8 +28,8 @@ from diffusion_co_design.wfcrl.diffusion.generator import (
     Generator,
     eval_to_train,
     train_to_eval,
-    soft_projection_constraint,
 )
+from diffusion_co_design.wfcrl.diffusion.constraints import soft_projection_constraint
 from diffusion_co_design.common import (
     DiffusionOperation,
     OUTPUT_DIR,
@@ -45,6 +45,7 @@ def make_generate_fn(scenario: SC, seed: int | None = None):
         map_y_length=scenario.map_y_length,
         minimum_distance_between_turbines=scenario.min_distance_between_turbines,
         rng=seed,
+        post_slsqp_projection=True,
     )
 
 
