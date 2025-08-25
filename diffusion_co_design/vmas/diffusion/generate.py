@@ -67,8 +67,10 @@ class LocalGenerate:
         training_dataset=False,
         disable_tqdm=True,
     ):
-        return self._rng.random(
-            size=(n, *self.scenario.diffusion_shape), dtype=np.float32
+        return (
+            self._rng.random(size=(n, *self.scenario.diffusion_shape), dtype=np.float32)
+            * 2
+            - 1
         )
 
 

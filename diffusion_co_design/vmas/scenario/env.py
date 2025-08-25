@@ -6,7 +6,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from diffusion_co_design.common.design.base import DesignConsumer
 from diffusion_co_design.common.env import ENVIRONMENT_MODE
-from diffusion_co_design.vmas.schema import ScenarioConfig
+from diffusion_co_design.vmas.schema import ScenarioConfigType
 from diffusion_co_design.vmas.diffusion.generate import GlobalGenerate
 from .obstacle_navigation import (
     Scenario as ObstacleNavigationScenario,
@@ -16,7 +16,7 @@ from .obstacle_navigation import (
 
 def create_env(
     mode: ENVIRONMENT_MODE,
-    scenario: ScenarioConfig,
+    scenario: ScenarioConfigType,
     designer: DesignConsumer,
     num_environments: int = 1,
     device: torch.device = torch.device("cpu"),
@@ -68,7 +68,7 @@ def create_env(
     return env
 
 
-def render_layout(x, scenario: ScenarioConfig):
+def render_layout(x, scenario: ScenarioConfigType):
     assert scenario.placement_area == "global"
     agent_and_goal_radius = 0.05
     agent_spawns = scenario.agent_spawns
