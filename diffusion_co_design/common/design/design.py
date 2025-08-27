@@ -649,6 +649,14 @@ class GradientDescentDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
         raise NotImplementedError()
 
 
+def maybe_disconnect(layouts: list[Any]):
+    # Don't pass in GPU tensors to the environment
+    # Since ParallelEnv is susceptible to overallocating GPU memory
+    if isinstance(layouts[0], torch.Tensor):
+        return [x.detach().cpu() for x in layouts]
+    return layouts
+
+
 class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
     def __init__(
         self,
@@ -693,7 +701,7 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
 
             rewards_list = []
             for env_chunk in env_chunks:
-                envs_list = list(env_chunk)
+                envs_list = maybe_disconnect(list(env_chunk))
                 n = len(envs_list)
                 if n < self.train_env_batch_size:
                     envs_list += [envs_list[-1]] * (
@@ -701,7 +709,7 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
                     )  # Pad if needed
 
                 td = self.train_env.reset(
-                    list_of_kwargs=[{"layout_override": env.cpu()} for env in envs_list]
+                    list_of_kwargs=[{"layout_override": env} for env in envs_list]
                 )
                 td = self.train_env.rollout(
                     max_steps=self.scenario.get_episode_steps(),
@@ -780,7 +788,7 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
 
     def generate_layout_batch(self, batch_size: int):
         envs, _ = self._generate_env_action_batch(batch_size=batch_size)
-        return list(envs)
+        return maybe_disconnect(list(envs))
 
 
 type EnvReturn = tuple[
@@ -899,11 +907,7 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
 
         layouts = sample_stale + sample_return + new_environments
 
-        if isinstance(layouts[0], torch.Tensor):
-            device = layouts[0].device
-            return [x.detach().cpu().clone().to(device) for x in layouts]
-
-        return layouts
+        return maybe_disconnect(layouts)
 
     @abstractmethod
     def _generate_random_layout_batch(self, batch_size: int):
