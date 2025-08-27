@@ -86,8 +86,20 @@ class Reinforce(_Designer):
     train_epochs: int = 3
 
 
+class Replay(_Designer):
+    kind: Literal["replay"]
+    buffer_size: int = 1000
+    infill_ratio: float = 0.25
+    replay_sample_ratio: float = 0.9
+    stale_sample_ratio: float = 0.3
+    return_smoothing_factor: float = 0.8
+    return_sample_temperature: float = 0.1
+    mutation_scale: float = 0.05
+
+
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion | Sampling | Reinforce, Field(discriminator="kind")
+    Random | Fixed | Diffusion | Sampling | Reinforce | Replay,
+    Field(discriminator="kind"),
 ]
 
 # ====

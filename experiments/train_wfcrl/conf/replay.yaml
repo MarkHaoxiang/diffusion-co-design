@@ -1,0 +1,24 @@
+defaults:
+  - template/default@_here_
+  - _self_
+  - metadata/training@_here_
+
+experiment_name: wfcrl_replay
+device:
+  device_management: gpu
+  gpu_id: 0
+  max_gpu_memory: 0.05
+scenario_name: wfcrl_10
+logging:
+  mode: disabled
+designer:
+  kind: replay
+  buffer_size: 200
+  infill_ratio: 0.25
+  replay_sample_ratio: 0.9
+  stale_sample_ratio: 0.3
+  return_smoothing_factor: 0.8
+  return_sample_temperature: 0.1
+  mutation_ratio: 0.1
+  environment_repeats: 1
+start_from_checkpoint: null

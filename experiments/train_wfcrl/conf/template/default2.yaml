@@ -8,13 +8,12 @@ policy:
   policy_connectivity:
     kind: knn
     k: 5
-  critic_node_hidden_size: 128
+  critic_node_hidden_size: 64
   critic_gnn_depth: 3
   critic_connectivity:
-    kind: knn
-    k: 5
+    kind: fully_connected
 ppo:
-  n_iters: 301
+  n_iters: 101
   n_epochs: 8
   minibatch_size: 150
   n_mini_batches: 20
@@ -29,7 +28,9 @@ ppo:
   entropy_eps: 0.0
   normalise_advantage: true
 logging:
+  # mode: disabled
   mode: online
-  evaluation_interval: 20
+  # mode: offline
+  evaluation_interval: 10
   evaluation_episodes: 1
   checkpoint_interval: 50

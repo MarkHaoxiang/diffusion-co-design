@@ -13,7 +13,7 @@ from diffusion_co_design.vmas.static import GROUP_NAME
 class Trainer(
     MAPPOCoDesign[
         schema.DesignerConfig,
-        schema.ScenarioConfig,
+        schema.ScenarioConfigType,
         schema.ActorCriticConfig,
         schema.TrainingConfig,
     ]

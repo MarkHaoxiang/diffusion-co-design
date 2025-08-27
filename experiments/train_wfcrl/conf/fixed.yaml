@@ -13,3 +13,5 @@ designer:
   kind: fixed
   environment_repeats: 1
 start_from_checkpoint: null
+logging:
+  mode: disabled

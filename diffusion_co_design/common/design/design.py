@@ -745,12 +745,14 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
         loss = -(action_log_probs * rewards.unsqueeze(-1)).sum(dim=1).mean()
         self.optim.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
+        self.grad_norm = torch.nn.utils.clip_grad_norm_(
+            self.policy.parameters(), 1.0
+        ).item()
         self.optim.step()
         return loss.item()
 
     def get_logs(self):
-        logs = {"reinforce_loss": self.reinforce_loss}
+        logs = {"reinforce_loss": self.reinforce_loss, "grad_norm": self.grad_norm}
         return logs
 
     def initialise(
@@ -830,7 +832,7 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
         for i in range(len(X)):
             key = self._hash(X[i])
 
-            env, env_return, timestep = self.env_buffer.get(key, (X[i], 0.0, 0))
+            env, env_return, timestep = self.env_buffer.get(key, (X[i], 0.0, -1))
 
             # Exponential average of return
             if timestep == -1:
@@ -896,6 +898,11 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
             new_environments.append(self._mutate(base_env))
 
         layouts = sample_stale + sample_return + new_environments
+
+        if isinstance(layouts[0], torch.Tensor):
+            device = layouts[0].device
+            return [x.detach().cpu().clone().to(device) for x in layouts]
+
         return layouts
 
     @abstractmethod

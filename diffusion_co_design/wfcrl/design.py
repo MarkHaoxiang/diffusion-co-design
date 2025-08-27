@@ -1,5 +1,5 @@
 import os
-from typing import Callable
+from typing import Callable, Literal
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +20,7 @@ from diffusion_co_design.wfcrl.schema import (
     Diffusion,
     Sampling,
     Reinforce,
+    Replay,
 )
 from diffusion_co_design.wfcrl.model.classifier import GNNCritic
 from diffusion_co_design.wfcrl.model.rl import maybe_make_denormaliser
@@ -40,6 +41,8 @@ from diffusion_co_design.common import (
     np_list_to_tensor_list,
 )
 
+GROUP_AGGREGATION: Literal["mean"] = "mean"
+
 
 def make_generate_fn(scenario: SC, seed: int | None = None):
     return Generate(
@@ -50,6 +53,13 @@ def make_generate_fn(scenario: SC, seed: int | None = None):
         rng=seed,
         post_slsqp_projection=True,
     )
+
+
+def hashable_representation(env: torch.Tensor):
+    # Round to 4dp
+    env = torch.round(env, decimals=4)
+    np_repr = np.ascontiguousarray(env.detach().cpu().to(torch.uint8).numpy())
+    return np_repr.tobytes()
 
 
 class RandomDesigner(design.RandomDesigner[SC]):
@@ -114,7 +124,7 @@ class ValueLearner(design.ValueLearner):
             episode_steps=scenario.get_episode_steps(),
             hyperparameters=hyperparameters,
             gamma=gamma,
-            group_aggregation="mean",
+            group_aggregation=GROUP_AGGREGATION,
             device=device,
         )
 
@@ -231,7 +241,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
 class ReinforceModel(nn.Module):
     def __init__(self, sc: SC):
         super().__init__()
-        self.mu = nn.Parameter(torch.zeros(sc.n_turbines, 2))
+        self.mu = nn.Parameter(torch.rand(sc.n_turbines, 2) * 2 - 1)
         self.log_std = nn.Parameter(torch.zeros(sc.n_turbines, 2))
 
     def get_distribution(self):
@@ -257,7 +267,7 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
         super().__init__(
             designer_setting,
             group_name=GROUP_NAME,
-            group_aggregation="mean",
+            group_aggregation=GROUP_AGGREGATION,
             lr=lr,
             train_batch_size=train_batch_size,
             train_epochs=train_epochs,
@@ -278,6 +288,59 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
         dist: torch.distributions.Normal = self.policy.get_distribution()
         log_probs = dist.log_prob(actions)  # [B, n_turbines, 2]
         return log_probs.sum(dim=(-1, -2)).unsqueeze(-1)  # [B]
+
+
+class TurbineGridDesigner(design.Designer[SC]):
+    pass
+
+
+class ReplayDesigner(design.ReplayDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        buffer_size: int = 1000,
+        infill_ratio: float = 0.25,
+        replay_sample_ratio: float = 0.9,
+        stale_sample_ratio: float = 0.3,
+        return_smoothing_factor: float = 0.8,
+        return_sample_temperature: float = 0.1,
+        movement_scale: float = 0.05,
+        gamma: float = 0.99,
+    ):
+        self.generate = make_generate_fn(designer_setting.scenario)
+        super().__init__(
+            group_name=GROUP_NAME,
+            designer_setting=designer_setting,
+            buffer_size=buffer_size,
+            infill_ratio=infill_ratio,
+            replay_sample_ratio=replay_sample_ratio,
+            stale_sample_ratio=stale_sample_ratio,
+            return_smoothing_factor=return_smoothing_factor,
+            return_sample_temperature=return_sample_temperature,
+            gamma=gamma,
+            group_aggregation=GROUP_AGGREGATION,
+        )
+        self.movement_scale = movement_scale
+        self.pc = slsqp_projection_constraint(self.scenario)
+
+    def _generate_random_layout_batch(self, batch_size):
+        return np_list_to_tensor_list(
+            self.generate(n=batch_size, training_dataset=False)
+        )
+
+    def _get_layout_from_state(self, state):
+        return state["layout"]
+
+    @staticmethod
+    def _hash(env):
+        return hashable_representation(env)
+
+    def _mutate(self, env):
+        # Normalise to [-1, 1]
+        env = eval_to_train(env.unsqueeze(0), self.scenario).squeeze(0)
+        env += torch.clamp(torch.randn_like(env) * self.movement_scale, -1, 1)
+        env = train_to_eval(env.unsqueeze(0), self.scenario, self.pc).squeeze(0)
+        return env
 
 
 def create_designer(
@@ -352,6 +415,18 @@ def create_designer(
             train_epochs=designer.train_epochs,
             gamma=ppo_cfg.gamma,
             device=device,
+        )
+    elif isinstance(designer, Replay):
+        designer_producer = ReplayDesigner(
+            designer_setting=designer_setting,
+            buffer_size=designer.buffer_size,
+            infill_ratio=designer.infill_ratio,
+            replay_sample_ratio=designer.replay_sample_ratio,
+            stale_sample_ratio=designer.stale_sample_ratio,
+            return_smoothing_factor=designer.return_smoothing_factor,
+            return_sample_temperature=designer.return_sample_temperature,
+            movement_scale=designer.mutation_scale,
+            gamma=ppo_cfg.gamma,
         )
 
     return designer_producer, design_consumer_fn

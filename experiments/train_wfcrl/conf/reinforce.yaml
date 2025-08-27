@@ -11,7 +11,7 @@ device:
 scenario_name: wfcrl_10
 designer:
   kind: reinforce
-  lr: 1e-4
+  lr: 1e-3
   train_batch_size: 20
   train_epochs: 3
   environment_repeats: 1
