@@ -56,8 +56,8 @@ def make_generate_fn(scenario: SC, seed: int | None = None):
 
 
 def hashable_representation(env: torch.Tensor):
-    # Round to 4dp
-    env = torch.round(env, decimals=4)
+    # Round to 2dp
+    env = torch.round(env, decimals=2)
     np_repr = np.ascontiguousarray(env.detach().cpu().to(torch.uint8).numpy())
     return np_repr.tobytes()
 
@@ -338,7 +338,7 @@ class ReplayDesigner(design.ReplayDesigner[SC]):
     def _mutate(self, env):
         # Normalise to [-1, 1]
         env = eval_to_train(env.unsqueeze(0), self.scenario).squeeze(0)
-        env += torch.clamp(torch.randn_like(env) * self.movement_scale, -1, 1)
+        env = torch.clamp(env + torch.randn_like(env) * self.movement_scale, -1, 1)
         env = train_to_eval(env.unsqueeze(0), self.scenario, self.pc).squeeze(0)
         return env
 

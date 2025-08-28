@@ -841,6 +841,7 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
             key = self._hash(X[i])
 
             env, env_return, timestep = self.env_buffer.get(key, (X[i], 0.0, -1))
+            env = env.to(device="cpu")
 
             # Exponential average of return
             if timestep == -1:
@@ -866,6 +867,14 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
                 self.env_buffer[key] = value
 
     def generate_layout_batch(self, batch_size):
+        max_per_generation = len(self.env_buffer)
+        res = []
+        while len(res) < batch_size:
+            n = min(batch_size - len(res), max_per_generation)
+            res += self._generate_layout_batch(n)
+        return res
+
+    def _generate_layout_batch(self, batch_size):
         _, values = zip(*self.env_buffer.items())
         envs = [value[0] for value in values]
 
@@ -888,7 +897,12 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
         n_return = n_samples - n_stale
 
         env_idxs = np.arange(len(envs))
-        sample_stale = self.rng.choice(env_idxs, size=n_stale, p=stale_p, replace=False)
+        sample_stale = self.rng.choice(
+            env_idxs,
+            size=n_stale,
+            p=stale_p,
+            replace=True if np.count_nonzero(stale_p) < n_stale else False,
+        )
         sample_stale = [envs[i] for i in sample_stale]
         sample_return = self.rng.choice(
             env_idxs, size=n_return, p=return_p, replace=False
@@ -906,7 +920,6 @@ class ReplayDesigner[SC: ScenarioConfig](Designer[SC]):
             new_environments.append(self._mutate(base_env))
 
         layouts = sample_stale + sample_return + new_environments
-
         return maybe_disconnect(layouts)
 
     @abstractmethod
