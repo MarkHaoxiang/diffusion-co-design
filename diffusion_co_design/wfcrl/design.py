@@ -247,14 +247,15 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
 
 
 class ReinforceModel(nn.Module):
-    def __init__(self, sc: SC):
+    def __init__(self, sc: SC, initial_std: float = 0.5):
         super().__init__()
         self.mu = nn.Parameter(torch.rand(sc.n_turbines, 2) * 2 - 1)
         self.log_std = nn.Parameter(torch.zeros(sc.n_turbines, 2))
+        self.initial_std = initial_std
 
     def get_distribution(self):
         mu = nn.functional.tanh(self.mu)  # Between -1 and 1
-        std = torch.exp(self.log_std) * 0.5
+        std = torch.exp(self.log_std) * self.initial_std
         return torch.distributions.Normal(mu, std)
 
     def forward(self, batch_size: int):
@@ -270,8 +271,11 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
         train_batch_size: int = 64,
         train_epochs: int = 5,
         gamma: float = 0.99,
+        normalisation_statistics: NormalisationStatistics | None = None,
+        initial_std: float = 0.1,
         device: torch.device = torch.device("cpu"),
     ):
+        self.initial_std = initial_std
         super().__init__(
             designer_setting,
             group_name=GROUP_NAME,
@@ -283,9 +287,12 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
             device=device,
         )
         self.pc = slsqp_projection_constraint(self.scenario)
+        self.ns = normalisation_statistics
 
     def _create_policy(self):
-        return ReinforceModel(self.scenario).to(self.device)
+        return ReinforceModel(self.scenario, initial_std=self.initial_std).to(
+            self.device
+        )
 
     def _generate_env_action_batch(self, batch_size: int):
         actions = self.policy(batch_size)
@@ -296,6 +303,15 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
         dist: torch.distributions.Normal = self.policy.get_distribution()
         log_probs = dist.log_prob(actions)  # [B, n_turbines, 2]
         return log_probs.sum(dim=(-1, -2)).unsqueeze(-1)  # [B]
+
+    def _reinforce_preprocess_hook(self, actions, rewards):
+        if self.ns is not None:
+            rewards = (rewards - self.ns.episode_return_mean) / (
+                self.ns.episode_return_std
+            )
+            return actions, rewards
+        else:
+            return super()._reinforce_preprocess_hook(actions, rewards)
 
 
 class TurbineGridDesigner(design.Designer[SC]):
@@ -422,6 +438,8 @@ def create_designer(
             train_batch_size=designer.train_batch_size,
             train_epochs=designer.train_epochs,
             gamma=ppo_cfg.gamma,
+            normalisation_statistics=normalisation_statistics,
+            initial_std=designer.initial_std,
             device=device,
         )
     elif isinstance(designer, Replay):

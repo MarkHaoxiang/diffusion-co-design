@@ -84,6 +84,7 @@ class Reinforce(_Designer):
     lr: float = 1e-4
     train_batch_size: int = 20
     train_epochs: int = 3
+    initial_std: float = 0.1
 
 
 class Replay(_Designer):

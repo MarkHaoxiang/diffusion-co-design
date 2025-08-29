@@ -746,6 +746,7 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
             self.reinforce_loss /= self.train_epochs
 
     def reinforce(self, actions: torch.Tensor, rewards: torch.Tensor):
+        actions, rewards = self._reinforce_preprocess_hook(actions, rewards)
         B = rewards.shape[0]
         assert rewards.shape == (B,), rewards.shape
 
@@ -759,6 +760,11 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
         ).item()
         self.optim.step()
         return loss.item()
+
+    def _reinforce_preprocess_hook(self, actions: torch.Tensor, rewards: torch.Tensor):
+        # TODO: This hook is pretty hacky, and only used in WFCRL for normalising the rewards.
+        # We should refactor WFCRL to set the normalisation routine as a RewardShaper within the environment.
+        return actions, rewards
 
     def get_logs(self):
         logs = {"reinforce_loss": self.reinforce_loss, "grad_norm": self.grad_norm}

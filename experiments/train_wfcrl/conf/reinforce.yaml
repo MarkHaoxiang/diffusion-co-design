@@ -8,11 +8,12 @@ device:
   device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wfcrl_2
+scenario_name: wfcrl_10
 designer:
   kind: reinforce
   lr: 1e-3
   train_batch_size: 20
   train_epochs: 3
   environment_repeats: 1
+  initial_std: 0.1
 start_from_checkpoint: null
