@@ -8,6 +8,7 @@ import numpy as np
 from diffusion_co_design.common import OUTPUT_DIR
 from diffusion_co_design.wfcrl.schema import ScenarioConfig
 from diffusion_co_design.wfcrl.diffusion.generate import Generate
+from diffusion_co_design.wfcrl.design import manual_design_cases
 
 
 def generate_env(n_and_scenario):
@@ -24,7 +25,29 @@ def generate_env(n_and_scenario):
 
 
 def setup_scenario(scenario_name: str, n: int):
-    scenario = ScenarioConfig.from_file(os.path.join("conf", f"{scenario_name}.yaml"))
+    if os.path.exists(os.path.join("conf", f"{scenario_name}.yaml")):
+        scenario = ScenarioConfig.from_file(
+            os.path.join("conf", f"{scenario_name}.yaml")
+        )
+    else:
+        # Try to generate scenario from pre-defined WFCRL windfarms
+        datacase = manual_design_cases[scenario_name]
+        xcoords = datacase.xcoords
+        ycoords = datacase.ycoords
+        min_x = min(xcoords)
+        max_x = max(xcoords)
+        min_y = min(ycoords)
+        max_y = max(ycoords)
+        map_x_length = max_x - min_x + 10
+        map_y_length = max_y - min_y + 10
+        scenario = ScenarioConfig(
+            name=scenario_name,
+            max_steps=150,
+            n_turbines=len(xcoords),
+            map_x_length=map_x_length,
+            map_y_length=map_y_length,
+            min_distance_between_turbines=250,
+        )
     data_dir = os.path.join(OUTPUT_DIR, "wfcrl", "scenario", scenario_name)
 
     # Remove existing

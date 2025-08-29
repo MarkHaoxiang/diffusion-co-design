@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from wfcrl.environments import data_cases
 
 from diffusion_co_design.common import design
 from diffusion_co_design.common.rl.mappo.schema import PPOConfig
@@ -42,6 +43,13 @@ from diffusion_co_design.common import (
 )
 
 GROUP_AGGREGATION: Literal["mean"] = "mean"
+
+manual_design_cases = {
+    "hornrevs1": data_cases.floris_hornsrev1,
+    "hornsrev2": data_cases.floris_hornsrev2,
+    "wmr": data_cases.floris_wmr,
+    "ormonde": data_cases.floris_ormonde,
+}
 
 
 def make_generate_fn(scenario: SC, seed: int | None = None):

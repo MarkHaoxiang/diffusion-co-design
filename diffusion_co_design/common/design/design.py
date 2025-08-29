@@ -565,11 +565,12 @@ class DicodeDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
             wt = self.diffusion.forward_guidance_wt * mult
             self.forward_guidance_weight = wt
             operation.forward_guidance_wt = wt
+            operation.lr = self.diffusion.backward_lr * mult
         else:
             operation.forward_guidance_wt = self.diffusion.forward_guidance_wt
+            operation.lr = self.diffusion.backward_lr
 
         operation.num_recurrences = self.diffusion.num_recurrences
-        operation.lr = self.diffusion.backward_lr
         operation.backward_steps = self.diffusion.backward_steps
         operation.use_forward = forward_enable
         operation.projection_constraint = self.projection_constraint

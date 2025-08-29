@@ -1,4 +1,4 @@
-name: obstacle_navigation_4x4
+name: obstacle_navigation_3
 placement_area: local
 world_spawning_x: 1.1
 world_spawning_y: 1.1

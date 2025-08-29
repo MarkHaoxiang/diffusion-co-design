@@ -69,39 +69,60 @@ def create_env(
 
 
 def render_layout(x, scenario: ScenarioConfigType):
-    assert scenario.placement_area == "global"
     agent_and_goal_radius = 0.05
     agent_spawns = scenario.agent_spawns
     agent_goals = scenario.agent_goals
-    obstacle_radius = x.tolist()
+    x = x.detach().cpu()
+    obstacle_pos = x.tolist()
     obstacle_sizes = scenario.obstacle_sizes
 
     fig, ax = plt.subplots(figsize=(6, 6))
     canvas = FigureCanvas(fig)
 
+    all_pos = []
     for pos in agent_spawns:
         circ = plt.Circle(
             pos, agent_and_goal_radius, color="blue", alpha=0.6, label="Spawn"
         )
         ax.add_patch(circ)
+        all_pos.append(pos)
 
     for pos in agent_goals:
         circ = plt.Circle(
             pos, agent_and_goal_radius, color="green", alpha=0.6, label="Goal"
         )
         ax.add_patch(circ)
+        all_pos.append(pos)
 
-    for pos, size in zip(obstacle_radius, obstacle_sizes):
-        circ = plt.Circle(pos, size, color="red", alpha=0.5, label="Obstacle")
-        ax.add_patch(circ)
+    if scenario.placement_area == "global":
+        for pos, size in zip(obstacle_pos, obstacle_sizes):
+            circ = plt.Circle(pos, size, color="red", alpha=0.5, label="Obstacle")
+            ax.add_patch(circ)
+    elif scenario.placement_area == "local":
+        i = 0
+        for ((x_low, x_high), (y_low, y_high)), size in zip(
+            scenario.obstacle_bounds,
+            obstacle_sizes,
+        ):
+            pos_x = x_low
+            if x_low != x_high:
+                pos_x = (x[i] + 1) / 2 * (x_high - x_low) + x_low
+                i += 1
+            pos_y = y_low
+            if y_low != y_high:
+                pos_y = (x[i] + 1) / 2 * (y_high - y_low) + y_low
+                i += 1
+            pos = (pos_x, pos_y)
+            all_pos.append(pos)
+
+            circ = plt.Circle(pos, size, color="red", alpha=0.5, label="Obstacle")
+            ax.add_patch(circ)
+
+    all_pos = np.array(all_pos)
 
     ax.set_aspect("equal")
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
-
-    ax.set_aspect("equal")
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
+    ax.set_xlim(all_pos[:, 0].min() - 0.1, all_pos[:, 0].max() + 0.1)
+    ax.set_ylim(all_pos[:, 1].min() - 0.1, all_pos[:, 1].max() + 0.1)
     ax.axis("off")
 
     canvas.draw()

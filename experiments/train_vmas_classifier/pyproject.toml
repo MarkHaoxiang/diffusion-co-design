@@ -1,0 +1,10 @@
+[project]
+name = "train_vmas_classifier"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "diffusion_co_design",
+    "torch>=2.6.0",
+]
