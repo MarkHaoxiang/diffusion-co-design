@@ -64,6 +64,8 @@ class _Value(_Designer):
     weight_decay: float = 0.0
     distill_enable: bool = False
     distill_samples: int = 5
+    distill_synthetic_ratio: float = 0.0
+    distill_synthetic_ood_ratio: float = 0.0
     loss_criterion: Literal["mse", "huber"] = "huber"
     random_generation_early_start: int = 0
     train_early_start: int = 0

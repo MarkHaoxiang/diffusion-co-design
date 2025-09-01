@@ -537,10 +537,13 @@ class DesignableVmasEnv(VmasEnv):
         scenario: Scenario = self._env.scenario  # vmas.simulator.environment
         sc: ScenarioConfigType = scenario._scenario_cfg
 
-        if "layout_override" in kwargs and kwargs["layout_override"] is not None:
-            theta = kwargs.pop("layout_override")
-        elif self._env._reset_policy is not None:
-            new_layouts = [self._env._reset_policy() for _ in range(self._env.num_envs)]
+        if self._env._reset_policy is not None or "layout_override" in kwargs:
+            if "layout_override" in kwargs and kwargs["layout_override"] is not None:
+                new_layouts = list(kwargs.pop("layout_override"))
+            else:
+                new_layouts = [
+                    self._env._reset_policy() for _ in range(self._env.num_envs)
+                ]
             if isinstance(sc, LocalPlacementScenarioConfig):
                 B, M, _ = scenario.obstacle_locations.shape
                 theta = torch.zeros_like(scenario.obstacle_locations)  # [B, M, 2]

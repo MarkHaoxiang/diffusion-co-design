@@ -161,7 +161,17 @@ class Diffusion(_Value):
     diffusion: DiffusionOperation
 
 
-DesignerConfig = Annotated[Random | Fixed | Diffusion, Field(discriminator="kind")]
+class Reinforce(_Designer):
+    kind: Literal["reinforce"] = "reinforce"
+    lr: float = 1e-4
+    train_batch_size: int = 20
+    train_epochs: int = 3
+    initial_std: float = 0.1
+
+
+DesignerConfig = Annotated[
+    Random | Fixed | Diffusion | Reinforce, Field(discriminator="kind")
+]
 
 
 class TrainingConfig(

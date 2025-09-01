@@ -1,5 +1,5 @@
 defaults:
-  - template/default@_here_
+  - template/default2@_here_
   - _self_
   - metadata/training@_here_
 
@@ -8,7 +8,7 @@ device:
   device_management: "gpu"
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wfcrl_4
+scenario_name: wfcrl_10
 designer:
   kind: diffusion
   environment_repeats: 1
@@ -25,7 +25,8 @@ designer:
   lr: 1e-4
   distill_enable: true
   distill_samples: 3
-  distill_synthetic_ratio: 0.0
+  distill_synthetic_ratio: 1.0
+  distill_synthetic_ood_ratio: 0.0
   loss_criterion: huber
   diffusion:
     num_recurrences: 4

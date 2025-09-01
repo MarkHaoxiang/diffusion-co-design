@@ -11,7 +11,7 @@ value_buffer_size: 8096
 value_weight_decay: 0.0
 value_lr: 3e-5
 value_distill_enable: true
-value_distill_samples: 5
+value_distill_samples: 3
 value_early_start: 2048
 diffusion:
   num_recurrences: 8

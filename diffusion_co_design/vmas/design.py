@@ -2,6 +2,8 @@ import os
 from typing import Callable
 from pathlib import Path
 import torch
+import torch.nn as nn
+from torchrl.modules import TruncatedNormal
 import numpy as np
 
 from diffusion_co_design.common import (
@@ -20,15 +22,11 @@ from diffusion_co_design.vmas.diffusion.generator import (
     eval_to_train,
     soft_projection_constraint,
 )
+from diffusion_co_design.vmas import schema
 from diffusion_co_design.vmas.schema import (
     ScenarioConfigType as SC,
     GlobalPlacementScenarioConfig,
     LocalPlacementScenarioConfig,
-    Random,
-    Fixed,
-    _Value,
-    Diffusion,
-    DesignerConfig,
     EnvCriticConfig,
 )
 from diffusion_co_design.vmas.model.classifier import GNNEnvCritic, MLPEnvCritic
@@ -195,9 +193,80 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
         return make_reference_layouts(self.scenario, self.value_learner.device)
 
 
+class ReinforceModel(nn.Module):
+    def __init__(self, sc: SC, initial_std: float = 0.5):
+        super().__init__()
+        assert isinstance(sc, LocalPlacementScenarioConfig)
+        self.mu_model = nn.Sequential(
+            nn.Linear((len(sc.agent_goals) + len(sc.agent_spawns)) * 2, 32),
+            nn.ReLU(),
+            nn.Linear(32, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, sc.diffusion_shape[0]),
+        )
+        self.log_std = nn.Parameter(
+            torch.zeros(
+                sc.diffusion_shape[0],
+            )
+        )
+        self.initial_std = initial_std
+
+        self.features = torch.tensor(sc.agent_spawns + sc.agent_goals).flatten()
+
+    def get_distribution(self):
+        device = self.log_std.device
+        mu = self.mu_model(self.features.to(device))
+        std = torch.exp(self.log_std) * self.initial_std
+        return TruncatedNormal(loc=mu, scale=std, tanh_loc=True)
+
+    def forward(self, batch_size: int):
+        dist = self.get_distribution()
+        return dist.sample((batch_size,))
+
+
+class ReinforceDesigner(design.ReinforceDesigner[SC]):
+    def __init__(
+        self,
+        designer_setting: design.DesignerParams[SC],
+        lr: float = 1e-4,
+        train_batch_size: int = 64,
+        train_epochs: int = 5,
+        gamma: float = 0.99,
+        initial_std: float = 0.1,
+        device: torch.device = torch.device("cpu"),
+    ):
+        self.initial_std = initial_std
+        super().__init__(
+            designer_setting,
+            group_name=GROUP_NAME,
+            group_aggregation="sum",
+            lr=lr,
+            train_batch_size=train_batch_size,
+            train_epochs=train_epochs,
+            gamma=gamma,
+            device=device,
+        )
+
+    def _create_policy(self):
+        return ReinforceModel(self.scenario, initial_std=self.initial_std).to(
+            self.device
+        )
+
+    def _generate_env_action_batch(self, batch_size: int):
+        actions = self.policy(batch_size)
+        return actions.detach(), actions
+
+    def _calculate_action_log_probs(self, actions):
+        dist: TruncatedNormal = self.policy.get_distribution()
+        log_probs = dist.log_prob(actions)  # [B, design_shape]
+        return log_probs.sum(dim=-1).unsqueeze(-1)  # [B]
+
+
 def create_designer(
     scenario: SC,
-    designer: DesignerConfig,
+    designer: schema.DesignerConfig,
     ppo_cfg: PPOConfig,
     artifact_dir: str | Path,
     device: torch.device,
@@ -217,11 +286,11 @@ def create_designer(
     def design_consumer_fn():
         return design.DesignConsumer(artifact_dir_path, lock)
 
-    if isinstance(designer, Fixed):
+    if isinstance(designer, schema.Fixed):
         designer_producer: design.Designer[SC] = FixedDesigner(designer_setting)
-    elif isinstance(designer, Random):
+    elif isinstance(designer, schema.Random):
         designer_producer = RandomDesigner(designer_setting)
-    elif isinstance(designer, _Value):
+    elif isinstance(designer, schema._Value):
         value_hyperparameters = design.ValueLearnerHyperparameters(
             lr=designer.lr,
             train_batch_size=designer.batch_size,
@@ -235,7 +304,7 @@ def create_designer(
             train_early_start=designer.train_early_start,
         )
 
-        if isinstance(designer, Diffusion):
+        if isinstance(designer, schema.Diffusion):
             designer_producer = DicodeDesigner(
                 diffusion=designer.diffusion,
                 classifier=designer.model,
@@ -247,5 +316,15 @@ def create_designer(
                 duplicate_agent_critic_weights=designer.duplicate_agent_critic_weights,
                 device=device,
             )
+    elif isinstance(designer, schema.Reinforce):
+        designer_producer = ReinforceDesigner(
+            designer_setting=designer_setting,
+            lr=designer.lr,
+            train_batch_size=designer.train_batch_size,
+            train_epochs=designer.train_epochs,
+            gamma=ppo_cfg.gamma,
+            initial_std=designer.initial_std,
+            device=device,
+        )
 
     return designer_producer, design_consumer_fn

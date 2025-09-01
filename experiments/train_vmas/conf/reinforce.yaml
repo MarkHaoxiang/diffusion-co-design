@@ -3,12 +3,12 @@ defaults:
   - _self_
   - metadata/training@_here_
 
-experiment_name: wfcrl_reinforce
+experiment_name: obstacle_navigation_reinforce
 device:
   device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wfcrl_4
+scenario_name: obstacle_navigation_3
 designer:
   kind: reinforce
   lr: 1e-3

@@ -314,7 +314,7 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
             return super()._reinforce_preprocess_hook(actions, rewards)
 
 
-class TurbineGridDesigner(design.Designer[SC]):
+class ManualCasesDesigner(design.Designer[SC]):
     pass
 
 
@@ -404,6 +404,8 @@ def create_designer(
             weight_decay=0.0,
             distill_from_critic=designer.distill_enable,
             distill_samples=designer.distill_samples,
+            distill_synthetic_ratio=designer.distill_synthetic_ratio,
+            distill_synthetic_ood_ratio=designer.distill_synthetic_ood_ratio,
             loss_criterion=designer.loss_criterion,
             train_early_start=designer.train_early_start,
         )

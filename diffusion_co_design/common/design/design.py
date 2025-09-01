@@ -167,8 +167,7 @@ class ValueLearner[SC: ScenarioConfig]:
                     f"Unknown loss criterion: {hp.loss_criterion}. Use 'mse' or 'huber'. "
                 )
 
-        self.model = model
-        self.model.to(device=device)
+        self.model = model.to(device=device)
 
         self.use_hint_loss = hp.distill_embedding_hint and hp.distill_from_critic
         if self.use_hint_loss:
@@ -709,9 +708,13 @@ class ReinforceDesigner[SC: ScenarioConfig](Designer[SC]):
                         self.train_env_batch_size - n
                     )  # Pad if needed
 
-                td = self.train_env.reset(
-                    list_of_kwargs=[{"layout_override": env} for env in envs_list]
-                )
+                if isinstance(self.train_env, BatchedEnvBase):
+                    td = self.train_env.reset(
+                        list_of_kwargs=[{"layout_override": env} for env in envs_list]
+                    )
+                else:
+                    td = self.train_env.reset(layout_override=envs_list)
+
                 td = self.train_env.rollout(
                     max_steps=self.scenario.get_episode_steps(),
                     policy=self.agent_policy,

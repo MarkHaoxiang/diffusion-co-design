@@ -3,7 +3,7 @@ defaults:
   - template/default@_here_
   - _self_
 
-experiment_name: corners_agent_rl_210525
+experiment_name: corners_agent_rl
 scenario_name: rware_16_50_5_4_corners
 device:
   device_management: "gpu"
