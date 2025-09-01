@@ -15,8 +15,8 @@ class ScenarioConfig(_ScenarioConfig):
     name: str
     n_turbines: int
     max_steps: int
-    map_x_length: int
-    map_y_length: int
+    map_x_length: float
+    map_y_length: float
     min_distance_between_turbines: int
 
     def get_name(self) -> str:
@@ -52,6 +52,10 @@ class Random(_Designer):
 
 class Fixed(_Designer):
     kind: Literal["fixed"]
+
+
+class Manual(_Designer):
+    kind: Literal["manual"]
 
 
 class _Value(_Designer):
@@ -101,7 +105,7 @@ class Replay(_Designer):
 
 
 DesignerConfig = Annotated[
-    Random | Fixed | Diffusion | Sampling | Reinforce | Replay,
+    Random | Fixed | Diffusion | Sampling | Reinforce | Replay | Manual,
     Field(discriminator="kind"),
 ]
 

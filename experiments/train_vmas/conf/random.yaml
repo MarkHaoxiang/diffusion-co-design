@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 experiment_name: obstacle_navigation_random
-scenario_name: obstacle_navigation_1
+scenario_name: obstacle_navigation_3
 device:
   device_management: gpu
   gpu_id: 0

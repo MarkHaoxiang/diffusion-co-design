@@ -314,8 +314,15 @@ class ReinforceDesigner(design.ReinforceDesigner[SC]):
             return super()._reinforce_preprocess_hook(actions, rewards)
 
 
-class ManualCasesDesigner(design.Designer[SC]):
-    pass
+class ManualCasesDesigner(design.FixedDesigner[SC]):
+    def __init__(self, designer_setting: design.DesignerParams):
+        assert designer_setting.scenario.name in manual_design_cases
+        datacase = manual_design_cases[designer_setting.scenario.name]
+        min_x = min(datacase.xcoords)
+        min_y = min(datacase.ycoords)
+        layout = torch.tensor([datacase.xcoords, datacase.ycoords]).T
+        layout = (layout - torch.tensor([min_x, min_y])) + 5.0
+        super().__init__(designer_setting=designer_setting, layout=layout)
 
 
 class ReplayDesigner(design.ReplayDesigner[SC]):
