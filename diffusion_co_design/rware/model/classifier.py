@@ -2,14 +2,8 @@ from abc import abstractmethod
 from functools import cache
 import torch
 import torch.nn as nn
-from diffusion_co_design.rware.model.graph import (
-    WarehouseGNNLayer,
-    WarehouseGNNBase,
-)
 from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule
-from torch_geometric.data import Data
-from torch_geometric.nn import AttentionalAggregation
 from guided_diffusion.script_util import create_classifier, classifier_defaults
 from guided_diffusion.nn import conv_nd, normalization
 from guided_diffusion.unet import Downsample, AttentionBlock, AttentionPool2d
@@ -18,6 +12,20 @@ from diffusion_co_design.rware.schema import ScenarioConfig
 from diffusion_co_design.rware.diffusion.generate import get_position
 from diffusion_co_design.rware.model.nn import ResBlock
 from diffusion_co_design.rware.model.shared import RLCritic
+from diffusion_co_design.rware.static import ENABLE_TORCH_GEOMETRIC
+
+if ENABLE_TORCH_GEOMETRIC:
+    from torch_geometric.data import Data
+    from torch_geometric.nn import AttentionalAggregation
+    from diffusion_co_design.rware.model.graph import (
+        WarehouseGNNLayer,
+        WarehouseGNNBase,
+    )
+else:
+
+    class WarehouseGNNBase:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("Torch Geometric support is disabled")
 
 
 class GraphClassifier(EnvCritic):
