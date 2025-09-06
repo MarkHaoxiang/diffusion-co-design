@@ -17,6 +17,7 @@ from diffusion_co_design.wfcrl.schema import (
     EnvCriticConfig,
     _Value,
     Fixed,
+    Manual,
     Random,
     Diffusion,
     Sampling,
@@ -401,6 +402,8 @@ def create_designer(
         designer_producer: design.Designer[SC] = FixedDesigner(designer_setting)
     elif isinstance(designer, Random):
         designer_producer = RandomDesigner(designer_setting)
+    elif isinstance(designer, Manual):
+        designer_producer = ManualCasesDesigner(designer_setting)
     elif isinstance(designer, _Value):
         value_hyperparameters = design.ValueLearnerHyperparameters(
             lr=designer.lr,

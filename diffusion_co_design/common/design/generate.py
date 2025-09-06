@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from typing import Literal
-from functools import partial
 
 import numpy as np
 from tqdm import tqdm

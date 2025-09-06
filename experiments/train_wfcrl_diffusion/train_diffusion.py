@@ -30,11 +30,8 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
     # Setup scenario
-    scenario = ScenarioConfig.from_file(
-        os.path.join("conf", f"{args.experiment_name}.yaml")
-    )
     data_dir = os.path.join(OUTPUT_DIR, "wfcrl", "scenario", args.experiment_name)
-    scenario = scenario.from_file(os.path.join(data_dir, "config.yaml"))
+    scenario = ScenarioConfig.from_file(os.path.join(data_dir, "config.yaml"))
 
     log_dir = os.path.join(OUTPUT_DIR, "wfcrl", "diffusion", args.experiment_name)
 
@@ -84,7 +81,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="wfcrl_30",
+        experiment_name="wmr",
         schedule_sampler="uniform",
         lr=3e-4,
         weight_decay=0.0,
