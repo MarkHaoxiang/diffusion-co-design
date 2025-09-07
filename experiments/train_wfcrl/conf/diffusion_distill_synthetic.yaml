@@ -1,14 +1,14 @@
 defaults:
-  - template/default2@_here_
+  - template/default@_here_
   - _self_
   - metadata/training@_here_
 
 experiment_name: wfcrl_diffusion_distill
 device:
-  device_management: "gpu"
+  device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wfcrl_10
+scenario_name: wmr
 designer:
   kind: diffusion
   environment_repeats: 1
@@ -16,7 +16,9 @@ designer:
     node_emb_size: 64
     depth: 2
     connectivity:
-      kind: fully_connected
+      # kind: fully_connected # For <= 10 turbines
+      kind: knn
+      k: 5
   buffer_size: 8096
   diffusion_early_start: 400
   train_early_start: 400
@@ -26,7 +28,6 @@ designer:
   distill_enable: true
   distill_samples: 3
   distill_synthetic_ratio: 1.0
-  distill_synthetic_ood_ratio: 0.0
   loss_criterion: huber
   diffusion:
     num_recurrences: 4
@@ -36,4 +37,4 @@ designer:
     forward_guidance_annealing: True
 start_from_checkpoint: null
 logging:
-  mode: online
+  mode: disabled

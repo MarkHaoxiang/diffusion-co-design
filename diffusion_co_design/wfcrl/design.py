@@ -140,6 +140,9 @@ class ValueLearner(design.ValueLearner):
     def _get_layout_from_state(self, state):
         return state["layout"]
 
+    def _gen_to_train(self, theta):
+        return eval_to_train(theta, self.scenario)
+
     def _eval_to_train(self, theta):
         return eval_to_train(theta, self.scenario)
 

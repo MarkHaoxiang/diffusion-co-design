@@ -301,6 +301,7 @@ class ValueLearner[SC: ScenarioConfig]:
                     # Sample proportion from buffer
                     X_batch = torch.cat(X_batch_list, dim=0)
                     X_eval = torch.cat(X_eval_list, dim=0)
+
                     y_batch, hint_batch = self._get_critic_y_from_layout(X_eval)
                 else:
                     sample = self.env_buffer.sample(batch_size=self.train_batch_size)

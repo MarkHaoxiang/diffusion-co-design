@@ -6,10 +6,8 @@ Modified from https://github.com/rllab-snu/ADD
 
 import argparse
 import os
-import shutil
 import numpy as np
 import torch
-from omegaconf import OmegaConf
 from guided_diffusion import dist_util, logger
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
@@ -81,7 +79,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        experiment_name="wmr",
+        experiment_name="wfcrl_8",
         schedule_sampler="uniform",
         lr=3e-4,
         weight_decay=0.0,
