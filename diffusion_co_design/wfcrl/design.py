@@ -443,7 +443,9 @@ def create_designer(
                 value_learner_hyperparameters=value_hyperparameters,
                 random_generation_early_start=designer.random_generation_early_start,
                 gamma=ppo_cfg.gamma,
-                total_annealing_iters=ppo_cfg.n_iters,
+                total_annealing_iters=ppo_cfg.n_iters
+                if designer.annealing_steps is None
+                else designer.annealing_steps,
                 device=device,
             )
     elif isinstance(designer, Reinforce):

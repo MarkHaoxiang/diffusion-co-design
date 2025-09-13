@@ -1,11 +1,11 @@
 defaults:
   - _self_
-  - model: gnn_cnn
+  - model: cnn
 
-kind: descent
+kind: diffusion
 environment_repeats: 10
 # Value
-representation: graph
+representation: image
 n_update_iterations: 5
 train_batch_size: 64
 buffer_size: 8096
@@ -18,6 +18,6 @@ distill_synthetic_ratio: 0.0
 random_generation_early_start: 2048
 loss_criterion: mse
 train_early_start: 0
-gradient_epochs: 20
-gradient_iterations: 10
-gradient_lr: 0.03
+diffusion:
+  disable_pug: true
+

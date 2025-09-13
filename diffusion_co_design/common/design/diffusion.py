@@ -16,6 +16,7 @@ class DiffusionOperation(Config):
     backward_steps: int = 0
     forward_guidance_wt: float = 5.0
     forward_guidance_annealing: bool = False
+    disable_pug: bool = False
 
 
 @dataclass

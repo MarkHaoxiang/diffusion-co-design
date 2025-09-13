@@ -9,12 +9,13 @@ from tensordict import TensorDict
 
 from diffusion_co_design.common import get_latest_model
 from diffusion_co_design.common.constants import EXPERIMENT_DIR
+from diffusion_co_design.common.rl.util import create_batched_env
 from diffusion_co_design.wfcrl.model.rl import wfcrl_models
 from diffusion_co_design.wfcrl.diffusion.generator import eval_to_train
 from diffusion_co_design.wfcrl.design import SC, Random
-from diffusion_co_design.wfcrl.env import create_env, create_batched_env
+from diffusion_co_design.wfcrl.env import create_env
 from diffusion_co_design.wfcrl.schema import TrainingConfig
-from diffusion_co_design.wfcrl.design import DesignerRegistry
+from diffusion_co_design.wfcrl.design import RandomDesigner
 
 working_dir = os.path.join(EXPERIMENT_DIR, "train_wfcrl_classifier")
 if not os.path.exists(working_dir):
@@ -55,14 +56,8 @@ def wfcrl_policy_return_dataset(
     )
     gamma = training_cfg.ppo.gamma
 
-    _, env_designer = DesignerRegistry.get(
-        designer=Random(type="random"),
-        scenario=scenario,
-        artifact_dir=working_dir,
-        ppo_cfg=training_cfg.ppo,
-        normalisation_statistics=training_cfg.normalisation,
-        device=device,
-    )
+    env_designer = RandomDesigner.make_placeholder(scenario)
+
     ref_env = create_env(
         mode="reference",
         scenario=scenario,
@@ -83,6 +78,7 @@ def wfcrl_policy_return_dataset(
     # Collection
     collection_env = create_batched_env(
         mode="train",
+        create_env=create_env,
         num_environments=num_parallel_collection,
         scenario=scenario,
         designer=env_designer,

@@ -5,10 +5,10 @@ defaults:
 
 experiment_name: wfcrl_random
 device:
-  device_management: "gpu"
+  device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wfcrl_4
+scenario_name: wmr
 designer:
   kind: random
   environment_repeats: 1

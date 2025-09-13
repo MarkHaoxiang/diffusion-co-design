@@ -8,7 +8,7 @@ device:
   device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wmr
+scenario_name: wfcrl_8
 designer:
   kind: diffusion
   environment_repeats: 1
@@ -16,9 +16,9 @@ designer:
     node_emb_size: 64
     depth: 2
     connectivity:
-      # kind: fully_connected  # For <= 10 turbines
-      kind: knn
-      k: 5
+      kind: fully_connected  # For <= 10 turbines
+      # kind: knn
+      # k: 5
   buffer_size: 8096
   diffusion_early_start: 400
   train_early_start: 400
@@ -36,5 +36,5 @@ designer:
     forward_guidance_wt: 3.0
     forward_guidance_annealing: True
 start_from_checkpoint: null
-logging:
-  mode: online
+ppo:
+  n_iters: 301

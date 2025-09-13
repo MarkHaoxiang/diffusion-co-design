@@ -83,6 +83,7 @@ class Sampling(_Value):
 class Diffusion(_Value):
     kind: Literal["diffusion"]
     diffusion: DiffusionOperation
+    annealing_steps: None | int = None
 
 
 class Reinforce(_Designer):

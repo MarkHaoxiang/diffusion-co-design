@@ -555,36 +555,46 @@ class DicodeDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
         self.forward_guidance_weight = self.diffusion.forward_guidance_wt
 
     def _generate_layout_batch(self, batch_size: int):
-        forward_enable = self.diffusion.forward_guidance_wt > 0
-
-        operation = OptimizerDetails()
-
-        # Annealing
         if self.diffusion.forward_guidance_annealing:
             mult = min(1.0, self.update_counter / self.total_iters)
-            wt = self.diffusion.forward_guidance_wt * mult
+        else:
+            mult = 1.0
+        wt = self.diffusion.forward_guidance_wt * mult
+
+        if not self.diffusion.disable_pug:
+            forward_enable = self.diffusion.forward_guidance_wt > 0
+
+            operation = OptimizerDetails()
+
+            # Annealing
             self.forward_guidance_weight = wt
             operation.forward_guidance_wt = wt
             operation.lr = self.diffusion.backward_lr * mult
-        else:
-            operation.forward_guidance_wt = self.diffusion.forward_guidance_wt
-            operation.lr = self.diffusion.backward_lr
 
-        operation.num_recurrences = self.diffusion.num_recurrences
-        operation.backward_steps = self.diffusion.backward_steps
-        operation.use_forward = forward_enable
-        operation.projection_constraint = self.projection_constraint
+            operation.num_recurrences = self.diffusion.num_recurrences
+            operation.backward_steps = self.diffusion.backward_steps
+            operation.use_forward = forward_enable
+            operation.projection_constraint = self.projection_constraint
 
-        self.model.eval()
+            self.model.eval()
 
-        return list(
-            self.generator.generate_batch(
-                value=self.model,
-                use_operation=True,
-                operation_override=operation,
-                batch_size=batch_size,
+            return list(
+                self.generator.generate_batch(
+                    value=self.model,
+                    use_operation=True,
+                    operation_override=operation,
+                    batch_size=batch_size,
+                )
             )
-        )
+        else:
+            self.generator.guidance_weight = wt
+
+            self.model.eval()
+            return list(
+                self.generator.generate_batch(
+                    value=self.model, use_operation=False, batch_size=batch_size
+                )
+            )
 
     def get_logs(self):
         logs = super().get_logs()
