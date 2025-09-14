@@ -221,6 +221,15 @@ class ValueLearner(design.ValueLearner[SC]):
         )
 
 
+def make_projection_constraint(scenario: SC, representation: Representation):
+    match representation:
+        case "graph":
+            return graph_projection_constraint(scenario)
+        case "image":
+            return image_projection_constraint(scenario)
+    raise ValueError(f"Unknown representation {representation}")
+
+
 class DicodeDesigner(design.DicodeDesigner[SC]):
     def __init__(
         self,
@@ -265,11 +274,7 @@ class DicodeDesigner(design.DicodeDesigner[SC]):
         self.generate = make_generate_fn(
             self.scenario, representation=self.representation
         )
-        match self.representation:
-            case "graph":
-                self.pc = graph_projection_constraint(sc)
-            case "image":
-                self.pc = image_projection_constraint(sc)
+        self.pc = make_projection_constraint(sc, self.representation)
 
     def projection_constraint(self, x):
         return self.pc(x)
@@ -372,6 +377,8 @@ class DescentDesigner(design.GradientDescentDesigner[SC]):
             self.scenario, representation=self.representation
         )
 
+        self.pc = make_projection_constraint(self.scenario, self.representation)
+
     def _generate_initial_env(self, batch_size):
         return torch.stack(
             np_list_to_tensor_list(
@@ -395,6 +402,9 @@ class DescentDesigner(design.GradientDescentDesigner[SC]):
 
     def _generate_random_layout_batch(self, batch_size):
         return np_list_to_tensor_list(self.generate(batch_size))
+
+    def projection_constraint(self, x):
+        return self.pc(x)
 
 
 class ReinforceDesigner(design.ReinforceDesigner[SC]):
