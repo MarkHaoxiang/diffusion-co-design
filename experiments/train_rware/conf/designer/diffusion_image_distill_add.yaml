@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model: cnn
+  - model: unet_cnn
 
 kind: diffusion
 environment_repeats: 10

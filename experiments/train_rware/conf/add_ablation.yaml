@@ -1,6 +1,6 @@
 defaults:
   - metadata/training@_here_
-  - template/default@_here_
+  - template/testing@_here_
   - _self_
   - designer: diffusion_image_distill_add
 

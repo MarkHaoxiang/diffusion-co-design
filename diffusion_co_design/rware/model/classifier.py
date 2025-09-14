@@ -127,7 +127,7 @@ class MLPClassifier(GraphClassifier):
         x = torch.cat([pos, colors], dim=-1)
         x = x.view(x.shape[0], -1)
         x = self.net(x)
-        return x.squeeze(-1), None
+        return x.squeeze(-1)
 
 
 class UnetCNNClassifier(ImageClassifier):
@@ -144,8 +144,8 @@ class UnetCNNClassifier(ImageClassifier):
 
         self.model = create_classifier(**model_dict)
 
-    def forward(self, image):
-        return self.model(image).squeeze(-1), None
+    def forward(self, image, timesteps=None):
+        return self.model(image, timesteps).squeeze(-1)
 
 
 # =====
