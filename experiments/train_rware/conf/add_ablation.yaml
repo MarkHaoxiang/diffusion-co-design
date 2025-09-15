@@ -1,10 +1,10 @@
 defaults:
   - metadata/training@_here_
-  - template/testing@_here_
+  - template/default@_here_
   - _self_
   - designer: diffusion_image_distill_add
 
-experiment_name: corners_agent_image
+experiment_name: corners_agent_image_add
 scenario_name: rware_16_50_5_4_corners
 device:
   device_management: gpu
