@@ -523,7 +523,9 @@ class SamplingDesigner[SC: ScenarioConfig](ValueDesigner[SC]):
     def _generate_layout_batch(self, batch_size):
         self.model.eval()
         X = self.generate_random_layouts(batch_size * self.n_samples)
-        X_post = self.value_learner._eval_to_train(X)
+        X_post = self.value_learner._eval_to_train(X).to(
+            device=self.value_learner.device
+        )
         y = self.model.predict_theta_value(X_post).squeeze()
         y = y.reshape(batch_size, self.n_samples)
         indices = y.argmax(dim=1).numpy(force=True)
