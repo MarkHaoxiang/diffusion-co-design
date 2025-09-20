@@ -194,6 +194,7 @@ class ValueLearner(design.ValueLearner[SC]):
         return super()._eval_to_gen(theta)
 
     def _gen_to_train(self, theta):
+        theta = theta.to(dtype=torch.float32)
         match self.representation:
             case "graph":
                 pos = theta
