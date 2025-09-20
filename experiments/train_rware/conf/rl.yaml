@@ -6,7 +6,7 @@ defaults:
 experiment_name: corners_agent_rl
 scenario_name: rware_16_50_5_4_corners
 device:
-  device_management: "gpu"
+  device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
 designer:
@@ -15,5 +15,3 @@ designer:
   train_epochs: 1
   train_batch_size: 20
   lr: 1e-4
-ppo:
-  n_iters: 2000
