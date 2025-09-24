@@ -8,7 +8,7 @@ device:
   device_management: gpu
   gpu_id: 0
   max_gpu_memory: 1.0
-scenario_name: wfcrl_4
+scenario_name: wfcrl_8
 designer:
   kind: reinforce
   lr: 1e-3
