@@ -2,4 +2,5 @@
 *.png
 *.jpg
 downloaded_checkpoints
+artifacts
 __simul__
