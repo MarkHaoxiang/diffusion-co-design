@@ -25,3 +25,15 @@ To train a DiCoDe experiment,
 2. RL loop. The entry point in `experiments/train_env/main.py`, which constructs a TorchRL training loop using the `Trainer` class found in `diffusion_co_design/common/rl/mappo/trainer.py`. See `diffusion_co_design.common.design.DicodeDesigner` and `diffusion_co_design.common.design.ValueDesigner` for the core logic of our method.
 
 Cleanup and detailed instructions for replicating experiments is a work in progress. Currently the codebase does not support directly running the pipeline without edits (e.g. modifying hardcoded links).
+
+## Citation
+
+@misc{li2025scalingmultiagentenvironmentcodesign,
+      title={Scaling Multi-Agent Environment Co-Design with Diffusion Models}, 
+      author={Hao Xiang Li and Michael Amir and Amanda Prorok},
+      year={2025},
+      eprint={2511.03100},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2511.03100}, 
+}
